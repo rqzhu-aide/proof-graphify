@@ -24,7 +24,8 @@ from .storage import Database, now_iso, paper_record
 
 RENDERER = Path(__file__).resolve().parent / "renderer" / "render_projection.mjs"
 RENDER_TIMEOUT = 120
-FRAGMENT_FIELDS = ("statement", "reason", "needed_form", "rationale", "conditions", "reasoning", "description")
+FRAGMENT_FIELDS = ("statement", "reason", "needed_form", "rationale", "conditions", "reasoning", "description",
+                   "proof_idea", "regime", "uncertainty", "impact_reason")
 COUNT_NAMES_STATES = ("green", "red", "gray", "amber")
 
 
@@ -93,7 +94,8 @@ class _Scan(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
-        element = {"tag": tag, "attrs": a, "text": [], "children": []}
+        element = {"tag": tag, "attrs": a, "text": [], "children": [],
+                   "parent": self.stack[-1] if self.stack else None}
         self.elements.append(element)
         if self.stack:
             self.stack[-1]["children"].append(element)
@@ -186,6 +188,22 @@ def _visible_failures(scan, projection):
     for entry in projection["nodes"] + projection["connections"]:
         if not assessment_matches(field(by_detail.get(entry["detail_key"]), "proof-assessment"), entry["assessment"]):
             failures.append(f"visible assessment for {entry['id']} disagrees with its canonical state, glyph, label or support")
+    for key, detail in projection["details"].items():
+        reader = detail.get("reader")
+        if not reader or key not in by_detail:
+            continue
+        expected = [(f"target:{i}", row["assessment"]) for i, row in enumerate(reader["targets"])] + \
+                   [(f"application:{i}", row["assessment"]) for i, row in enumerate(reader["applications"])]
+        for context, assessment in expected:
+            occurrences = [element for element in descendants(by_detail[key])
+                           if element["attrs"].get("data-reader-detail") == key
+                           and element["attrs"].get("data-reader-assessment") == context]
+            block = field(occurrences[0], "proof-assessment") if len(occurrences) == 1 else None
+            if not assessment_matches(block, assessment) \
+                    or text(field(block, "proof-review")) != "Independent review: " + assessment["independent_review"].replace("_", " ") \
+                    or (assessment.get("local_label") and text(field(block, "proof-local-outcome")) !=
+                        "Recorded local work: " + assessment["local_label"]):
+                failures.append(f"reader assessment differs from its target or application: {key}/{context}")
     nodes = {entry["id"]: entry for entry in projection["nodes"]}
     connections = {entry["id"]: entry for entry in projection["connections"]}
     applications = {app["use_id"]: app for edge in projection["connections"] for app in edge.get("applications", ())}
@@ -234,9 +252,233 @@ def _visible_failures(scan, projection):
             **{f"exclusion.{index}": f"{row['label']}: {row['reason']} Consequence: {row['consequence']}"
                for index, row in enumerate(factual["scope"]["exclusions"])},
         }
+        groups = factual["work"].get("obligation_groups") or []
+        if groups:
+            expected["obligations.caption"] = ("Completed examinations do not mean verified statements; "
+                                                "other completion requirements still apply.")
+            expected.update({f"obligations.header.{field}": title for field, title in
+                             (("role", "Role"), ("kind", "Examination"), ("required", "Required"),
+                              ("completed", "Completed"), ("unfinished", "Unfinished"))})
+        for index, row in enumerate(groups):
+            labels = {"role": row["role"].capitalize(), "kind": "Source comparison" if
+                      row["kind"] == "source_fidelity" else row["kind"].replace("_", " ").capitalize()}
+            expected.update({f"obligations.{index}.{field}": labels[field] if field in labels else str(row[field])
+                             for field in ("role", "kind", "required", "completed", "unfinished")})
         shown = [(e["attrs"]["data-proof-fact"], text(e)) for e in scan.elements if "data-proof-fact" in e["attrs"]]
-        if sorted(shown) != sorted(expected.items()):
+        expected_completion = [(key, value) for key, value in expected.items() if key.startswith("obligations.")]
+        shown_completion = [(key, value) for key, value in shown if key.startswith("obligations.")]
+        if sorted(shown) != sorted(expected.items()) or shown_completion != expected_completion:
             failures.append("visible scientific summary differs from the assessed snapshot facts")
+    return failures
+
+
+def _reader_fields(projection):
+    """Required authored fields in each reader context, resolved only from pinned records."""
+    records = {(r["ref"]["collection"], r["ref"]["id"], r["ref"]["version"]): r["body"]
+               for r in projection["records"]}
+    expected = {}
+
+    def add(detail, context, ref, *fields):
+        if not ref:
+            return
+        pin = (ref["collection"], ref["id"], ref["version"])
+        body = records[pin]
+
+        def leaves(value, path):
+            if value is None or value == "":
+                return
+            if isinstance(value, list):
+                for i, entry in enumerate(value):
+                    leaves(entry, f"{path}.{i}")
+            elif isinstance(value, dict):
+                if path in ("statement", "needed_form"):
+                    leaves(value.get("text"), f"{path}.text")
+                else:
+                    for name, entry in value.items():
+                        leaves(entry, f"{path}.{name}")
+            else:
+                expected[(detail, context, ":".join(map(str, pin)), path)] = str(value)
+
+        for field in fields:
+            leaves(body.get(field), field)
+
+    def scopes(detail, context, chain):
+        for i, entry in enumerate(chain):
+            at = f"{context}:scope:{i}"
+            add(detail, at, entry["scope_ref"], "conditions", "binders")
+            for j, ref in enumerate(entry["assumption_refs"]):
+                add(detail, f"{at}:assumption:{j}", ref, "label", "statement")
+
+    def group_fields(detail, context, group):
+        add(detail, context, group["group_ref"], "kind", "rationale")
+        scopes(detail, context, group["scope_chain"])
+        for i, case in enumerate(group["case_scopes"]):
+            scopes(detail, f"{context}:case:{i}", case["scope_chain"])
+
+    for key, detail in projection["details"].items():
+        reader = detail.get("reader")
+        if reader is None:
+            continue
+        add(key, "strategy", reader.get("strategy_ref"), "proof_idea")
+        for i, target in enumerate(reader["targets"]):
+            at = f"target:{i}"
+            add(key, at, target["target_ref"], "label")
+            add(key, at, target["statement_ref"], "statement")
+            target_body = records[tuple(target["target_ref"][field] for field in ("collection", "id", "version"))]
+            statement_body = records[tuple(target["statement_ref"][field] for field in ("collection", "id", "version"))]
+            if target_body["statement"] != statement_body["statement"]:
+                add(key, at + ":synopsis", target["target_ref"], "statement")
+            scopes(key, at, target["scope_chain"])
+        for i, argument in enumerate(reader["arguments"]):
+            at = f"argument:{i}"
+            add(key, at, argument["argument_ref"], "label", "origin", "lifecycle")
+            scopes(key, at, argument["scope_chain"])
+            for j, group in enumerate(argument["groups"]):
+                group_fields(key, f"{at}:group:{j}", group)
+        for i, group in enumerate(reader.get("provenance_groups", [])):
+            group_fields(key, f"provenance_group:{i}", group)
+        for i, application in enumerate(reader["applications"]):
+            at = f"application:{i}"
+            add(key, at, application["use_ref"], "reason", "regime", "uncertainty")
+            add(key, at, application.get("application_ref"), "needed_form", "state")
+            add(key, at + ":from", application["from_ref"], "label")
+            add(key, at + ":to", application["to_ref"], "label")
+            scopes(key, at, application["scope_chain"])
+        for i, ref in enumerate(reader["finding_refs"]):
+            add(key, f"finding:{i}", ref, "category", "description", "impact_reason")
+        for i, ref in enumerate(reader["source_limit_refs"]):
+            add(key, f"source_limit:{i}", ref, "category", "description", "limitation")
+    latest = {}
+    for row in projection["records"]:
+        ref = row["ref"]
+        key = (ref["collection"], ref["id"])
+        if key not in latest or ref["version"] > latest[key]["version"]:
+            latest[key] = ref
+    for connection in projection["connections"]:
+        identities = list(dict.fromkeys(connection["primary_use_ids"] +
+                          [row["use_id"] for row in connection.get("applications", [])]))
+        for i, identity in enumerate(identities):
+            ref = latest.get(("uses", identity))
+            if not ref:
+                continue
+            key, at = connection["detail_key"], f"application:{i}"
+            add(key, at, ref, "reason", "regime", "uncertainty")
+            body = records[(ref["collection"], ref["id"], ref["version"])]
+            for direction in ("from", "to"):
+                target = body[direction]
+                add(key, at + ":" + direction, latest.get((target["collection"], target["id"])), "label")
+            application_ref = latest.get(("application_details", identity))
+            if application_ref is None and (body.get("group_id") or body.get("needed_form")):
+                application_ref = ref  # Historical format-3 applications stored these fields on the use.
+            add(key, at, application_ref, "needed_form", "state")
+    return expected
+
+
+def _reader_failures(scan, projection):
+    """Validate the actual reader occurrences, not matching text in hidden evidence templates."""
+    from collections import Counter
+    failures = []
+    expected = _reader_fields(projection)
+    shown = Counter()
+    records = {f"{r['ref']['collection']}:{r['ref']['id']}:{r['ref']['version']}": r["body"]
+               for r in projection["records"]}
+    overview_keys = [e["attrs"]["data-reader-overview"] for e in scan.elements
+                     if "data-reader-overview" in e["attrs"]]
+    reader_keys = [key for key, detail in projection["details"].items() if detail.get("reader") is not None]
+    # Older projections are readable without pretending that structured context was available.
+    if any(overview_keys.count(key) != 1 for key in reader_keys):
+        failures.append("reader overview is missing or duplicated")
+    rendered_text = {}
+
+    def inside_overview(element, detail):
+        current, found = element, False
+        while current:
+            attrs = current["attrs"]
+            if current["tag"] == "template" or "hidden" in attrs or attrs.get("aria-hidden") == "true" \
+                    or "display:none" in attrs.get("style", "").replace(" ", "").lower():
+                return False
+            if attrs.get("data-reader-overview") == detail:
+                found = True
+            current = current["parent"]
+        return found
+
+    def ancestors(element):
+        current = element["parent"]
+        while current:
+            yield current
+            current = current["parent"]
+
+    def pin(ref):
+        return f"{ref['collection']}:{ref['id']}:{ref['version']}" if ref else ""
+
+    for detail_key in reader_keys:
+        reader = projection["details"][detail_key]["reader"]
+        overview = next((e for e in scan.elements if e["attrs"].get("data-reader-overview") == detail_key), None)
+        if overview is None:
+            continue
+        # Check contextual rows independently from field text: carrying correct text to the
+        # wrong supplier or target row must not pass just because its marker moved with it.
+        rows, pending = [], [overview]
+        while pending:
+            row = pending.pop()
+            rows.append(row)
+            pending.extend(row["children"])
+        for i, target in enumerate(reader["targets"]):
+            matches = [e for e in rows if e["attrs"].get("data-reader-target") == str(i)]
+            if len(matches) != 1 or matches[0]["attrs"].get("data-reader-exact-state") != target["exact_state"] \
+                    or any(matches[0]["attrs"].get("data-reader-" + name + "-ref") != pin(target[name + "_ref"])
+                           for name in ("target", "statement", "spec")):
+                failures.append(f"reader exact-target state or context differs: {detail_key}/{i}")
+        for i, app in enumerate(reader["applications"]):
+            matches = [e for e in rows if e["attrs"].get("data-reader-application") == str(i)]
+            if len(matches) != 1 or any(matches[0]["attrs"].get("data-reader-" + field) != pin(app[field + "_ref"])
+                                       for field in ("from", "to", "group", "argument")):
+                failures.append(f"reader supplier application context differs: {detail_key}/{i}")
+
+    for element in scan.elements:
+        attrs = element["attrs"]
+        if "data-reader-field" not in attrs:
+            continue
+        key = tuple(attrs.get(name, "") for name in
+                    ("data-reader-detail", "data-reader-context", "data-reader-ref", "data-reader-field"))
+        shown[key] += 1
+        body = records.get(key[2])
+        try:
+            value = body
+            for name in key[3].split("."):
+                value = value[int(name)] if isinstance(value, list) else value[name]
+            raw = str(value)
+        except (KeyError, IndexError, TypeError, ValueError):
+            failures.append(f"reader field does not resolve to its pinned source: {key}")
+            continue
+        if raw not in rendered_text:
+            fragment_scan = _Scan()
+            fragment_scan.feed("<div>" + render_text(raw) + "</div>")
+            rendered_text[raw] = "".join(fragment_scan.elements[0]["text"]).strip()
+        text = "".join(element["text"]).strip()
+        if text not in (raw.strip(), rendered_text[raw]) or not inside_overview(element, key[0]):
+            failures.append(f"reader field differs from its visible pinned source: {key}")
+        if key[0] in reader_keys and key[1].startswith("application:"):
+            row = next((e for e in ancestors(element) if "data-reader-application" in e["attrs"]), None)
+            if row is None or row["attrs"]["data-reader-application"] != key[1].split(":")[1]:
+                failures.append(f"reader field is placed under a different application: {key}")
+        context_parts = key[1].split(":")
+        if key[0] in reader_keys and context_parts[0] == "target" and key[3] in ("statement.text", "label") \
+                and (len(context_parts) == 2 or context_parts[2:] == ["synopsis"]):
+            target_row, disclosed = None, False
+            for parent in ancestors(element):
+                if "data-reader-target" in parent["attrs"]:
+                    target_row = parent
+                    break
+                disclosed = disclosed or parent["tag"] == "details"
+            if target_row is None or target_row["attrs"]["data-reader-target"] != context_parts[1] \
+                    or disclosed != (len(context_parts) == 3):
+                failures.append(f"reader exact statement and saved synopsis placement differs: {key}")
+        if key[0] in reader_keys and key not in expected:
+            failures.append(f"unexpected reader field or context: {key}")
+    for key in expected:
+        if shown[key] != 1:
+            failures.append(f"reader field missing or duplicated in its context: {key}")
     return failures
 
 
@@ -302,6 +544,7 @@ def mechanical_acceptance(html_bytes: bytes, projection: dict) -> dict:
     if scan.external:
         failures.append(f"page references external resources: {scan.external[:3]}")
     failures.extend(_visible_failures(scan, projection))
+    failures.extend(_reader_failures(scan, projection))
     return {"status": "pass" if not failures else "fail", "failures": failures,
             "nodes": len(node_ids), "connections": len(connection_ids), "layout_mode": projection["layout"]["mode"]}
 

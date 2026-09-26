@@ -4,9 +4,10 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { renderProjection } from './render_projection.mjs';
 import { scanHtml, textOf } from './html_scan.mjs';
+import { readerFixture } from './selftest.mjs';
 
-function runFixture(name, withWork = false) {
-  const input = JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
+function runFixture(name, withWork = false, withReader = false) {
+  const input = withReader ? readerFixture() : JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
   if (withWork) {
     input.projection.projection_version = 2;
     const target = input.projection.records.find(row => row.body.kind === 'intermediate_result') ||
@@ -157,7 +158,8 @@ function runFixture(name, withWork = false) {
     },
   };
   const Archify = { focus, view: { centerAt(x, y) { assert(Number.isFinite(x) && Number.isFinite(y)); centers++; }, reset() { reset++; } } };
-  const context = vm.createContext({ document, window: { Archify, addEventListener() {} }, location: { hash: '' },
+  const windowEvents = new Map();
+  const context = vm.createContext({ document, window: { Archify, addEventListener(type,callback) { windowEvents.set(type,callback); } }, location: { hash: '' },
     MutationObserver: class { constructor(callback) { this.callback = callback; } observe(target, options) { observers.push({ callback: this.callback, options }); } },
     requestAnimationFrame: schedule, setTimeout: schedule, clearTimeout: id => callbacks.delete(id) });
   const runtime = scripts.find(s => s.attrs.id === 'proof-runtime');
@@ -221,12 +223,41 @@ function runFixture(name, withWork = false) {
   const hit = document.getElementById('proof-search-results').querySelector('button');
   assert(hit, 'Hidden/canonical record must be searchable.'); hit.click(); flush();
   assert(document.querySelector('.is-target'), 'Search must reach the actual canonical record section.');
+  const reached = document.querySelector('.is-target');
+  for (let ancestor = reached; ancestor; ancestor = ancestor.parentElement)
+    if (ancestor.tagName === 'details') assert(ancestor.hasAttribute('open'), 'Every enclosing evidence disclosure must open before focus.');
+  const fields = document.querySelectorAll('[data-reader-field]');
+  const fieldState = fields.map(field => [field,field.getAttribute('data-reader-ref'),field.children.length]);
+  const disclosures = document.querySelectorAll('details').filter(element => element.closest('.proof-reader'));
+  assert(disclosures.some(element => !element.hasAttribute('open')), 'Secondary evidence should initially be collapsed.');
+  const priorOpen = disclosures.map(element => element.hasAttribute('open'));
+  windowEvents.get('beforeprint')();
+  assert(disclosures.every(element => element.hasAttribute('open')), 'Print must include expanded evidence and reader contexts.');
+  windowEvents.get('beforeprint')();
+  windowEvents.get('afterprint')();
+  assert.deepEqual(disclosures.map(element => element.hasAttribute('open')), priorOpen, 'Printing must restore every disclosure to its previous state.');
+  for (const [field,ref,children] of fieldState) {
+    assert.equal(field.getAttribute('data-reader-ref'),ref);
+    assert.equal(field.children.length,children,'Hydration must leave overview fields intact.');
+    assert(!field.hasAttribute('data-record-ref'),'Overview text must not act as a canonical record slot.');
+  }
+  if (withReader) {
+    const strategy = document.querySelector('[data-reader-field="proof_idea"]');
+    assert(strategy && strategy.closest('[data-reader-overview]'),'Saved strategy must be static overview content.');
+    const sourceLink = strategy.closest('[data-reader-overview]').querySelector('.proof-jump[data-jump-record]');
+    sourceLink.click(); flush();
+    const destination = document.querySelector('.is-target');
+    assert.equal(destination.getAttribute('data-record-ref'),sourceLink.getAttribute('data-jump-record'));
+    for (let ancestor = destination; ancestor; ancestor = ancestor.parentElement)
+      if (ancestor.tagName === 'details') assert(ancestor.hasAttribute('open'),'Reader links must reveal canonical evidence.');
+  }
   const notices = scan.elements.filter(e => Object.hasOwn(e.attrs, 'data-proof-limitation'));
   assert.deepEqual(notices.map(e => textOf(scan, e)), input.projection.summary.limitations);
-  return { fixture: name, compiled_scripts: scripts.length, canonical_reader_bridge: true, worklist:withWork };
+  return { fixture: name, compiled_scripts: scripts.length, canonical_reader_bridge: true, worklist:withWork, contextual_reader:withReader, print_state_restored:true };
 }
 
 console.log(JSON.stringify([
   ...['dag_small.json', 'index_fallback.json', 'long_math.json'].map(name => runFixture(name)),
   runFixture('dag_small.json', true), runFixture('index_fallback.json', true),
+  runFixture('dag_small.json', false, true),
 ]));

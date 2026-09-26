@@ -493,15 +493,21 @@ def build_work(derivation, assessment, *, focus=None):
     # facts after focus selection, so preparation never repeats the audit's
     # entire list of spans or hides a focused argument behind a global sample.
     arguments = {task["argument"]["id"] for task in tasks.values() if task["argument"]}
+    focused_arguments = {focus["id"]} if focus is not None and focus["collection"] == "arguments" else set()
     if focus is not None and focus["collection"] in ("items", "parts"):
         # An intermediate focus can retain only source-fidelity tasks, while
         # its own registered proof still has coverage to finish.
-        arguments.update(argument.id for argument in snap.member_records("arguments_for_target", focus))
+        focused_arguments.update(argument.id for argument in snap.member_records("arguments_for_target", focus))
+        arguments.update(focused_arguments)
     owners = {key_of(task["owner"]) for task in tasks.values() if task["owner"]}
     coverage_facts = [row for row in derivation.coverage_diagnostics if focus is None or
                       arguments.intersection(row["argument_ids"]) or row.get("owner") in owners or
                       (focus["collection"] == "anchors" and row["anchor_id"] == focus["id"]) or
                       (focus["collection"] == "coverage" and row.get("coverage_ref", {}).get("id") == focus["id"])]
+    # Keep prerequisite causes, but show the requested argument before them in
+    # bounded examples so a long prerequisite cannot hide the focused repair.
+    if focused_arguments:
+        coverage_facts.sort(key=lambda row: not focused_arguments.intersection(row["argument_ids"]))
     if coverage_facts:
         causes = defaultdict(list)
         for fact in coverage_facts:

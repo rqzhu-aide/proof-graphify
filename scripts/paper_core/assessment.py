@@ -34,6 +34,8 @@ COVERAGE_CAUSES = {
                          "Classify the spans and add coverage with the responsible primary work, or use an authoring packet if no checks remain."),
     "missing_anchor": ("The required proof anchor is unavailable.",
                        "Restore the source anchor and review the affected proof boundary."),
+    "boundary_source_pin": ("The boundary review does not include the captured source version for this anchor.",
+                            "Inspect that source, record the review with its source/version pin, and renew the boundary's review reference; then check remaining work."),
     "missing_claims": ("A substantive coverage row has no claimed statements.",
                        "Record the item or part statements examined in this passage."),
     "missing_checks": ("A substantive coverage row has no responsible primary checks.",
@@ -1211,6 +1213,7 @@ class _Derivation:
         target = snap.get(argument.body["target"])
         if target is not None:
             declared.update(p["anchor_id"] for p in target.body.get("passages", ()) if p["role"] == "proof")
+        missing_sources = []
         for boundary in snap.proof_boundaries(argument.id):
             body = boundary.body
             if body["state"] != "complete" or body["target"] != argument.body["target"]:
@@ -1226,18 +1229,27 @@ class _Derivation:
             reviewed_anchors = {(r["id"], r["version"]) for r in review.body["anchor_refs"]}
             reviewed_sources = {(r["id"], r["version"]) for r in review.body["source_refs"]}
             current = True
+            missing = []
             for pin in anchor_pins:
                 anchor = snap.get(pin)
                 if anchor is None or anchor.version != pin["version"] or (pin["id"], pin["version"]) not in reviewed_anchors:
                     current = False
                     break
                 source = snap.live("sources", anchor.body["source_id"])
-                if source is None or source.version != anchor.body["source_version"] \
-                        or (source.id, source.version) not in reviewed_sources:
+                if source is None or source.version != anchor.body["source_version"]:
                     current = False
                     break
+                if (source.id, source.version) not in reviewed_sources:
+                    missing.append({"code": "boundary_source_pin", "argument_ids": [argument.id],
+                                    "anchor_id": anchor.id, "boundary_ref": pinned_of(boundary),
+                                    "source_review_ref": review_pin, "required_source_ref": pinned_of(source)})
             if current:
-                return [pin["id"] for pin in anchor_pins]
+                if not missing:
+                    return [pin["id"] for pin in anchor_pins]
+                missing_sources.extend(missing)
+        # A valid alternative certifies the boundary. Stale segments need the
+        # existing general recovery, not an instruction to insert source pins.
+        self.coverage_diagnostics.extend(missing_sources)
         return None
 
     # -- dependency support ----------------------------------------------

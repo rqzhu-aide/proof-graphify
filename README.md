@@ -32,4 +32,6 @@ proof-graphify-<paper-name>/
 
 **Share the HTML alone. Keep the database for future revisions.** See the [database guide](references/database.md) for focused initialization, editing, and export, and [SKILL.md](SKILL.md) for the current skill version.
 
+The current development branch includes shared paper core 2.3.0. The [architecture notes](architecture/README.md) describe that code and its relationship to the separate stat paper skills repository. The version badge above identifies the latest tagged skill release.
+
 [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

@@ -8,10 +8,10 @@ authored here, and the renderer draws the result without a second color policy.
 from __future__ import annotations
 
 import hashlib
-from collections import Counter, OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict, deque
 
 from . import PROJECTION_VERSION
-from .assessment import PROOF_CHECK_KINDS, _triage_assessment, derive_full, key_of, pinned_of, reduce, ref_of
+from .assessment import PROOF_CHECK_KINDS, ROLES, _triage_assessment, derive_full, key_of, pinned_of, reduce, ref_of
 from .canonical import compact_json
 from .contract import INTERMEDIATE_KINDS, MAJOR_KINDS
 from .storage import Database, Record
@@ -91,9 +91,22 @@ def factual_summary(derivation, result):
             checks["historical_complete"] += 1
         else:
             checks["needs_review"] += 1
-    outcomes = Counter(o["outcome"] for o in result["obligations"] if o["required"]
-        and o["role"] == "primary" and o["kind"] in PROOF_CHECK_KINDS
-        and o["state"] == "complete" and o["freshness"] == "current")
+    outcomes = Counter()
+    groups = {} if audit is not None and result.get("analysis_complete", False) else None
+    for obligation in result["obligations"]:
+        if not obligation["required"]:
+            continue
+        if groups is not None:
+            key = (obligation["role"], obligation["kind"])
+            row = groups.setdefault(key, {"role": key[0], "kind": key[1],
+                                          "required": 0, "completed": 0, "unfinished": 0})
+            row["required"] += 1
+            row["completed" if obligation["satisfied"] else "unfinished"] += 1
+        if obligation["role"] == "primary" and obligation["kind"] in PROOF_CHECK_KINDS \
+                and obligation["state"] == "complete" and obligation["freshness"] == "current":
+            outcomes[obligation["outcome"]] += 1
+    obligation_groups = None if groups is None else [groups[key] for key in
+        sorted(groups, key=lambda key: (ROLES.index(key[0]), key[1]))]
     statements = []
     source_ids, anchors = set(), set()
     for ref in result["statements"]:
@@ -147,7 +160,7 @@ def factual_summary(derivation, result):
             "process_complete": result["progress"]["process_complete"],
             "scope": {"mode": result["mode"], "requested": [named(ref) for ref in result["scope"]["target_refs"]],
                       "exclusions": exclusions, "closure_statement_count": len(statements)},
-            "work": {**result["progress"], "checks": checks,
+            "work": {**result["progress"], "checks": checks, "obligation_groups": obligation_groups,
                      "current_primary_outcomes": {outcome: outcomes[outcome] for outcome in
                                                   ("supported", "gap", "refuted", "inconclusive")}},
             "statement_support": {"counts": {value: sum(row["availability"] == value for row in statements)
@@ -179,6 +192,7 @@ class _Detail:
         self.key = key
         self.sections: dict = {}
         self._seen: dict = {}
+        self.reader = None
 
     def add(self, kind: str, records=(), obligations=(), note=None):
         section = self.sections.get(kind)
@@ -213,7 +227,10 @@ class _Detail:
                 if key not in seen:
                     seen.add(key)
                     refs.append(dict(ref))
-        return {"record_refs": refs, "sections": ordered}
+        result = {"record_refs": refs, "sections": ordered}
+        if self.reader is not None:
+            result["reader"] = self.reader
+        return result
 
 
 class _Projector:
@@ -225,6 +242,7 @@ class _Projector:
         self.overview = derivation.audit is None
         self.records: dict = OrderedDict()
         self._historical_records = {}
+        self._reader_scopes = {}
         self.problems: list = []
         self.obligation_index = {o["id"]: o for o in result["obligations"]}
         self.outgoing = defaultdict(list)
@@ -588,8 +606,10 @@ class _Projector:
         if not self.overview and not in_scope:
             note = "Outside the audit scope; shown as a neighbor of an audited result."
         detail.add("statement", statements, note=note)
-        for statement in statements + intermediates:
+        for statement in statements:
             self.add_exact_target(detail, statement)
+        for statement in intermediates:
+            self.add_exact_target(detail, statement, section="derivations")
         keys = {key_of(ref_of(r)) for r in statements + intermediates}
         use_ids: list = []
         independent_checks: list = []
@@ -672,25 +692,171 @@ class _Projector:
                 detail.add("premises", [snap.get(use.body["from"])])
         detail.add("derivations", intermediates)
         self.add_findings(detail, keys, use_ids)
+        detail.reader = self.item_reader(detail, item, statements, intermediates, arguments, member_uses, provenance)
         self.add_source_material(detail, self.anchors_of(statements + intermediates + route_records), statements)
         self.add_review_material(detail, keys, independent_checks)
+        detail.reader["finding_refs"] = [ref for ref in detail.sections.get("findings", {}).get("record_refs", [])
+            if ref["collection"] == "findings" and self.pinned_record(ref).body["lifecycle"] == "open"]
+        detail.reader["source_limit_refs"] = [ref for section in ("limitations", "sources")
+            for ref in detail.sections.get(section, {}).get("record_refs", [])
+            if (ref["collection"] == "source_issues" and self.pinned_record(ref).body["lifecycle"] == "open")
+            or (ref["collection"] == "sources" and self.pinned_record(ref).body.get("limitation"))]
         return detail
 
-    def add_exact_target(self, detail, statement):
+    def reader_scope(self, detail, scope_id):
+        """Keep context ancestry and named premises together, without flattening local scopes."""
+        cache_key = (detail.key, scope_id)
+        if cache_key in self._reader_scopes:
+            return self._reader_scopes[cache_key]
+        result = []
+        for scope in self.scope_chain(scope_id):
+            assumptions = [self.snap.get(ref) for ref in scope.body["assumptions"]]
+            assumptions = [record for record in assumptions if record is not None]
+            detail.add("premises", [scope] + assumptions)
+            self.add_source_material(detail, self.anchors_of([scope] + assumptions), assumptions)
+            result.append({"scope_ref": pinned_of(scope),
+                           "assumption_refs": [pinned_of(record) for record in assumptions]})
+        self._reader_scopes[cache_key] = result
+        return result
+
+    def item_reader(self, detail, item, statements, intermediates, arguments, member_uses, provenance):
+        """Select reader contexts from this snapshot; all prose remains in pinned record bodies."""
+        snap = self.snap
+        targets = []
+        for statement in statements:
+            ref = ref_of(statement)
+            spec = snap.target_spec(ref)
+            source = statement
+            exact_state = spec.body["state"] if spec else "missing"
+            if spec is not None and spec.body["state"] == "registered":
+                source = self.pinned_record(spec.body["statement_ref"]) if spec.body["statement_ref"] else spec
+                if source is None or source.body is None:
+                    # Never label a current synopsis as the historical statement examined.
+                    self.problems.append(f"exact statement for {key_of(ref)} has no stored body")
+                    source, exact_state = statement, "missing"
+            assessment = self.A["assessments"].get(key_of(ref))
+            targets.append({"target_ref": pinned_of(statement), "spec_ref": pinned_of(spec) if spec else None,
+                "statement_ref": pinned_of(source), "statement_field": "statement",
+                "exact_state": exact_state,
+                "scope_chain": self.reader_scope(detail, snap.exact_scope(ref)),
+                "assessment": public_assessment(assessment) if assessment else
+                    public_assessment(reduce([])) if self.overview else
+                    dict(OUTSIDE_SCOPE, check_refs=[], finding_refs=[], missing_obligation_ids=[])})
+
+        # Follow only recorded application inferences. Ownership supplies the search boundary,
+        # never evidence that an owned subsidiary claim is required by the displayed result.
+        target_records = {key_of(ref_of(record)): record for record in statements}
+        intermediate_keys = {key_of(ref_of(record)) for record in intermediates}
+        reaches = {key: {key} for key in target_records}
+        predecessors = defaultdict(set)
+        for use in member_uses.values():
+            application = snap.application(use)
+            group = snap.live("groups", application.get("group_id"))
+            supplier = key_of(use.body["from"])
+            if group is not None and group.body["conclusion"] == use.body["to"] \
+                    and supplier in intermediate_keys:
+                predecessors[key_of(group.body["conclusion"])].add(supplier)
+        frontier = deque(target_records)
+        while frontier:
+            conclusion = frontier.popleft()
+            for supplier in sorted(predecessors.get(conclusion, ())):
+                reached = reaches.setdefault(supplier, set())
+                new = reaches[conclusion] - reached
+                if new:
+                    reached.update(new)
+                    frontier.append(supplier)
+
+        def context(ref, associated=True):
+            key = key_of(ref)
+            relation = "unassociated" if not associated else "target" if key in target_records else \
+                "linked_intermediate" if reaches.get(key) else "subsidiary"
+            return {"relation": relation, "reaches_target_refs":
+                    [pinned_of(target_records[key]) for key in sorted(reaches.get(key, ()))]}
+
+        def group_context(group):
+            for identity in group.body["discharges"]:
+                self.reader_scope(detail, identity)
+            return {"group_ref": pinned_of(group),
+                "scope_chain": self.reader_scope(detail, group.body["scope_id"]),
+                "case_scopes": [{"scope_ref": pinned_of(snap.live("scopes", identity)),
+                                 "scope_chain": self.reader_scope(detail, identity)}
+                                for identity in group.body["case_scope_ids"]],
+                "discharged_scope_refs": [pinned_of(snap.live("scopes", identity))
+                                          for identity in group.body["discharges"]]}
+
+        argument_rows = []
+        for argument in arguments.values():
+            groups = [group_context(group) for group in snap.member_records("groups_in_argument", ref_of(argument))]
+            argument_rows.append({"argument_ref": pinned_of(argument),
+                "target_ref": pinned_of(snap.get(argument.body["target"])),
+                **context(argument.body["target"]),
+                "scope_chain": self.reader_scope(detail, argument.body["scope_id"]), "groups": groups})
+
+        summary_for = defaultdict(list)
+        for summary in member_uses.values():
+            for refinement in self.refinements_by_use.get(summary.id, ()):
+                for identity in refinement.body["use_ids"]:
+                    summary_for[identity].append(pinned_of(summary))
+        application_rows = []
+        for use in member_uses.values():
+            extension = snap.live("application_details", use.id)
+            application = snap.application(use)
+            application_record = extension or (use if use.body.get("group_id") or use.body.get("needed_form") else None)
+            group = snap.live("groups", application.get("group_id"))
+            # Draft applications may retain an unfinished group assignment. It cannot
+            # supply an inference route or inherited setup for a different recipient.
+            associated = group is not None and group.body["conclusion"] == use.body["to"]
+            argument = snap.live("arguments", group.body["argument_id"]) if associated else None
+            if group is not None and not associated:
+                detail.add("derivations", [group])
+            supplier, recipient = snap.get(use.body["from"]), snap.get(use.body["to"])
+            detail.add("premises", [supplier])
+            self.add_source_material(detail, self.anchors_of([supplier]), [supplier])
+            scope_id = application.get("scope_id") or (group.body["scope_id"] if associated else None)
+            assessment = public_assessment(self.d.use_assessment(use))
+            if extension is None and not application.get("needed_form"):
+                assessment = public_assessment(reduce([]))
+                assessment.update(label="recorded connection", explanation=
+                    "this recorded summary has no completed exact application assessment")
+            if self.A["mode"] == "triage":
+                assessment = _triage_assessment(assessment)
+            refinements = self.refinements_by_use.get(use.id, ())
+            refined_refs = OrderedDict()
+            for refinement in refinements:
+                for identity in refinement.body["use_ids"]:
+                    refined = snap.live("uses", identity)
+                    if refined is not None:
+                        detail.add("applications", [refined])
+                        refined_refs.setdefault(identity, pinned_of(refined))
+            application_rows.append({"use_ref": pinned_of(use),
+                "application_ref": pinned_of(application_record) if application_record else None,
+                "from_ref": pinned_of(supplier), "to_ref": pinned_of(recipient),
+                "argument_ref": pinned_of(argument) if argument else None,
+                "group_ref": pinned_of(group) if group else None,
+                "scope_chain": self.reader_scope(detail, scope_id),
+                **context(use.body["to"], associated),
+                "assessment": assessment, "refinement_refs": [pinned_of(record) for record in refinements],
+                "refined_use_refs": list(refined_refs.values()), "summary_use_refs": summary_for[use.id]})
+        return {"version": 1, "item_ref": pinned_of(item), "strategy_ref": pinned_of(item),
+                "targets": targets, "arguments": argument_rows, "applications": application_rows,
+                "provenance_groups": [group_context(group) for group in provenance.values()],
+                "finding_refs": [], "source_limit_refs": []}
+
+    def add_exact_target(self, detail, statement, *, section="statement"):
         spec = self.snap.target_spec(ref_of(statement))
         if spec is None:
             return
-        detail.add("statement", [spec], note="Exact audited targets identify the mathematical form and scope examined.")
+        detail.add(section, [spec], note="Exact audited targets identify the mathematical form and scope examined.")
         self.place_obligations(detail, ref_of(spec))
         for scope in self.scope_chain(spec.body["scope_id"]):
             detail.add("premises", [scope])
-        detail.add("statement", self.d.observations_by_target.get(key_of(ref_of(spec)), ()))
+        detail.add(section, self.d.observations_by_target.get(key_of(ref_of(spec)), ()))
         if spec.body.get("fidelity_ref"):
             pin = spec.body["fidelity_ref"]
-            detail.add("statement", [self.pinned_record(pin)])
+            detail.add(section, [self.pinned_record(pin)])
         if spec.body.get("statement_ref"):
             pin = spec.body["statement_ref"]
-            detail.add("statement", [self.pinned_record(pin)])
+            detail.add(section, [self.pinned_record(pin)])
 
     def add_application_detail(self, detail, use):
         application = self.snap.live("application_details", use.id)

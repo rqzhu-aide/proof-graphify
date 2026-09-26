@@ -50,9 +50,9 @@ const SECTION_KINDS = ['statement', 'applications', 'derivations', 'premises', '
 const ROLES = ['primary', 'independent', 'coordinator'];
 const BUILD_KINDS = ['working', 'release'];
 const LAYOUT_MODES = ['dag', 'cyclic', 'index'];
-const DISPLAY_KEYS = ['statement_html', 'reason_html', 'needed_form_html', 'rationale_html', 'conditions_html', 'reasoning_html', 'description_html'];
+const DISPLAY_KEYS = ['statement_html', 'reason_html', 'needed_form_html', 'rationale_html', 'conditions_html', 'reasoning_html', 'description_html', 'proof_idea_html', 'regime_html', 'uncertainty_html', 'impact_reason_html'];
 // Record body field -> display fragment that replaces its raw text.
-const FRAGMENT_FIELDS = { statement: 'statement_html', reason: 'reason_html', needed_form: 'needed_form_html', rationale: 'rationale_html', conditions: 'conditions_html', reasoning: 'reasoning_html', description: 'description_html' };
+const FRAGMENT_FIELDS = { statement: 'statement_html', reason: 'reason_html', needed_form: 'needed_form_html', rationale: 'rationale_html', conditions: 'conditions_html', reasoning: 'reasoning_html', description: 'description_html', proof_idea: 'proof_idea_html', regime: 'regime_html', uncertainty: 'uncertainty_html', impact_reason: 'impact_reason_html' };
 const COUNT_NAMES = [
   ...STATES.map((state) => `nodes.${state}`),
   ...STATES.map((state) => `connections.${state}`),
@@ -288,6 +288,45 @@ export function validateInput(input) {
       }
       validateIdList(section.obligation_ids, `${at}.obligation_ids`, { unique: true, within: obligationIds, kind: 'obligation' });
     });
+    if (detail.reader !== undefined) {
+      const reader = detail.reader;
+      if (!isObject(reader) || reader.version !== 1) bad(`${where}.reader must be a version 1 reader block`);
+      else {
+        for (const field of ['item_ref', 'strategy_ref']) requirePinned(reader[field], `${where}.reader.${field}`);
+        const visit = (value, at) => {
+          if (!isObject(value)) { bad(`${at} must be an object`); return; }
+          for (const [field, child] of Object.entries(value)) {
+            if (field.endsWith('_ref')) { if (child !== null) requirePinned(child, `${at}.${field}`); }
+            else if (field.endsWith('_refs')) {
+              if (!Array.isArray(child)) bad(`${at}.${field} must be an array`);
+              else child.forEach((ref, index) => requirePinned(ref, `${at}.${field}[${index}]`));
+            } else if (field === 'assessment') validateAssessment(child, at);
+            else if (['scope_chain', 'groups', 'case_scopes'].includes(field)) {
+              if (!Array.isArray(child)) bad(`${at}.${field} must be an array`);
+              else child.forEach((entry, index) => visit(entry, `${at}.${field}[${index}]`));
+            }
+          }
+          if (value.relation !== undefined && !['target', 'linked_intermediate', 'subsidiary', 'unassociated'].includes(value.relation)) bad(`${at}.relation is unknown`);
+        };
+        for (const field of ['targets', 'arguments', 'applications']) {
+          if (!Array.isArray(reader[field])) bad(`${where}.reader.${field} must be an array`);
+          else reader[field].forEach((entry, index) => visit(entry, `${where}.reader.${field}[${index}]`));
+        }
+        if (reader.provenance_groups !== undefined) {
+          if (!Array.isArray(reader.provenance_groups)) bad(`${where}.reader.provenance_groups must be an array`);
+          else reader.provenance_groups.forEach((entry, index) => visit(entry, `${where}.reader.provenance_groups[${index}]`));
+        }
+        for (const field of ['finding_refs', 'source_limit_refs']) {
+          if (!Array.isArray(reader[field])) bad(`${where}.reader.${field} must be an array`);
+          else reader[field].forEach((ref, index) => requirePinned(ref, `${where}.reader.${field}[${index}]`));
+        }
+        (Array.isArray(reader.targets) ? reader.targets : []).forEach((target, index) => {
+          if (!isObject(target)) return;
+          if (!['registered', 'draft', 'missing'].includes(target.exact_state)) bad(`${where}.reader.targets[${index}].exact_state is unknown`);
+          if (target.statement_field !== 'statement') bad(`${where}.reader.targets[${index}].statement_field must be statement`);
+        });
+      }
+    }
     details.set(key, detail);
   });
 
@@ -420,6 +459,31 @@ export function validateInput(input) {
         if (!isCount(factual.statement_support.counts[field])) bad(`projection.summary.factual.statement_support.counts.${field} must be a count`);
       for (const field of ['supported', 'gap', 'refuted', 'inconclusive'])
         if (!isCount(factual.work.current_primary_outcomes[field])) bad(`projection.summary.factual.work.current_primary_outcomes.${field} must be a count`);
+      const groups = factual.work.obligation_groups;
+      if (groups !== undefined && groups !== null) {
+        if (!Array.isArray(groups)) bad('projection.summary.factual.work.obligation_groups must be an array or null');
+        else {
+          const seen = new Set();
+          let required = 0, completed = 0;
+          groups.forEach((row, index) => {
+            const where = `projection.summary.factual.work.obligation_groups[${index}]`;
+            if (!isObject(row)) { bad(`${where} must be an object`); return; }
+            if (!ROLES.includes(row.role)) bad(`${where}.role must be one of ${ROLES.join(', ')}`);
+            if (!isString(row.kind) || !/^[a-z][a-z0-9_]*$/.test(row.kind)) bad(`${where}.kind must be an examination kind`);
+            const key = `${row.role}:${row.kind}`;
+            if (seen.has(key)) bad(`${where} repeats role and kind ${key}`);
+            seen.add(key);
+            for (const field of ['required', 'completed', 'unfinished'])
+              if (!isCount(row[field])) bad(`${where}.${field} must be a count`);
+            if (row.required === 0) bad(`${where}.required must be positive`);
+            if (row.required !== row.completed + row.unfinished) bad(`${where} counts must satisfy required = completed + unfinished`);
+            required += row.required;
+            completed += row.completed;
+          });
+          if (required !== summary.progress?.required_obligations || completed !== summary.progress?.completed_current_obligations)
+            bad('projection.summary.factual.work.obligation_groups totals must match summary.progress');
+        }
+      }
       for (const rows of [factual.source_limits, factual.unresolved_external_sources, factual.statement_support.unresolved, factual.scope.exclusions])
         if (!Array.isArray(rows) || rows.some(row => !isObject(row) || !isString(row.label)))
           bad('projection.summary.factual lists must contain labeled rows');
@@ -741,6 +805,96 @@ class Renderer {
     return this.recordLink({ collection, id }, false);
   }
 
+  readerRecord(ref) { return ref ? this.model.records.get(refKey(ref)) : null; }
+
+  humanLabel(ref, depth = 0) {
+    if (!ref || depth > 2) return 'Recorded evidence';
+    if (isString(ref)) ref = {collection:'items',id:ref};
+    const record = Number.isInteger(ref.version) ? this.readerRecord(ref) : this.model.recordsByLoose.get(looseKey(ref));
+    const body = record?.body || {};
+    if (body.label) return body.label;
+    if (ref.collection === 'groups') return `${humanize(body.kind || 'recorded')} inference${isObject(body.conclusion) ? ` for ${this.humanLabel(body.conclusion, depth + 1)}` : ''}`;
+    if (ref.collection === 'uses') return `${this.humanLabel(body.from, depth + 1)} applied to ${this.humanLabel(body.to, depth + 1)}`;
+    if (ref.collection === 'checks') return `${humanize(body.kind || 'proof')} examination${body.target ? ` of ${this.humanLabel(body.target, depth + 1)}` : ''}`;
+    return humanize(ref.collection || 'recorded evidence').replace(/s$/, '');
+  }
+
+  humanLink(ref, label) {
+    if (!ref) return '<span class="proof-muted">Unrecorded context</span>';
+    if (isString(ref)) ref = {collection:'items',id:ref};
+    const record = Number.isInteger(ref.version) ? this.readerRecord(ref) : this.model.recordsByLoose.get(looseKey(ref));
+    const text = label || this.humanLabel(ref);
+    const location = record ? this.locationsByPinned.get(refKey(record.ref)) : this.locationsByLoose.get(looseKey(ref));
+    return location ? this.jump(location.detail_key, esc(text), {section:location.section_key, record:refKey(location.ref)}) : esc(text);
+  }
+
+  // These are selected, pinned source fields, separate from canonical record slots.
+  // Every scalar retains its context so publication checks cannot accept a hidden copy.
+  readerField(detailKey, context, ref, field) {
+    const record = this.readerRecord(ref);
+    if (!record) return '';
+    const value = record.body[field];
+    const fragment = (this.model.fragments.get(refKey(ref)) || {})[FRAGMENT_FIELDS[field]];
+    const render = (entry, path, rendered) => {
+      if (entry === null || entry === undefined || entry === '') return '';
+      if (Array.isArray(entry)) return entry.map((part, index) => render(part, `${path}.${index}`, Array.isArray(rendered) ? rendered[index] : undefined)).join('');
+      if (isObject(entry)) {
+        if (Object.hasOwn(entry, 'text') && ['statement', 'needed_form'].includes(field)) return render(entry.text, `${path}.text`, rendered);
+        return `<dl class="proof-reader-values">${Object.entries(entry).map(([name, part]) => `<dt>${esc(humanize(name))}</dt><dd>${render(part, `${path}.${name}`)}</dd>`).join('')}</dl>`;
+      }
+      const tag = ['label', 'origin', 'lifecycle', 'kind', 'category', 'state'].includes(field) ? 'span' : 'div';
+      return `<${tag} class="proof-reader-value${tag === 'div' ? ' proof-fragment' : ''}" data-reader-detail="${esc(detailKey)}" data-reader-context="${esc(context)}" data-reader-ref="${esc(refKey(ref))}" data-reader-field="${esc(path)}">${rendered !== undefined ? prepareFragment(rendered) : esc(String(entry))}</${tag}>`;
+    };
+    return render(value, field, fragment);
+  }
+
+  readerAssessment(detailKey, context, assessment) {
+    return `<div data-reader-detail="${esc(detailKey)}" data-reader-assessment="${esc(context)}">${this.assessmentBlock(assessment, {compact:true})}</div>`;
+  }
+
+  readerSources(ref, role) {
+    const body = this.readerRecord(ref)?.body || {};
+    const ids = [...new Set([...(body.evidence_refs || []).map(entry => isString(entry) ? entry : entry.id), ...(body.passages || []).filter(p => isString(p) || !role || p.role === role || p.role === 'evidence').map(p => isString(p) ? p : p.anchor_id)].filter(Boolean))];
+    return ids.length ? `<p class="proof-reader-sources">${ids.map((id, i) => this.humanLink({collection:'anchors', id}, `${role === 'proof' ? 'Proof source' : 'Source'}${ids.length > 1 ? ` ${i + 1}` : ''}`)).join(' · ')}</p>` : '';
+  }
+
+  readerNamedLink(key, context, ref) {
+    const text = this.readerField(key, context, ref, 'label');
+    const location = this.locationsByPinned.get(refKey(ref));
+    if (!text) return this.humanLink(ref);
+    return location ? this.jump(location.detail_key, text, {section:location.section_key, record:refKey(ref)}) : text;
+  }
+
+  readerPremise(key, context, ref, visible) {
+    const body = this.readerRecord(ref)?.body || {};
+    const kind = body.kind || (ref.collection === 'parts' ? this.model.recordsByLoose.get(`items:${body.item_id}`)?.body?.kind : null);
+    const definition = kind === 'definition', identity = refKey(ref);
+    const repeated = this.readerSeenPremises?.has(identity);
+    // Only an actually visible statement can stand in for a later occurrence.
+    if (visible && !definition) this.readerSeenPremises?.add(identity);
+    const content = `${this.readerField(key, context, ref, 'statement')}${this.readerSources(ref, 'statement')}<p>${this.humanLink(ref, 'Inspect premise')}</p>`;
+    return `<div class="proof-reader-premise"><h6>${this.readerField(key, context, ref, 'label')}</h6>${definition ? `<details class="proof-reader-context" data-reader-definition="${esc(identity)}"><summary>Definition and source</summary>${content}</details>` : repeated ? `<details class="proof-reader-context" data-reader-repeated-premise="${esc(identity)}"><summary>Premise already shown above</summary>${content}</details>` : content}</div>`;
+  }
+
+  readerScopes(key, context, chain, options = {}) {
+    return (chain || []).map((entry, index) => {
+      const at = `${context}:scope:${index}`;
+      const body = this.readerRecord(entry.scope_ref)?.body || {};
+      const identity = JSON.stringify([entry.scope_ref, entry.assumption_refs]);
+      const repeated = options.deduplicate && this.readerSeenScopes?.has(identity);
+      if (options.seed) this.readerSeenScopes?.add(identity);
+      const content = `<div class="proof-reader-scope" data-reader-scope="${esc(at)}" data-reader-ref="${esc(refKey(entry.scope_ref))}">
+<p class="proof-muted">${index ? 'Inherited setup' : 'Recorded setup'} · ${this.humanLink(entry.scope_ref, 'Context evidence')}</p>
+${body.conditions?.length ? `<p class="proof-reader-label">Conditions</p>${this.readerField(key, at, entry.scope_ref, 'conditions')}` : ''}
+${(entry.assumption_refs || []).map((ref, ai) => this.readerPremise(key, `${at}:assumption:${ai}`, ref, options.seed && !repeated)).join('')}
+${body.binders?.length ? `<p class="proof-reader-label">Variables and quantifiers</p>${this.readerField(key, at, entry.scope_ref, 'binders')}` : ''}
+${!entry.assumption_refs?.length && !body.binders?.length && !body.conditions?.length ? '<p class="proof-muted">No assumptions, variables or conditions recorded in this context.</p>' : ''}
+${this.readerSources(entry.scope_ref)}
+</div>`;
+      return repeated ? `<details class="proof-reader-context" data-reader-repeated-scope="${esc(refKey(entry.scope_ref))}"><summary>Setup already shown above</summary>${content}</details>` : content;
+    }).join('');
+  }
+
   assessmentBlock(assessment, options = {}) {
     const parts = [`<div class="proof-assessment s-${esc(assessment.state)}">`];
     parts.push(`<p class="proof-assessment-head">${stateBadge(assessment.state)} <strong class="proof-assessment-label">${esc(assessment.label)}</strong></p>`);
@@ -761,9 +915,20 @@ class Renderer {
 
   factualHtml() {
     const factual = this.model.summary.factual;
-    if (!factual) return '';
+    if (!factual) return '<div class="proof-card"><h3>Required examinations</h3><p class="proof-muted">Completion breakdown unavailable for this snapshot.</p></div>';
     const checks = factual.work.checks, support = factual.statement_support, independent = factual.independent_review;
     const fact = (name, value) => `<span data-proof-fact="${name}">${esc(String(value))}</span>`;
+    const groups = factual.work.obligation_groups;
+    const label = value => humanize(value).replace(/^./, first => first.toUpperCase());
+    const columns = [['role', 'Role'], ['kind', 'Examination'], ['required', 'Required'], ['completed', 'Completed'], ['unfinished', 'Unfinished']];
+    const completion = Array.isArray(groups) ? (groups.length ?
+      `<table class="proof-completion-table"><caption class="proof-muted">${fact('obligations.caption', 'Completed examinations do not mean verified statements; other completion requirements still apply.')}</caption>
+<thead><tr>${columns.map(([field, title]) => `<th scope="col">${fact(`obligations.header.${field}`, title)}</th>`).join('')}</tr></thead>
+<tbody>${groups.map((row, index) => `<tr>${columns.map(([field]) => {
+        const value = field === 'role' ? label(row.role) : field === 'kind' ? (row.kind === 'source_fidelity' ? 'Source comparison' : label(row.kind)) : row[field];
+        return `<td>${fact(`obligations.${index}.${field}`, value)}</td>`;
+      }).join('')}</tr>`).join('')}</tbody></table>` : '<p class="proof-muted">No required obligations are registered.</p>') :
+      `<p class="proof-muted">${groups === undefined ? 'Completion breakdown unavailable for this snapshot.' : this.model.projection.audit_id === null ? 'No audit selected; completion breakdown unavailable.' : 'Assessment unavailable; completion breakdown unavailable.'}</p>`;
     const outcomes = ['supported', 'gap', 'refuted', 'inconclusive'].map(outcome =>
       `${esc(outcome)}: ${factual.work.current_primary_outcomes[outcome]}`).join('; ');
     const unresolved = support.unresolved.map((row, index) => {
@@ -775,6 +940,9 @@ class Renderer {
     return `<div class="proof-card" data-proof-factual>
 <h3>Current scientific status</h3>
 <p data-proof-fact="snapshot">These facts describe snapshot ${factual.revision}. Process completion is separate from the mathematical outcomes.</p>
+<h4>Required examinations</h4>
+${completion}
+<h4>Saved check history</h4>
 <dl class="proof-kv"><dt>Current completed checks</dt><dd>${fact('checks.current_complete', checks.current_complete)}</dd>
 <dt>Unfinished drafts</dt><dd>${fact('checks.draft', checks.draft)}</dd><dt>Checks needing review</dt><dd>${fact('checks.needs_review', checks.needs_review)}</dd>
 <dt>Historical completed checks</dt><dd>${fact('checks.historical_complete', checks.historical_complete)}</dd><dt>Superseded checks</dt><dd>${fact('checks.superseded', checks.superseded)}</dd></dl>
@@ -1037,6 +1205,7 @@ ${connection.assessment.explanation ? `<p class="proof-index-text">${esc(connect
     return `<section id="proof-details" class="proof-panel" aria-labelledby="proof-details-heading">
 <div class="proof-panel-head"><h2 id="proof-details-heading">Details</h2><label class="proof-check"><input id="proof-show-all" type="checkbox"> Show all details</label></div>
 <p id="proof-detail-empty" class="proof-muted">Select an item or connection above, or use the search, to open its detail here.</p>
+<noscript><p class="proof-reader-notice">The saved overview text is readable below. Full technical records are stored as templates and require JavaScript to open; use the saved database or enable scripting to inspect that evidence.</p></noscript>
 ${articles.join('\n')}
 <div id="proof-record-templates" hidden>${[...this.model.records.values()].map((record) => `<template data-record-template="${esc(refKey(record.ref))}">${this.recordHtml(record).replace('data-record-ref=', 'data-record-body=')}</template>`).join('\n')}</div>
 </section>`;
@@ -1044,56 +1213,155 @@ ${articles.join('\n')}
 
   detailHtml(key, detail) {
     const owners = this.owners.get(key) || [];
-    const header = owners.length ? owners.map((owner) => (owner.type === 'node' ? this.nodeHeader(owner.node) : this.connectionHeader(owner.connection))).join('\n') : `<div class="proof-detail-owner"><h3 class="proof-detail-heading" tabindex="-1">${esc(key)}</h3></div>`;
+    const header = owners.length ? owners.map((owner) => (owner.type === 'node' ? this.nodeHeader(owner.node, detail.reader) : this.connectionHeader(owner.connection))).join('\n') : `<div class="proof-detail-owner"><h3 class="proof-detail-heading" tabindex="-1">${esc(key)}</h3></div>`;
     const sections = detail.sections.map((section) => this.sectionHtml(key, section)).join('\n');
-    const recordLinks = detail.record_refs.length ? `<p class="proof-detail-records">Records: ${detail.record_refs.map((ref) => this.recordLink(ref, true)).join(', ')}</p>` : '';
+    const recordLinks = detail.record_refs.length ? `<details class="proof-disclosure proof-technical"><summary>Technical record index (${detail.record_refs.length})</summary><p class="proof-detail-key">${esc(key)}</p><p class="proof-detail-records">${detail.record_refs.map((ref) => this.recordLink(ref, true)).join(', ')}</p></details>` : '';
+    const outgoing = owners.filter(o => o.type === 'node').flatMap(o => this.model.connectionList.filter(c => c.from === o.node.id));
     return `<article class="proof-detail" data-proof-detail="${esc(key)}" id="${esc(this.detailId(key))}">
-<div class="proof-detail-top"><span class="proof-detail-key"><code>${esc(key)}</code></span><button type="button" class="proof-back">Back to ${this.graph ? 'graph' : 'index'}</button></div>
+<div class="proof-detail-top"><button type="button" class="proof-back">Back to ${this.graph ? 'graph' : 'index'}</button></div>
 ${header}
-${recordLinks}
+<details class="proof-disclosure proof-evidence" data-proof-evidence><summary>Detailed proof and audit evidence</summary>
+<p class="proof-muted">The sections below are a stable evidence inventory, not a claimed proof sequence. Argument context and recorded final inferences are linked above.</p>
 ${sections}
+<p>${this.jump(key, 'Return to result overview')}</p>
+</details>
+${outgoing.length ? `<details class="proof-disclosure"><summary>Used by (${outgoing.length})</summary><ul class="proof-plain-list">${outgoing.map(c => this.connectionLine(c)).join('')}</ul></details>` : ''}
+${recordLinks}
 </article>`;
   }
 
   connectionLine(connection) {
     const state = connection.assessment.state;
-    return `<li>${this.jump(connection.detail_key, `<code>${esc(connection.id)}</code>`)} ${esc(this.nodeLabel(connection.from))} <span aria-hidden="true">→</span><span class="proof-visually-hidden"> to </span> ${esc(this.nodeLabel(connection.to))} ${stateBadge(state)}</li>`;
+    return `<li>${this.jump(connection.detail_key, `${esc(this.nodeLabel(connection.from))} to ${esc(this.nodeLabel(connection.to))}`)} ${stateBadge(state)}</li>`;
   }
 
-  nodeHeader(node) {
-    const incoming = this.model.connectionList.filter((connection) => connection.to === node.id);
-    const outgoing = this.model.connectionList.filter((connection) => connection.from === node.id);
+  nodeHeader(node, reader) {
     return `<div class="proof-detail-owner proof-owner-node k-${esc(node.kind)}">
-<p class="proof-owner-kicker">${kindBadge(node.kind)} <code>${esc(node.id)}</code> <span class="proof-muted">${esc(node.item_ref.collection)}:${esc(node.item_ref.id)}</span>${this.graph ? ` <button type="button" class="proof-focus-node" data-focus-node="${esc(node.id)}">Show in graph</button>` : ''}</p>
+<p class="proof-owner-kicker">${kindBadge(node.kind)}${this.graph ? ` <button type="button" class="proof-focus-node" data-focus-node="${esc(node.id)}">Show in graph</button>` : ''}</p>
 <h3 class="proof-detail-heading" tabindex="-1">${esc(node.label)}</h3>
-${node.caption ? `<p class="proof-owner-caption">${esc(node.caption)}</p>` : ''}
-${this.assessmentBlock(node.assessment)}
-<div class="proof-owner-links">
-<div><h4>Uses (incoming)</h4>${incoming.length ? `<ul class="proof-plain-list">${incoming.map((connection) => this.connectionLine(connection)).join('')}</ul>` : '<p class="proof-muted">No incoming connections.</p>'}</div>
-<div><h4>Used by (outgoing)</h4>${outgoing.length ? `<ul class="proof-plain-list">${outgoing.map((connection) => this.connectionLine(connection)).join('')}</ul>` : '<p class="proof-muted">No outgoing connections.</p>'}</div>
-</div>
+${reader ? this.readerHtml(node, reader) : `<div data-reader-overview="${esc(node.detail_key)}"><p class="proof-reader-notice">Structured statement and dependency context is unavailable in this older projection. Regenerate it from the saved database to obtain the reader overview.</p>${this.assessmentBlock(node.assessment, {compact:true})}<h4>Saved statement or synopsis</h4>${this.readerField(node.detail_key, 'legacy', node.item_ref, 'statement')}<p class="proof-muted">This saved text is not asserted to be the exact audited target. Full evidence remains available below.</p></div>`}
 </div>`;
   }
 
+  readerHtml(node, reader) {
+    const key = node.detail_key;
+    this.readerSeenScopes = new Set();
+    this.readerSeenPremises = new Set();
+    const targets = reader.targets.map((target, index) => {
+      const context = `target:${index}`, body = this.readerRecord(target.target_ref)?.body || {};
+      const selected = this.readerRecord(target.statement_ref)?.body?.statement;
+      const different = JSON.stringify(selected) !== JSON.stringify(body.statement);
+      return `<section class="proof-reader-target" data-reader-target="${index}" data-reader-exact-state="${esc(target.exact_state)}" data-reader-target-ref="${esc(refKey(target.target_ref))}" data-reader-statement-ref="${esc(refKey(target.statement_ref))}" data-reader-spec-ref="${esc(target.spec_ref ? refKey(target.spec_ref) : '')}">
+<h4>${index ? 'Audited part or target: ' : ''}${this.readerField(key, context, target.target_ref, 'label')}</h4>
+<p class="proof-reader-label">${target.exact_state === 'registered' ? 'Exact audited statement' : 'Saved statement or synopsis'}</p>
+${this.readerField(key, context, target.statement_ref, target.statement_field)}
+${target.exact_state !== 'registered' ? `<p class="proof-reader-notice">A registered exact target is unavailable${target.exact_state === 'draft' ? '; the target specification is still a draft' : ''}.</p>` : ''}
+${this.readerSources(target.spec_ref, 'statement') || this.readerSources(target.statement_ref, 'statement')}
+${different ? `<details class="proof-reader-context"><summary>Current saved synopsis</summary>${this.readerField(key, `${context}:synopsis`, target.target_ref, 'statement')}</details>` : ''}
+</section>`;
+    }).join('');
+    const strategy = this.readerRecord(reader.strategy_ref)?.body?.proof_idea;
+    const proofKind = !['assumption', 'definition'].includes(node.kind);
+    const strategyHtml = strategy || proofKind ? `<section class="proof-reader-strategy"><h4>Main proof strategy</h4>${strategy ? `${this.readerField(key, 'strategy', reader.strategy_ref, 'proof_idea')}${this.readerSources(reader.strategy_ref, 'proof')}<p class="proof-muted">Recorded explanation; it supplies no additional proof support.</p>` : '<p class="proof-muted">Proof-strategy summary not recorded.</p>'}</section>` : '';
+    const findings = reader.finding_refs.map((ref, index) => {
+      const body = this.readerRecord(ref)?.body || {};
+      return `<div class="proof-reader-issue"><p class="proof-reader-label">${this.readerField(key, `finding:${index}`, ref, 'category')}${body.target ? ` · Affected material: ${this.humanLink(body.target)}` : ''}</p>${this.readerField(key, `finding:${index}`, ref, 'description')}${this.readerField(key, `finding:${index}`, ref, 'impact_reason')}<p>${this.humanLink(ref, 'Finding and supporting evidence')}</p></div>`;
+    }).join('');
+    const sourceLimits = reader.source_limit_refs.map((ref, index) => `<div class="proof-reader-issue"><p class="proof-reader-label">Source limitation${this.readerRecord(ref)?.body?.category ? ` · ${this.readerField(key, `source_limit:${index}`, ref, 'category')}` : ''}</p>${this.readerField(key, `source_limit:${index}`, ref, ref.collection === 'sources' ? 'limitation' : 'description')}<p>${this.humanLink(ref, 'Source limitation evidence')}</p></div>`).join('');
+    const setup = reader.targets.map((target, index) => `<section class="proof-reader-setup"><h5>${this.humanLink(target.target_ref)}: ${target.exact_state === 'registered' ? 'applicable assumptions and setup' : 'recorded setup'}</h5>${target.scope_chain.length ? this.readerScopes(key, `target:${index}`, target.scope_chain, {deduplicate:true,seed:true}) : `<p class="proof-muted">${target.exact_state === 'registered' ? 'This specification has no named scope; no inherited assumptions or conditions are supplied here.' : 'No setup was recorded for this target.'}</p>`}</section>`).join('');
+    const applications = reader.applications.map((app, index) => ({app, index}));
+    const associated = new Set();
+    const routes = reader.arguments.map((argument, index) => {
+      const body = this.readerRecord(argument.argument_ref)?.body || {};
+      const rows = applications.filter(({app}) => app.argument_ref && refKey(app.argument_ref) === refKey(argument.argument_ref));
+      rows.forEach(({index:appIndex}) => associated.add(appIndex));
+      return this.readerArgument(key, reader, argument, index, rows, body);
+    }).join('');
+    const remaining = applications.filter(({index}) => !associated.has(index));
+    const primaryTarget = reader.targets.findIndex(target => refKey(target.target_ref) === refKey(node.item_ref)
+      && JSON.stringify(target.assessment) === JSON.stringify(node.assessment));
+    return `<div class="proof-reader-overview" data-reader-overview="${esc(key)}">
+${targets}
+<section class="proof-reader-audit"><h4>Audit assessment</h4>${primaryTarget >= 0 ? this.readerAssessment(key, `target:${primaryTarget}`, node.assessment) : this.assessmentBlock(node.assessment, {compact:true})}
+${node.assessment.label === 'stale' && node.assessment.explanation === 'stale' ? '<p class="proof-muted proof-stale-hint">This status summary does not identify which change made the work stale. Inspect the checks and source/version details in the audit evidence.</p>' : ''}
+${reader.targets.map((target, index) => index === primaryTarget ? '' : `<div class="proof-reader-target-assessment"><p class="proof-reader-label">${this.humanLink(target.target_ref)}: target assessment</p>${this.readerAssessment(key, `target:${index}`, target.assessment)}</div>`).join('')}
+${findings || sourceLimits ? `<h5>Material issues and limitations</h5>${findings}${sourceLimits}` : ''}</section>
+${strategyHtml}
+<section class="proof-reader-dependencies"><h4>Dependencies and their roles</h4><p class="proof-muted">These are recorded dependencies and contexts. An empty list does not establish that the result has no prerequisites. Each application has its own assessment.</p>
+${setup}
+${routes}
+${reader.provenance_groups?.length ? `<details class="proof-reader-context"><summary>Recorded inference groups without an argument</summary><p class="proof-muted">These preserve recorded joint or case context. They do not establish a verified argument.</p>${reader.provenance_groups.map((group,index) => this.readerGroup(key, `provenance_group:${index}`, group)).join('')}</details>` : ''}
+${remaining.length ? `<section class="proof-reader-route"><h5>Connections without a recorded argument association</h5>${remaining.map(({app,index}) => this.readerApplication(key, app, index)).join('')}</section>` : ''}
+${!reader.arguments.length && !applications.length ? '<p class="proof-muted">No supplier applications or proof routes were recorded.</p>' : ''}
+</section></div>`;
+  }
+
+  readerGroup(key, context, group) {
+    return `<section class="proof-reader-group"><h6>${this.readerField(key, context, group.group_ref, 'kind')} inference</h6>${this.readerField(key, context, group.group_ref, 'rationale')}${this.readerScopes(key, context, group.scope_chain)}${group.case_scopes.map((cs, ci) => `<section class="proof-reader-case"><h6>Case ${ci + 1} · ${this.humanLink(cs.scope_ref, 'Case context')}</h6>${this.readerScopes(key, `${context}:case:${ci}`, cs.scope_chain)}</section>`).join('')}${group.discharged_scope_refs.length ? `<p>Discharged local contexts: ${group.discharged_scope_refs.map(ref => this.humanLink(ref, 'Context')).join(', ')}</p>` : ''}<p>${this.humanLink(group.group_ref, 'Inference evidence')}</p></section>`;
+  }
+
+  readerArgument(key, reader, argument, index, rows, body) {
+    const context = `argument:${index}`;
+    const relation = {target:'Argument for an opening target', linked_intermediate:'Intermediate argument connected to an opening target', subsidiary:'Owned subsidiary material; no recorded inference chain connects it to an opening target', unassociated:'Argument association unavailable'}[argument.relation];
+    const title = `${this.readerField(key, context, argument.argument_ref, 'label')} <span class="proof-muted">(${this.readerField(key, context, argument.argument_ref, 'origin')}; ${this.readerField(key, context, argument.argument_ref, 'lifecycle')})</span>`;
+    const contents = `<p class="proof-muted">${esc(relation)} · Target: ${this.humanLink(argument.target_ref)}${argument.relation === 'linked_intermediate' && argument.reaches_target_refs.length ? `. Recorded route reaches: ${argument.reaches_target_refs.map(ref => this.humanLink(ref)).join(', ')}` : ''}</p>
+${this.readerScopes(key, context, argument.scope_chain, {deduplicate:true,seed:body.lifecycle !== 'retired' && ['target','linked_intermediate'].includes(argument.relation)})}
+${rows.filter(({app}) => app.from_ref.collection !== 'items' || this.readerRecord(app.from_ref)?.body?.owner_id !== reader.item_ref.id).map(({app,index:ai}) => this.readerApplication(key, app, ai)).join('')}
+<details class="proof-reader-context"><summary>Argument structure and local proof contexts</summary><p class="proof-muted">Stable inventory of recorded inferences, not a reconstructed proof sequence.</p>
+${body.final_group_id ? `<p>Recorded final inference: ${this.humanLink({collection:'groups',id:body.final_group_id})}</p>` : '<p class="proof-muted">No final inference is registered for this argument.</p>'}
+${argument.groups.map((group, gi) => this.readerGroup(key, `${context}:group:${gi}`, group)).join('')}
+${rows.filter(({app}) => app.from_ref.collection === 'items' && this.readerRecord(app.from_ref)?.body?.owner_id === reader.item_ref.id).map(({app,index:ai}) => this.readerApplication(key, app, ai)).join('')}
+<p>${this.humanLink(argument.argument_ref, 'Argument evidence')}</p>${this.readerSources(argument.argument_ref)}
+</details>`;
+    const attrs = `data-reader-route="${index}" data-reader-route-ref="${esc(refKey(argument.argument_ref))}" data-reader-route-relation="${esc(argument.relation)}" data-reader-route-target="${esc(refKey(argument.target_ref))}"`;
+    return body.lifecycle === 'retired' || argument.relation === 'subsidiary' ? `<details class="proof-reader-route proof-reader-context" ${attrs}><summary>${body.lifecycle === 'retired' ? 'Historical route: ' : 'Subsidiary argument: '}${title}</summary>${contents}</details>` : `<section class="proof-reader-route" ${attrs}><h5>${title}</h5>${contents}</section>`;
+  }
+
+  readerApplication(key, app, index) {
+    const context = `application:${index}`;
+    const refined = app.refined_use_refs.length > 0;
+    const content = `<div class="proof-reader-application" data-reader-application="${index}" data-reader-relation="${esc(app.relation)}" data-reader-from="${esc(refKey(app.from_ref))}" data-reader-to="${esc(refKey(app.to_ref))}" data-reader-argument="${esc(app.argument_ref ? refKey(app.argument_ref) : '')}" data-reader-group="${esc(app.group_ref ? refKey(app.group_ref) : '')}">
+<h6>Supplier: ${this.readerNamedLink(key, `${context}:from`, app.from_ref)}</h6>
+<p class="proof-reader-label">Used for: ${this.readerNamedLink(key, `${context}:to`, app.to_ref)}${app.group_ref ? ` · ${this.humanLink(app.group_ref, 'Inference context')}` : ''}</p>
+${!app.application_ref ? '<p class="proof-muted">Recorded summary connection; this is not an additional checked implication.</p>' : ''}
+${this.readerField(key, context, app.use_ref, 'reason')}
+${['regime','uncertainty'].map(field => this.readerRecord(app.use_ref)?.body?.[field] ? `<p class="proof-reader-label">${field === 'regime' ? 'Restriction' : 'Uncertainty'}</p>${this.readerField(key, context, app.use_ref, field)}` : '').join('')}
+${app.application_ref ? `<p class="proof-reader-label">${app.application_ref.collection === 'uses' ? 'Recorded application' : `Application record: ${this.readerField(key, context, app.application_ref, 'state')}`}</p>${this.readerRecord(app.application_ref)?.body?.needed_form ? `<details class="proof-reader-context"><summary>Exact required form</summary>${this.readerField(key, context, app.application_ref, 'needed_form')}</details>` : ''}` : ''}
+${this.readerScopes(key, context, app.scope_chain, {deduplicate:true})}
+${this.readerAssessment(key, context, app.assessment)}
+${refined ? `<p>Explained by ${app.refined_use_refs.map(ref => this.humanLink(ref, 'detailed application')).join(', ')}. The summary is retained as context.</p>` : ''}
+${app.summary_use_refs.length ? `<p>Refines ${app.summary_use_refs.map(ref => this.humanLink(ref, 'recorded summary')).join(', ')}.</p>` : ''}
+<p>${this.humanLink(app.application_ref || app.use_ref, 'Inspect exact application and checks')}</p>${this.readerSources(app.use_ref)}
+</div>`;
+    return refined ? `<details class="proof-reader-context"><summary>Summary connection represented by detailed applications</summary>${content}</details>` : content;
+  }
+
   connectionHeader(connection) {
-    const groups = connection.groups.map((group, i) => `<li class="proof-group">
-<p class="proof-group-head"><strong>${group.group_id ? `${esc(humanize(group.inference_kind || 'inference'))} inference` : 'Summary connections'}</strong> ${group.group_id ? this.idLink(group.group_id, 'groups') : '<span class="proof-muted">no authored inference</span>'} ${group.argument_id ? `<span class="proof-muted">argument</span> ${this.idLink(group.argument_id, 'arguments')}` : ''}</p>
-${group.use_ids.length ? `<p class="proof-assessment-meta">Uses: ${group.use_ids.map((id) => this.idLink(id, 'uses')).join(', ')}</p>` : ''}
-${group.obligation_ids.length ? `<p class="proof-assessment-meta">Obligations: ${group.obligation_ids.map((id) => `<code>${esc(id)}</code>`).join(', ')}</p>` : ''}
-${this.assessmentBlock(group.assessment)}
-</li>`);
-    return `<div class="proof-detail-owner proof-owner-connection">
-<p class="proof-owner-kicker"><span class="proof-pill">Connection</span> <code>${esc(connection.id)}</code></p>
+    const key = connection.detail_key, apps = new Map((connection.applications || []).map(app => [app.use_id, app]));
+    const ids = [...new Set([...connection.primary_use_ids, ...apps.keys()])];
+    const uses = ids.map((id, index) => {
+      const record = this.model.recordsByLoose.get(`uses:${id}`), app = apps.get(id), context = `application:${index}`;
+      const body = record?.body || {};
+      const from = body.from && this.model.recordsByLoose.get(looseKey(body.from));
+      const to = body.to && this.model.recordsByLoose.get(looseKey(body.to));
+      const application = [...this.model.recordsByLoose.values()].find(row => row.ref.collection === 'application_details' && row.body.use_id === id) || (body.group_id || body.needed_form ? record : null);
+      return `<section class="proof-reader-application"${app ? ` data-application-id="${esc(id)}"` : ''}>
+<h4>Supplier: ${from ? this.readerNamedLink(key, `${context}:from`, from.ref) : esc(this.nodeLabel(connection.from))}</h4>
+<p class="proof-reader-label">Recipient: ${to ? this.readerNamedLink(key, `${context}:to`, to.ref) : esc(this.nodeLabel(connection.to))} · ${this.humanLink(record?.ref || {collection:'uses',id}, 'Application evidence')}</p>
+${!application ? '<p class="proof-muted">Recorded summary connection; no exact application is registered here.</p>' : ''}
+${record ? ['reason','regime','uncertainty'].filter(field => body[field]).map(field => `<p class="proof-reader-label">${field === 'reason' ? 'Recorded contribution' : field === 'regime' ? 'Restriction' : 'Uncertainty'}</p>${this.readerField(key, context, record.ref, field)}`).join('') : '<p class="proof-muted">Contribution text is unavailable in this projection.</p>'}
+${application ? `<p class="proof-reader-label">${application.ref.collection === 'uses' ? 'Recorded application' : `Application record: ${this.readerField(key, context, application.ref, 'state')}`}</p>${application.body.needed_form ? `<p class="proof-reader-label">Required form</p>${this.readerField(key, context, application.ref, 'needed_form')}` : ''}` : ''}
+${app ? this.assessmentBlock(app.assessment, {compact:true}) : ''}
+${app?.scope_id ? `<p>Applicable context: ${this.humanLink({collection:'scopes',id:app.scope_id}, 'Scope, assumptions and restrictions')}</p>` : ''}
+${record ? this.readerSources(record.ref) : ''}</section>`;
+    }).join('');
+    const groups = connection.groups.map(group => `<section class="proof-reader-group"><h5>${group.group_id ? this.humanLink({collection:'groups',id:group.group_id}, `${humanize(group.inference_kind || 'recorded')} inference`) : 'Summary context'}${group.argument_id ? ` in ${this.humanLink({collection:'arguments',id:group.argument_id})}` : ''}</h5>${this.assessmentBlock(group.assessment, {compact:true})}</section>`).join('');
+    return `<div class="proof-detail-owner proof-owner-connection" data-reader-overview="${esc(key)}">
+<p class="proof-owner-kicker"><span class="proof-pill">Recorded connection</span></p>
 <h3 class="proof-detail-heading" tabindex="-1">${this.jump(this.model.nodes.get(connection.from).detail_key, esc(this.nodeLabel(connection.from)))} <span aria-hidden="true">→</span><span class="proof-visually-hidden"> to </span> ${this.jump(this.model.nodes.get(connection.to).detail_key, esc(this.nodeLabel(connection.to)))}</h3>
-${this.assessmentBlock(connection.assessment)}
-<dl class="proof-kv">
-<dt>Source connections</dt><dd>${connection.primary_use_ids.length ? connection.primary_use_ids.map((id) => this.idLink(id, 'uses')).join(', ') : '<span class="proof-muted">none</span>'}</dd>
-<dt>Support</dt><dd>${connection.support_refs.length ? connection.support_refs.map((ref) => this.recordLink(ref, false)).join(', ') : '<span class="proof-muted">none</span>'}</dd>
-<dt>Context</dt><dd>${connection.context_refs.length ? connection.context_refs.map((ref) => this.recordLink(ref, false)).join(', ') : '<span class="proof-muted">none</span>'}</dd>
-<dt>Obligations</dt><dd>${connection.obligation_ids.length ? connection.obligation_ids.map((id) => `<code>${esc(id)}</code>`).join(', ') : '<span class="proof-muted">none</span>'}</dd>
-</dl>
-${(connection.applications || []).length ? `<h4>Exact applications</h4><ul class="proof-group-list">${connection.applications.map((app) => `<li class="proof-application-assessment" data-application-id="${esc(app.use_id)}"><p>${this.idLink(app.use_id, 'uses')} ${app.scope_id ? `in scope ${this.idLink(app.scope_id, 'scopes')}` : 'in global scope'}</p>${this.assessmentBlock(app.assessment, {compact:true})}</li>`).join('')}</ul>` : ''}
-${groups.length ? `<h4>Connection contexts (${groups.length})</h4><ul class="proof-group-list">${groups.join('')}</ul>` : ''}
+${this.assessmentBlock(connection.assessment, {compact:true})}
+<h4>Recorded contributions and restrictions</h4>${uses || '<p class="proof-muted">No contribution text is available in this projection.</p>'}
+${groups ? `<details class="proof-reader-context"><summary>Inference contexts</summary>${groups}</details>` : ''}
 </div>`;
   }
 
@@ -1253,10 +1521,16 @@ ${headline}
     return parts.map((part) => `<span>${esc(part)}</span>`).join('<span class="proof-dot" aria-hidden="true"> · </span>');
   }
 
+  readerReportState() {
+    const summary = this.model.summary;
+    const limits = [...(summary.limitations || []), ...(summary.factual?.source_limits || []).map(row => `${row.source_path || row.label}: ${row.description}`), ...(summary.factual?.independent_review?.qualification_limitations || [])];
+    return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${summary.progress.process_complete ? 'Required audit process complete.' : 'Audit process incomplete.'} Mathematical support is stated separately for each result and application.</p>${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}</section>`;
+  }
+
   page(fontStyle) {
     const { model } = this;
     const requested = model.summary.scope.target_refs.filter((ref) => ref.collection === 'items').map((ref) => ref.id);
-    const beforeGraph = `<div id="proof-main" class="proof-reader"><p class="proof-kicker">Proof audit${model.build.kind === 'release' ? ' · release' : ' · working copy'}</p><details class="proof-build-disclosure"><summary>Audit progress, findings and source version</summary><p class="proof-build">${this.buildLine()}</p>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
+    const beforeGraph = `<div id="proof-main" class="proof-reader"><p class="proof-kicker">Proof audit${model.build.kind === 'release' ? ' · release' : ' · working copy'}</p>${this.readerReportState()}<details class="proof-build-disclosure"><summary>Audit progress, findings and source version</summary><p class="proof-build">${this.buildLine()}</p>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
 ${mainNavigation(model.nodeList, model.connectionList, requested)}
 <h2 id="proof-graph-heading" class="proof-visually-hidden">Dependency graph</h2><p id="proof-graph-desc" class="proof-visually-hidden">Major results and their recorded uses. Connection colors describe the represented assessments under declared premises.</p>`;
     const afterGraph = `<div class="proof-reader">${this.graph ? this.legendHtml() : this.indexHtml()}
@@ -1466,6 +1740,18 @@ export function representationReceipt(model, scan) {
     && templates.every((element) => element.tag === 'template' && scan.html.slice(element.openEnd, element.closeStart)
       === canonicalRenderer.recordHtml(model.records.get(element.attrs['data-record-template'])).replace('data-record-ref=', 'data-record-body=')),
   'record bodies must have exactly one canonical template with faithful text and mathematics');
+  const expectedOverviews = [...model.details.entries()].flatMap(([key, detail]) => {
+    const html = canonicalRenderer.detailHtml(key, detail), parsed = scanHtml(html);
+    return parsed.elements.filter(element => hasAttr(element, 'data-reader-overview')).map(element => html.slice(element.start, element.closeEnd));
+  });
+  const shownOverviews = byAttr('data-reader-overview');
+  check('contextual_reader_overviews', sameMultiset(shownOverviews.map(element => scan.html.slice(element.start, element.closeEnd)), expectedOverviews)
+    && shownOverviews.every(element => { for (let parent = element.parent; parent; parent = parent.parent) {
+      if (parent.tag === 'template' || hasAttr(parent, 'hidden') || hasAttr(parent, 'data-proof-evidence')) return false;
+    } return true; }), 'opening statements, strategy, contextual dependencies or material issues differ from their pinned records');
+  const reportState = byAttr('data-reader-report-state');
+  check('visible_report_state', reportState.length === 1 && scan.html.slice(reportState[0].start, reportState[0].closeEnd) === canonicalRenderer.readerReportState(),
+    'the always-visible report state and limitations differ from the saved snapshot');
   const assessmentMatches = (element, assessment) => {
     if (!element || !classList(element).includes(`s-${assessment.state}`)) return false;
     const children = [...descendants(element)];
@@ -1654,6 +1940,11 @@ const PAGE_CSS = `.proof-reader,.proof-svg,.proof-main-navigation{color-scheme:l
 .proof-pill{display:inline-block;font-family:var(--mono);font-size:.74rem;line-height:1.4;padding:0 6px;border:1px solid var(--line-strong);border-radius:999px;color:var(--muted);vertical-align:middle;overflow-wrap:anywhere}
 .proof-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
 .proof-card{border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+[data-proof-factual]{grid-column:1/-1}
+.proof-completion-table{width:100%;border-collapse:collapse;font-size:.9rem}
+.proof-completion-table caption{text-align:left;margin:.4em 0}
+.proof-completion-table th,.proof-completion-table td{padding:.35em .5em;border-bottom:1px solid var(--line);text-align:left;overflow-wrap:anywhere}
+.proof-completion-table th:nth-child(n+3),.proof-completion-table td:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}
 .proof-kv{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:3px 12px;margin:.3em 0}
 .proof-kv dt{color:var(--muted)}
 .proof-kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
@@ -1747,6 +2038,34 @@ html:not([data-js]) #proof-detail-empty,html.show-all-details #proof-detail-empt
 .proof-detail-owner{margin-bottom:12px}
 .proof-owner-kicker{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:0 0 4px}
 .proof-detail-heading{outline-offset:4px;overflow-wrap:anywhere}
+.proof-reader-overview{max-width:88ch;margin:0 auto;line-height:1.65}
+.proof-reader-overview h4{font-size:1.2rem;margin:1.35em 0 .45em}
+.proof-reader-overview h5{font-size:1.05rem;margin:1em 0 .4em}
+.proof-reader-overview h6{font-size:1rem;margin:.6em 0 .3em}
+.proof-reader-overview .proof-reader-value{white-space:pre-wrap;overflow-wrap:anywhere}
+.proof-reader-overview .proof-fragment{font-size:1rem}
+.proof-reader-label{font-size:.88rem;font-weight:600;margin:.65em 0 .25em;color:var(--ink)}
+.proof-reader-sources{font-size:.85rem;margin:.5em 0;color:var(--muted)}
+.proof-reader-strategy{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 0 1em}
+.proof-reader-route{border-top:1px solid var(--line);margin-top:1.2em;padding-top:.25em}
+.proof-reader-application{padding:.7em 0;border-bottom:1px solid var(--line)}
+.proof-reader-application:last-child{border-bottom:0}
+.proof-reader-scope{border-left:2px solid var(--line);padding-left:1em;margin:.7em 0}
+.proof-reader-premise{margin:.5em 0}
+.proof-reader-premise p{margin:.3em 0}
+.proof-reader-values{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.2em .8em;margin:.4em 0}
+.proof-reader-values dt{font-size:.85em;color:var(--muted)}
+.proof-reader-values dd{margin:0}
+.proof-reader-issue,.proof-reader-notice{border-left:3px solid var(--state-amber);padding:.5em .9em;background:var(--state-amber-soft);margin:.8em 0}
+.proof-reader-group,.proof-reader-case{border-left:2px solid var(--line);padding-left:1em;margin:.7em 0}
+.proof-disclosure,.proof-reader-context{border-top:1px solid var(--line);margin:.7em 0;padding:.55em 0}
+.proof-disclosure>summary,.proof-reader-context>summary{cursor:pointer;font-weight:600;line-height:1.5;padding:.2em 0}
+.proof-reader-context>summary{font-size:.9rem;color:var(--muted)}
+.proof-reader summary:focus-visible,.proof-reader a:focus-visible{outline:2px solid var(--focus);outline-offset:4px;border-radius:2px}
+.proof-reader-context[open]>summary,.proof-disclosure[open]>summary{margin-bottom:.7em}
+.proof-report-state{margin:.7em 0 1em;max-width:100ch;line-height:1.55}
+.proof-report-state ul{padding-left:1.3em}
+.proof-technical{font-size:.85rem;color:var(--muted)}
 .proof-owner-caption{color:var(--muted)}
 .proof-owner-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:8px}
 .proof-owner-links h4{margin-bottom:.2em}
@@ -1785,7 +2104,7 @@ html:not([data-js]) #proof-detail-empty,html.show-all-details #proof-detail-empt
 .proof-value-list li{padding:1px 0}
 .is-target{outline:2px solid var(--focus);outline-offset:3px}
 .proof-footer{max-width:1400px;margin:24px auto 0;color:var(--muted);font-size:.84rem}
-@media (max-width:640px){.proof-kv{grid-template-columns:1fr}.proof-kv dt{margin-top:4px}.proof-record-fields{grid-template-columns:1fr}.proof-record-fields dt{margin-top:4px}.proof-kv-inline{grid-template-columns:repeat(3,auto)}}
+@media (max-width:640px){.proof-kv{grid-template-columns:1fr}.proof-kv dt{margin-top:4px}.proof-record-fields{grid-template-columns:1fr}.proof-record-fields dt{margin-top:4px}.proof-kv-inline{grid-template-columns:repeat(3,auto)}.proof-reader-values{grid-template-columns:1fr}.proof-reader-scope{padding-left:.65em}.proof-detail{padding:10px}}
 @media print{.proof-toolbar,#proof-search-panel,.proof-back,.proof-focus-node,.proof-check,#proof-detail-empty{display:none!important}[data-proof-detail]{display:block!important}.proof-canvas{overflow:visible}.proof-canvas svg{width:100%;height:auto}}`;
 
 const RUNTIME_JS = `(function () {
@@ -1817,7 +2136,7 @@ const RUNTIME_JS = `(function () {
   function detailFor(key) { return query(doc, 'data-proof-detail', key); }
   function hydrateDetail(article) {
     if (!article || article.getAttribute('data-hydrated') === 'true') return;
-    article.querySelectorAll('[data-record-ref]').forEach(function (slot) {
+    article.querySelectorAll('.proof-record-slot[data-record-ref]').forEach(function (slot) {
       var template = query(doc, 'data-record-template', slot.getAttribute('data-record-ref'));
       if (template) slot.replaceChildren(template.content.cloneNode(true));
     });
@@ -1832,7 +2151,27 @@ const RUNTIME_JS = `(function () {
     root.classList.toggle('show-all-details', !!(showAll && showAll.checked));
   }
   if (showAll) { showAll.addEventListener('change', applyShowAll); applyShowAll(); }
-  window.addEventListener('beforeprint', hydrateAll);
+  var printDisclosureState = null;
+  window.addEventListener('beforeprint', function () {
+    hydrateAll();
+    if (printDisclosureState) return;
+    printDisclosureState = Array.prototype.filter.call(doc.querySelectorAll('details'), function (element) { return element.closest('.proof-reader'); }).map(function (element) {
+      var previous = element.hasAttribute('open'); element.setAttribute('open', '');
+      return [element, previous];
+    });
+  });
+  window.addEventListener('afterprint', function () {
+    (printDisclosureState || []).forEach(function (entry) {
+      if (entry[1]) entry[0].setAttribute('open', ''); else entry[0].removeAttribute('open');
+    });
+    printDisclosureState = null;
+  });
+
+  function revealAncestors(target) {
+    for (var parent = target; parent; parent = parent.parentElement) {
+      if (String(parent.tagName).toLowerCase() === 'details') parent.setAttribute('open', '');
+    }
+  }
 
   function clearTargets() {
     var previous = doc.querySelectorAll('.is-target');
@@ -1870,6 +2209,7 @@ const RUNTIME_JS = `(function () {
     }
     clearTargets();
     if (target !== article) target.classList.add('is-target');
+    revealAncestors(target);
     var focusTarget = target === article ? (article.querySelector('.proof-detail-heading') || article) : target;
     if (!(options && options.silent)) {
       try { target.scrollIntoView({ block: 'start' }); } catch (error) { target.scrollIntoView(); }
@@ -2084,7 +2424,7 @@ const RUNTIME_JS = `(function () {
       flatten(record.body, parts);
       var element = recordElement(location.detail_key, location.section_key, key);
       var text = parts.join(' ') + (element ? ' ' + element.textContent.replace(/\\s+/g, ' ') : '');
-      entries.push({ key: key, detail: location.detail_key, section: location.section_key, owner: owners[location.detail_key] || location.detail_key, title: titles[location.detail_key + '\\u0000' + location.section_key] || location.section_key, text: text, lower: text.toLowerCase() });
+      entries.push({ key: key, label:record.body.label || humanRecordLabel(location.ref.collection), detail: location.detail_key, section: location.section_key, owner: owners[location.detail_key] || location.detail_key, title: titles[location.detail_key + '\\u0000' + location.section_key] || location.section_key, text: text, lower: text.toLowerCase() });
     }
     var workTasks = projection.worklist ? projection.worklist.tasks : [];
     for (i = 0; i < workTasks.length; i++) {
@@ -2098,6 +2438,7 @@ const RUNTIME_JS = `(function () {
     return entries;
   }
   var index = buildIndex();
+  function humanRecordLabel(collection) { return {uses:'Supplier application', application_details:'Exact application', target_specs:'Exact audited target', groups:'Inference evidence', scopes:'Assumptions and local context', checks:'Proof examination', findings:'Audit finding', anchors:'Source passage'}[collection] || collection.split('_').join(' '); }
   function element(tag, className, text) {
     var node = doc.createElement(tag);
     if (className) node.className = className;
@@ -2123,7 +2464,7 @@ const RUNTIME_JS = `(function () {
         button.type = 'button';
         var where = entry.lower.indexOf(terms[0]);
         var start = Math.max(0, where - 60), end = Math.min(entry.text.length, where + terms[0].length + 90);
-        button.appendChild(element('strong', '', entry.key));
+        button.appendChild(element('strong', '', entry.label || entry.title || entry.key));
         button.appendChild(element('span', 'proof-search-where', 'in ' + entry.owner + ' \\u203a ' + entry.title));
         var snippet = element('span', 'proof-search-snippet');
         snippet.appendChild(doc.createTextNode((start > 0 ? '\\u2026' : '') + entry.text.slice(start, where)));
