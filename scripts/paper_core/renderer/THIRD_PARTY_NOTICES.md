@@ -1,7 +1,7 @@
 # Third-party notices
 
 The files under `assets/archify/` are vendored verbatim from the
-`proof-graphify` package in this repository, which in turn vendors
+`proof-graphify` package in its separate repository, which in turn vendors
 them from Archify (MIT). The renderer uses the actual template, viewer runtime,
 and embedded WOFF2 font data (JetBrains Mono, SIL Open Font License 1.1).
 Every output is self-contained and makes no network request.

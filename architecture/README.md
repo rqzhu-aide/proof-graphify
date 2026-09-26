@@ -5,3 +5,5 @@ This folder describes the maintained Proof Graphify package and its shared-backe
 The latest tagged skill release is `v3.1.3`. The current `main` checkout carries the newer shared `paper_core` version `2.3.0`; that backend update is not a new tagged skill release. The skill metadata remains at `3.1.3` until a separately validated release changes it.
 
 Read [architecture.md](architecture.md) for the data flow and ownership. Completed plans, audits, and release receipts are kept in the local ignored `archived/` folder, outside the installable skill package.
+
+For cross-package development, this repository can sit beside `../stat-paper-skills/`. Each sibling has its own Git root and remote; the installed skill needs neither sibling checkout nor network access.

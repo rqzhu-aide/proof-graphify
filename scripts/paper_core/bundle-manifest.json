@@ -26,7 +26,7 @@
   "publish.py": "9bed202142578f5a5853537aa39084dcb52fe87bc441df5f5eb217982e6989f1",
   "queries.py": "9fad9f1b68787338a739d8afc2113ed8c0e24fecc5aebab381356ca31fce43e2",
   "refs.py": "93621fcec1701536a5bd6edb061192ebf145d4aeff16ee702647148b083d0fb6",
-  "renderer/THIRD_PARTY_NOTICES.md": "b220db887f73d807fbf8736d986f4e3eb59c3d288712036c72cdd11d1f3e73e6",
+  "renderer/THIRD_PARTY_NOTICES.md": "4afc61b36d5dd113240439ca46e6eb4d75dd1b99d990afabdddd1659a46b7d57",
   "renderer/archify_adapter.mjs": "3a0adce89d81b2cf46cda033dd6e2aaeaa81c9e29b8211a03695b330be30d4fd",
   "renderer/assets/archify/JetBrainsMono-OFL.txt": "c1ab7c666206842a02b35b30770dac0d7a10156ed401c9defc3f02a754d89e90",
   "renderer/assets/archify/LICENSE": "b799ab081703e7821ae5096d2c1abdf14bbdc75e8ea1c4045998c36ed6db9706",
@@ -55,7 +55,7 @@
  "packet_version": 2,
  "projection_version": 2,
  "protocol_version": "item-audit/1",
- "source_identity": "4ffbbc20a686c5a5afcbe168d6f3e54dd1d9aa14bbf8e8ac2c181216a18ee4ff",
+ "source_identity": "8119c8f437bdb985e59b923ffa1e729e5fae1cc6aa954dce988fbf9305c106fb",
  "storage_formats_readable": [
   2,
   3,
