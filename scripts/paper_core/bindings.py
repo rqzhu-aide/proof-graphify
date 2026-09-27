@@ -217,9 +217,14 @@ def _bind_check(b: _Builder, body: dict):
     elif kind == "external_source":
         b.source_statement(target, exact=True)
     else:
-        audit = b.add("audits", target["id"], "full")
+        audit = b.add("audits", target["id"], "proof" if body.get("role") == "primary" else "full")
         if audit is not None:
-            for audit_target in audit.body["targets"]:
+            audit_targets = audit.body["targets"]
+            if audit.body["mode"] == "full":
+                b.relation("audit_scope", target)
+                audit_targets = [{"collection": c, "id": i} for c, i, _ in
+                                 b.state.relation_members("audit_scope", target)]
+            for audit_target in audit_targets:
                 b.statement(audit_target)
                 b.relation("arguments_for_target", audit_target)
                 b.relation("incoming_uses", audit_target)
@@ -233,13 +238,16 @@ RELATION_FACETS = {"uses_in_group": "application", "incoming_uses": "application
                    "groups_in_argument": "inference", "scopes_in_argument": "scope",
                    "coverage_in_argument": "coverage", "parts_of_item": "statement",
                    "arguments_for_target": "proof", "checks_or_findings_for_target": "full",
-                   "target_specs_for_target": "statement", "refinements_for_use": "full"}
+                   "target_specs_for_target": "statement", "refinements_for_use": "full",
+                   "audit_scope": "statement"}
 
 
-def _semantic_members(b):
-    """Freeze membership identities plus member facets for controller bindings only."""
+def _semantic_members(b, *, relations=None):
+    """Freeze membership identities plus facets for the selected binding relations."""
     identities = []
     for relation, collection, id in list(b.relations):
+        if relations is not None and relation not in relations:
+            continue
         key = {"collection": collection, "id": id}
         members = b.state.relation_members(relation, key)
         for member_collection, member_id, _ in members:
@@ -324,7 +332,7 @@ def task_binding(state, task: dict) -> dict:
                 _bind_check(b, check.body)
                 b.relation("checks_or_findings_for_target", check.body["target"])
     else:
-        _bind_check(b, {"kind": task["kind"], "target": target,
+        _bind_check(b, {"kind": task["kind"], "target": target, "role": task["role"],
                         "evidence_refs": [], "supersedes": None})
     if task["kind"] == "composition":
         for ref in task.get("prerequisite_judgment_refs", []):
@@ -346,6 +354,9 @@ def task_binding_changes(state, task: dict, *, evidence_refs=(), packet=None) ->
     """
     binding = {"records": list(task["consumed_inputs"]),
                "relations": list(task["membership_guards"])}
+    missing_scope = missing_full_audit_scope(state, task["target"], binding)
+    if missing_scope is not None:
+        return {"records": [missing_scope], "relations": []}
     manifest = (packet or {}).get("manifest", packet or {})
     pins = {(r["collection"], r["id"]): r for r in manifest.get("read_set", [])}
     missing = []
@@ -377,6 +388,23 @@ def task_binding_changes(state, task: dict, *, evidence_refs=(), packet=None) ->
         result["relations"] = changed_relations
     result["records"].extend(missing)
     return result
+
+
+def missing_full_audit_scope(state, target, binding):
+    """Older global evidence cannot claim an inventory it never captured."""
+    if target.get("collection") != "audits":
+        return None
+    audit = state.live("audits", target["id"])
+    if audit is None or audit.body["mode"] != "full":
+        return None
+    if any(row["relation"] == "audit_scope" and row["key"] == target
+           for row in binding["relations"]):
+        return None
+    pin = next((row["ref"] for row in binding["records"] if row["ref"]["collection"] == "audits"
+                and row["ref"]["id"] == audit.id), audit.pinned)
+    return {"ref": pin, "facet": "audit_scope", "expected": "captured full audit scope",
+            "actual": None, "live_version": audit.version,
+            "reason": "renew the global examination to capture its full audit scope"}
 
 
 def _work_composition_checks(b, body, packet):
@@ -499,7 +527,15 @@ def compute_bindings(state, collection: str, body: dict, *, packet=None) -> dict
         for ref in body["anchor_refs"]:
             b.add_ref(ref, "source")
     manifest = (packet or {}).get("manifest", packet or {})
-    identities = _semantic_members(b) if collection == 'checks' or _semantic_membership_origin(state, collection, body, manifest) else None
+    if collection == 'checks' or _semantic_membership_origin(state, collection, body, manifest):
+        identities = _semantic_members(b)
+    elif collection == 'observations':
+        # Attaching source-fidelity provenance changes a specification's version,
+        # not its statement. Preserve strict policy for all other relations and
+        # for historical bindings that do not carry these semantic memberships.
+        identities = _semantic_members(b, relations={'target_specs_for_target'})
+    else:
+        identities = None
     result = b.result(packet)
     if neutral_context is not None:
         result["neutral_setup_validated"] = 1

@@ -125,6 +125,7 @@ def record_label(snap, ref):
 
 def _recovery(derivation, refs, preserved, *, limit=5):
     changes, judgments = {}, []
+    missing_audit_scope = False
     for ref in refs:
         drift = derivation.judgment_changes.get(key_of(ref))
         if not drift:
@@ -132,6 +133,7 @@ def _recovery(derivation, refs, preserved, *, limit=5):
         judgments.append(ref)
         for change in drift["records"]:
             pin, facet = change["ref"], change["facet"]
+            missing_audit_scope = missing_audit_scope or facet == "audit_scope"
             identity = (key_of(pin), facet)
             if identity in changes:
                 continue
@@ -149,11 +151,15 @@ def _recovery(derivation, refs, preserved, *, limit=5):
     if not changes:
         return None
     rows = list(changes.values())
+    next_action = ("Earlier global checks did not capture the full audit scope. Reexamine that scope and save explicit "
+                   "successors; unchanged local checks remain available." if missing_audit_scope else
+                   "Review the changed inputs and renew only affected reasoning with an explicit successor; "
+                   "unchanged local checks remain available.")
     return {"judgment_refs": judgments[:limit], "judgment_count": len(judgments),
             "judgments_truncated": len(judgments) > limit, "changed_count": len(rows), "changes": rows[:limit],
             "changes_truncated": len(rows) > limit, "preserved_local_count": len(preserved),
             "preserved_local_sample": preserved[:limit], "preserved_local_truncated": len(preserved) > limit,
-            "next_action": "Review the changed inputs and renew only affected reasoning with an explicit successor; unchanged local checks remain available."}
+            "next_action": next_action}
 
 
 def _draft_signature(snap, info):

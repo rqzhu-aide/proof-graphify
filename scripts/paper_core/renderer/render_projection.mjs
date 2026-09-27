@@ -50,9 +50,9 @@ const SECTION_KINDS = ['statement', 'applications', 'derivations', 'premises', '
 const ROLES = ['primary', 'independent', 'coordinator'];
 const BUILD_KINDS = ['working', 'release'];
 const LAYOUT_MODES = ['dag', 'cyclic', 'index'];
-const DISPLAY_KEYS = ['statement_html', 'reason_html', 'needed_form_html', 'rationale_html', 'conditions_html', 'reasoning_html', 'description_html', 'proof_idea_html', 'regime_html', 'uncertainty_html', 'impact_reason_html'];
+const DISPLAY_KEYS = ['label_html', 'statement_html', 'reason_html', 'needed_form_html', 'rationale_html', 'conditions_html', 'reasoning_html', 'description_html', 'proof_idea_html', 'regime_html', 'uncertainty_html', 'impact_reason_html'];
 // Record body field -> display fragment that replaces its raw text.
-const FRAGMENT_FIELDS = { statement: 'statement_html', reason: 'reason_html', needed_form: 'needed_form_html', rationale: 'rationale_html', conditions: 'conditions_html', reasoning: 'reasoning_html', description: 'description_html', proof_idea: 'proof_idea_html', regime: 'regime_html', uncertainty: 'uncertainty_html', impact_reason: 'impact_reason_html' };
+const FRAGMENT_FIELDS = { label: 'label_html', statement: 'statement_html', reason: 'reason_html', needed_form: 'needed_form_html', rationale: 'rationale_html', conditions: 'conditions_html', reasoning: 'reasoning_html', description: 'description_html', proof_idea: 'proof_idea_html', regime: 'regime_html', uncertainty: 'uncertainty_html', impact_reason: 'impact_reason_html' };
 const COUNT_NAMES = [
   ...STATES.map((state) => `nodes.${state}`),
   ...STATES.map((state) => `connections.${state}`),
@@ -243,6 +243,18 @@ export function validateInput(input) {
     if (key && !records.has(key)) bad(`${where} references ${key}, which is not in projection.records`);
     return key;
   };
+  const validateSupportExplanation = (value, assessment, where) => {
+    if (value === undefined || value === null) return;
+    if (!isObject(value)) { bad(`${where} must be an object or null`); return; }
+    if (!['conditional', 'unavailable'].includes(value.availability) || value.availability !== assessment?.availability)
+      bad(`${where} must describe the same blocked support as its assessment`);
+    if (!isString(value.code) || !/^[a-z][a-z0-9_]*$/.test(value.code) || !isString(value.message) || !value.message.trim())
+      bad(`${where} must have a cause code and message`);
+    for (const field of ['target_ref', 'source_scope_ref', 'active_scope_ref', 'blocking_scope_ref', 'group_scope_ref'])
+      if (value[field] != null) requirePinned(value[field], `${where}.${field}`);
+    if (!Array.isArray(value.path_refs)) bad(`${where}.path_refs must be an array`);
+    else value.path_refs.forEach((ref, index) => requirePinned(ref, `${where}.path_refs[${index}]`));
+  };
 
   const obligations = new Map();
   projection.obligations.forEach((obligation, i) => {
@@ -306,6 +318,7 @@ export function validateInput(input) {
               else child.forEach((entry, index) => visit(entry, `${at}.${field}[${index}]`));
             }
           }
+          validateSupportExplanation(value.support_explanation, value.assessment, `${at}.support_explanation`);
           if (value.relation !== undefined && !['target', 'linked_intermediate', 'subsidiary', 'unassociated'].includes(value.relation)) bad(`${at}.relation is unknown`);
         };
         for (const field of ['targets', 'arguments', 'applications']) {
@@ -369,6 +382,8 @@ export function validateInput(input) {
     validateIdList(connection.obligation_ids, `${where}.obligation_ids`, { within: obligationIds, kind: 'obligation' });
     validateRefList(connection.context_refs, `${where}.context_refs`, false);
     validateAssessment(connection.assessment, where);
+    for (const [index, application] of (connection.applications || []).entries())
+      validateSupportExplanation(application.support_explanation, application.assessment, `${where}.applications[${index}].support_explanation`);
     if (!isString(connection.detail_key) || !details.has(connection.detail_key)) bad(`${where}.detail_key must name a key of projection.details`);
     connections.set(connection.id, connection);
   });
@@ -758,6 +773,11 @@ function prepareFragment(html) {
   return String(html).replace(/<math\b[\s\S]*?<\/math>/gi, (match) => `<span class="proof-formula${/display\s*=\s*["']block["']/i.test(match.slice(0, match.indexOf('>') + 1)) ? ' proof-formula-block' : ''}">${match}</span>`);
 }
 
+function prepareLabelFragment(html) {
+  // Labels stay phrasing content even when their authored math used display delimiters.
+  return prepareFragment(String(html).replace(/(<math\b[^>]*\bdisplay\s*=\s*["'])block(["'])/gi, '$1inline$2'));
+}
+
 class Renderer {
   constructor(model, graph) {
     this.model = model;
@@ -819,13 +839,25 @@ class Renderer {
     return humanize(ref.collection || 'recorded evidence').replace(/s$/, '');
   }
 
+  humanLabelHtml(ref, depth = 0) {
+    if (!ref || depth > 2) return 'Recorded evidence';
+    if (isString(ref)) ref = {collection:'items',id:ref};
+    const record = Number.isInteger(ref.version) ? this.readerRecord(ref) : this.model.recordsByLoose.get(looseKey(ref));
+    const body = record?.body || {}, fragment = record && this.model.fragments.get(refKey(record.ref))?.label_html;
+    if (body.label) return fragment === undefined ? esc(body.label) : prepareLabelFragment(fragment);
+    if (ref.collection === 'groups') return `${esc(humanize(body.kind || 'recorded'))} inference${isObject(body.conclusion) ? ` for ${this.humanLabelHtml(body.conclusion, depth + 1)}` : ''}`;
+    if (ref.collection === 'uses') return `${this.humanLabelHtml(body.from, depth + 1)} applied to ${this.humanLabelHtml(body.to, depth + 1)}`;
+    if (ref.collection === 'checks') return `${esc(humanize(body.kind || 'proof'))} examination${body.target ? ` of ${this.humanLabelHtml(body.target, depth + 1)}` : ''}`;
+    return esc(this.humanLabel(ref, depth));
+  }
+
   humanLink(ref, label) {
     if (!ref) return '<span class="proof-muted">Unrecorded context</span>';
     if (isString(ref)) ref = {collection:'items',id:ref};
     const record = Number.isInteger(ref.version) ? this.readerRecord(ref) : this.model.recordsByLoose.get(looseKey(ref));
-    const text = label || this.humanLabel(ref);
+    const text = label === undefined ? this.humanLabelHtml(ref) : esc(label);
     const location = record ? this.locationsByPinned.get(refKey(record.ref)) : this.locationsByLoose.get(looseKey(ref));
-    return location ? this.jump(location.detail_key, esc(text), {section:location.section_key, record:refKey(location.ref)}) : esc(text);
+    return location ? this.jump(location.detail_key, text, {section:location.section_key, record:refKey(location.ref)}) : text;
   }
 
   // These are selected, pinned source fields, separate from canonical record slots.
@@ -843,13 +875,27 @@ class Renderer {
         return `<dl class="proof-reader-values">${Object.entries(entry).map(([name, part]) => `<dt>${esc(humanize(name))}</dt><dd>${render(part, `${path}.${name}`)}</dd>`).join('')}</dl>`;
       }
       const tag = ['label', 'origin', 'lifecycle', 'kind', 'category', 'state'].includes(field) ? 'span' : 'div';
-      return `<${tag} class="proof-reader-value${tag === 'div' ? ' proof-fragment' : ''}" data-reader-detail="${esc(detailKey)}" data-reader-context="${esc(context)}" data-reader-ref="${esc(refKey(ref))}" data-reader-field="${esc(path)}">${rendered !== undefined ? prepareFragment(rendered) : esc(String(entry))}</${tag}>`;
+      return `<${tag} class="proof-reader-value${tag === 'div' ? ' proof-fragment' : ''}" data-reader-detail="${esc(detailKey)}" data-reader-context="${esc(context)}" data-reader-ref="${esc(refKey(ref))}" data-reader-field="${esc(path)}">${rendered !== undefined ? (field === 'label' ? prepareLabelFragment(rendered) : prepareFragment(rendered)) : esc(String(entry))}</${tag}>`;
     };
     return render(value, field, fragment);
   }
 
   readerAssessment(detailKey, context, assessment) {
     return `<div data-reader-detail="${esc(detailKey)}" data-reader-assessment="${esc(context)}">${this.assessmentBlock(assessment, {compact:true})}</div>`;
+  }
+
+  readerSupport(detailKey, context, explanation) {
+    if (!explanation) return '';
+    const link = (role, ref, label) => `<span data-reader-support-link="${role}" data-reader-support-ref="${esc(refKey(ref))}">${this.humanLink(ref, label)}</span>`;
+    const application = explanation.path_refs.find(ref => ref.collection === 'uses');
+    const contexts = [['source_scope', 'Supplier context'], ['active_scope', 'Active context'],
+      ['blocking_scope', 'Required context'], ['group_scope', 'Inference context']].filter(([field]) => Object.hasOwn(explanation, field + '_ref'));
+    return `<div class="proof-reader-notice" data-reader-detail="${esc(detailKey)}" data-reader-support="${esc(context)}" data-reader-support-code="${esc(explanation.code)}" data-reader-support-availability="${esc(explanation.availability)}">
+<p class="proof-reader-label">One blocking requirement</p>
+<p>${explanation.target_ref ? `${link('target', explanation.target_ref)}: ` : ''}<span data-reader-support-message>${esc(explanation.message)}</span></p>
+${application ? `<p>${link('application', application, 'Inspect blocked application')}</p>` : ''}
+${contexts.length ? `<p>${contexts.map(([field, label]) => explanation[field + '_ref'] ? link(field, explanation[field + '_ref'], label) : `${label}: no named scope`).join(' · ')}</p>` : ''}
+</div>`;
   }
 
   readerSources(ref, role) {
@@ -1238,7 +1284,7 @@ ${recordLinks}
   nodeHeader(node, reader) {
     return `<div class="proof-detail-owner proof-owner-node k-${esc(node.kind)}">
 <p class="proof-owner-kicker">${kindBadge(node.kind)}${this.graph ? ` <button type="button" class="proof-focus-node" data-focus-node="${esc(node.id)}">Show in graph</button>` : ''}</p>
-<h3 class="proof-detail-heading" tabindex="-1">${esc(node.label)}</h3>
+<h3 class="proof-detail-heading" tabindex="-1">${this.humanLabelHtml(node.item_ref)}</h3>
 ${reader ? this.readerHtml(node, reader) : `<div data-reader-overview="${esc(node.detail_key)}"><p class="proof-reader-notice">Structured statement and dependency context is unavailable in this older projection. Regenerate it from the saved database to obtain the reader overview.</p>${this.assessmentBlock(node.assessment, {compact:true})}<h4>Saved statement or synopsis</h4>${this.readerField(node.detail_key, 'legacy', node.item_ref, 'statement')}<p class="proof-muted">This saved text is not asserted to be the exact audited target. Full evidence remains available below.</p></div>`}
 </div>`;
   }
@@ -1282,9 +1328,9 @@ ${different ? `<details class="proof-reader-context"><summary>Current saved syno
       && JSON.stringify(target.assessment) === JSON.stringify(node.assessment));
     return `<div class="proof-reader-overview" data-reader-overview="${esc(key)}">
 ${targets}
-<section class="proof-reader-audit"><h4>Audit assessment</h4>${primaryTarget >= 0 ? this.readerAssessment(key, `target:${primaryTarget}`, node.assessment) : this.assessmentBlock(node.assessment, {compact:true})}
+<section class="proof-reader-audit"><h4>Audit assessment</h4>${primaryTarget >= 0 ? this.readerAssessment(key, `target:${primaryTarget}`, node.assessment) + this.readerSupport(key, `target:${primaryTarget}`, reader.targets[primaryTarget].support_explanation) : this.assessmentBlock(node.assessment, {compact:true})}
 ${node.assessment.label === 'stale' && node.assessment.explanation === 'stale' ? '<p class="proof-muted proof-stale-hint">This status summary does not identify which change made the work stale. Inspect the checks and source/version details in the audit evidence.</p>' : ''}
-${reader.targets.map((target, index) => index === primaryTarget ? '' : `<div class="proof-reader-target-assessment"><p class="proof-reader-label">${this.humanLink(target.target_ref)}: target assessment</p>${this.readerAssessment(key, `target:${index}`, target.assessment)}</div>`).join('')}
+${reader.targets.map((target, index) => index === primaryTarget ? '' : `<div class="proof-reader-target-assessment"><p class="proof-reader-label">${this.humanLink(target.target_ref)}: target assessment</p>${this.readerAssessment(key, `target:${index}`, target.assessment)}${this.readerSupport(key, `target:${index}`, target.support_explanation)}</div>`).join('')}
 ${findings || sourceLimits ? `<h5>Material issues and limitations</h5>${findings}${sourceLimits}` : ''}</section>
 ${strategyHtml}
 <section class="proof-reader-dependencies"><h4>Dependencies and their roles</h4><p class="proof-muted">These are recorded dependencies and contexts. An empty list does not establish that the result has no prerequisites. Each application has its own assessment.</p>
@@ -1329,6 +1375,7 @@ ${['regime','uncertainty'].map(field => this.readerRecord(app.use_ref)?.body?.[f
 ${app.application_ref ? `<p class="proof-reader-label">${app.application_ref.collection === 'uses' ? 'Recorded application' : `Application record: ${this.readerField(key, context, app.application_ref, 'state')}`}</p>${this.readerRecord(app.application_ref)?.body?.needed_form ? `<details class="proof-reader-context"><summary>Exact required form</summary>${this.readerField(key, context, app.application_ref, 'needed_form')}</details>` : ''}` : ''}
 ${this.readerScopes(key, context, app.scope_chain, {deduplicate:true})}
 ${this.readerAssessment(key, context, app.assessment)}
+${this.readerSupport(key, context, app.support_explanation)}
 ${refined ? `<p>Explained by ${app.refined_use_refs.map(ref => this.humanLink(ref, 'detailed application')).join(', ')}. The summary is retained as context.</p>` : ''}
 ${app.summary_use_refs.length ? `<p>Refines ${app.summary_use_refs.map(ref => this.humanLink(ref, 'recorded summary')).join(', ')}.</p>` : ''}
 <p>${this.humanLink(app.application_ref || app.use_ref, 'Inspect exact application and checks')}</p>${this.readerSources(app.use_ref)}
@@ -1352,13 +1399,14 @@ ${!application ? '<p class="proof-muted">Recorded summary connection; no exact a
 ${record ? ['reason','regime','uncertainty'].filter(field => body[field]).map(field => `<p class="proof-reader-label">${field === 'reason' ? 'Recorded contribution' : field === 'regime' ? 'Restriction' : 'Uncertainty'}</p>${this.readerField(key, context, record.ref, field)}`).join('') : '<p class="proof-muted">Contribution text is unavailable in this projection.</p>'}
 ${application ? `<p class="proof-reader-label">${application.ref.collection === 'uses' ? 'Recorded application' : `Application record: ${this.readerField(key, context, application.ref, 'state')}`}</p>${application.body.needed_form ? `<p class="proof-reader-label">Required form</p>${this.readerField(key, context, application.ref, 'needed_form')}` : ''}` : ''}
 ${app ? this.assessmentBlock(app.assessment, {compact:true}) : ''}
+${app ? this.readerSupport(key, context, app.support_explanation) : ''}
 ${app?.scope_id ? `<p>Applicable context: ${this.humanLink({collection:'scopes',id:app.scope_id}, 'Scope, assumptions and restrictions')}</p>` : ''}
 ${record ? this.readerSources(record.ref) : ''}</section>`;
     }).join('');
     const groups = connection.groups.map(group => `<section class="proof-reader-group"><h5>${group.group_id ? this.humanLink({collection:'groups',id:group.group_id}, `${humanize(group.inference_kind || 'recorded')} inference`) : 'Summary context'}${group.argument_id ? ` in ${this.humanLink({collection:'arguments',id:group.argument_id})}` : ''}</h5>${this.assessmentBlock(group.assessment, {compact:true})}</section>`).join('');
     return `<div class="proof-detail-owner proof-owner-connection" data-reader-overview="${esc(key)}">
 <p class="proof-owner-kicker"><span class="proof-pill">Recorded connection</span></p>
-<h3 class="proof-detail-heading" tabindex="-1">${this.jump(this.model.nodes.get(connection.from).detail_key, esc(this.nodeLabel(connection.from)))} <span aria-hidden="true">→</span><span class="proof-visually-hidden"> to </span> ${this.jump(this.model.nodes.get(connection.to).detail_key, esc(this.nodeLabel(connection.to)))}</h3>
+<h3 class="proof-detail-heading" tabindex="-1">${this.jump(this.model.nodes.get(connection.from).detail_key, this.humanLabelHtml(this.model.nodes.get(connection.from).item_ref))} <span aria-hidden="true">→</span><span class="proof-visually-hidden"> to </span> ${this.jump(this.model.nodes.get(connection.to).detail_key, this.humanLabelHtml(this.model.nodes.get(connection.to).item_ref))}</h3>
 ${this.assessmentBlock(connection.assessment, {compact:true})}
 <h4>Recorded contributions and restrictions</h4>${uses || '<p class="proof-muted">No contribution text is available in this projection.</p>'}
 ${groups ? `<details class="proof-reader-context"><summary>Inference contexts</summary>${groups}</details>` : ''}
@@ -1393,7 +1441,7 @@ ${obligation.check_refs.length ? `<p class="proof-assessment-meta">Recorded chec
     const body = record.body;
     const collection = record.ref.collection;
     const used = new Set();
-    const headline = this.recordHeadline(collection, body, used);
+    const headline = this.recordHeadline(collection, body, used, fragments);
     const rows = [];
     for (const [field, value] of Object.entries(body)) {
       if (used.has(field)) continue;
@@ -1410,13 +1458,13 @@ ${headline}
 </div>`;
   }
 
-  recordHeadline(collection, body, used) {
+  recordHeadline(collection, body, used, fragments) {
     const take = (field) => { used.add(field); return body[field]; };
     const text = (value) => (isString(value) ? esc(value) : '');
     switch (collection) {
       case 'items': {
         const label = take('label'), kind = take('kind');
-        return `<p class="proof-record-title">${isString(kind) && Object.hasOwn(KINDS, kind) ? kindBadge(kind) : text(kind)} <strong>${text(label)}</strong></p>`;
+        return `<p class="proof-record-title">${isString(kind) && Object.hasOwn(KINDS, kind) ? kindBadge(kind) : text(kind)} <strong>${fragments.label_html === undefined ? text(label) : prepareLabelFragment(fragments.label_html)}</strong></p>`;
       }
       case 'uses': {
         const from = take('from'), to = take('to'), type = take('type');
@@ -1434,7 +1482,7 @@ ${headline}
       }
       case 'arguments': {
         const label = take('label');
-        return isString(label) ? `<p class="proof-record-title"><strong>${esc(label)}</strong></p>` : '';
+        return isString(label) ? `<p class="proof-record-title"><strong>${fragments.label_html === undefined ? esc(label) : prepareLabelFragment(fragments.label_html)}</strong></p>` : '';
       }
       case 'target_specs':
         return '<p class="proof-record-title"><strong>Exact audited target</strong></p>';

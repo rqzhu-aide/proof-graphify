@@ -94,8 +94,8 @@ def obligation_id(audit_id, target: dict, kind: str, role: str) -> str:
 class Snapshot:
     """Live records at one revision with relation, facet and ownership lookups."""
 
-    def __init__(self, db: Database, revision: int, *, limits=None):
-        top = db.max_revision()
+    def __init__(self, db: Database, revision: int, *, limits=None, records=None):
+        top = db.max_revision() if records is None else revision
         if not isinstance(revision, int) or revision < 1 or revision > top:
             raise InvalidRequest(f"revision {revision!r} is not in 1..{top}", code="REVISION_RANGE")
         self.db = db
@@ -117,13 +117,13 @@ class Snapshot:
         self.relation_visits = 0
         # Bound materialization before reading large bodies. This counts the same
         # live snapshot as records_at, including historical snapshot selection.
-        count = db.conn.execute("""SELECT COUNT(*) FROM record_versions v
+        count = len(records) if records is not None else db.conn.execute("""SELECT COUNT(*) FROM record_versions v
             WHERE v.revision <= ? AND v.retired = 0 AND v.version =
             (SELECT MAX(w.version) FROM record_versions w WHERE w.collection = v.collection
              AND w.id = v.id AND w.revision <= ?)""", (revision, revision)).fetchone()[0]
         if count > self.max_records:
             raise TraversalLimit("records", self.max_records, f"revision {revision}")
-        for record in db.records_at(revision):
+        for record in records if records is not None else db.records_at(revision):
             self._records[(record.collection, record.id)] = record
             self._by_collection[record.collection].append(record)
             if record.collection == "items" and record.body["kind"] in INTERMEDIATE_KINDS:
@@ -178,6 +178,8 @@ class Snapshot:
         return list(boundaries)
 
     def relation_members(self, relation: str, key: dict) -> list:
+        if relation == "audit_scope":
+            return audit_scope_members(self, key)
         owners, field_path, _ = RELATIONS[relation]
         if relation == "uses_in_group":
             owners = ("uses", "application_details")
@@ -333,8 +335,17 @@ def judgment_freshness(snap: Snapshot, record: Record, *, superseded: bool, reus
     binding = snap.binding(record)
     if binding is None:
         info["unbound"] = True
+        bound = {"records": [], "relations": []}
+    else:
+        bound = binding["bindings"] if "bindings" in binding else binding
+    if record.collection == "checks":
+        from .bindings import missing_full_audit_scope
+        missing_scope = missing_full_audit_scope(snap, record.body["target"], bound)
+        if missing_scope is not None:
+            info.update(freshness="needs_review", changes={"records": [missing_scope], "relations": []})
+            return info
+    if binding is None:
         return info
-    bound = binding["bindings"] if "bindings" in binding else binding
     if record.collection == "checks" and record.body["role"] == "independent" \
             and record.body.get("response_id") and not bound.get("neutral_setup_validated"):
         # Older mapped checks may bind newer setup that their reviewer never
@@ -488,116 +499,67 @@ def reduce(constituents: list, *, independent: str = "not_required") -> dict:
     return {"state": "amber", "label": label, "explanation": _explain(ordered), **base}
 
 
+# -- audit scope ---------------------------------------------------------------
+def audit_scope_members(state, key):
+    """Resolve scope once per stable state, using the same traversal as assessment."""
+    cache = getattr(state, "_audit_scope_cache", None)
+    if cache is None:
+        state._audit_scope_cache = cache = {}
+    identity = key["id"]
+    if identity not in cache:
+        if isinstance(state, Snapshot):
+            snap = state
+        else:
+            snap = getattr(state, "_audit_scope_snapshot", None)
+            if snap is None:
+                revision = getattr(state, "revision", state.db.max_revision())
+                snap = _scope_snapshot_sql(state.db.conn, revision,
+                    max_records=getattr(state, "max_records", 100000), max_bytes=getattr(state, "max_bytes", None))
+                if getattr(state, "overlay", None):
+                    records = dict(snap._records)
+                    for record_key, planned in state.overlay.items():
+                        if planned.body is None:
+                            records.pop(record_key, None)
+                        else:
+                            records[record_key] = planned.record
+                    snap = Snapshot(state.db, snap.revision, records=list(records.values()))
+                state._audit_scope_snapshot = snap
+        audit = snap.live("audits", identity)
+        records = _AuditScope(snap, audit).scope_statements() if audit is not None else []
+        cache[identity] = sorted((r.collection, r.id, r.version) for r in records)
+    return cache[identity]
+
+
+def _scope_snapshot_sql(conn, revision, *, max_records=100000, max_bytes=None):
+    """Preflight structural records before loading any scope-selection bodies."""
+    from .storage import _row_record
+    where = """FROM record_versions v WHERE v.collection IN
+        ('audits','items','parts','arguments','groups','scopes','uses','application_details','target_specs')
+        AND v.revision <= ? AND v.retired = 0 AND v.version =
+        (SELECT MAX(w.version) FROM record_versions w WHERE w.collection = v.collection
+         AND w.id = v.id AND w.revision <= ?)"""
+    count, size = conn.execute("SELECT COUNT(*),COALESCE(SUM(length(CAST(v.body_json AS BLOB))),0) " + where,
+                               (revision, revision)).fetchone()
+    if count > max_records:
+        raise TraversalLimit("records", max_records, f"audit scope at revision {revision}")
+    if max_bytes is not None and size > max_bytes:
+        raise TraversalLimit("record bytes", max_bytes, f"audit scope at revision {revision}")
+    rows = conn.execute("SELECT v.* " + where, (revision, revision)).fetchall()
+    return Snapshot(None, revision, records=[_row_record(row) for row in rows], limits={"max_records": max_records})
+
+
+def audit_scope_members_sql(conn, key, revision=None):
+    """Read the same bounded historical scope for SQL packet membership guards."""
+    revision = revision if revision is not None else conn.execute(
+        "SELECT MAX(revision) FROM record_versions").fetchone()[0]
+    snap = _scope_snapshot_sql(conn, revision)
+    return audit_scope_members(snap, key)
+
+
 # -- derivation ----------------------------------------------------------------
-class _Derivation:
-    def __init__(self, snap: Snapshot, audit: Record | None):
-        self.snap = snap
-        self.audit = audit
-        self.audit_id = None if audit is None else audit.id
-        self.problems: list = []
-        self.obligations: dict = {}          # id -> obligation dict
-        self.by_target: dict = defaultdict(list)   # key -> [obligation ids]
-        self.constituents: dict = {}         # obligation id -> constituent
-        self.judgments: dict = {}            # "checks:ID" -> info
-        self.judgment_changes: dict = {}    # internal freshness explanations, not a public record dump
-        self.support_closure = SupportClosure(self)
-        self.statements: list = []           # in-scope items/parts records
-        self.routes: dict = {}               # statement key -> list of argument ids
-        self.route_records: dict = {}        # statement key -> set of keys (arguments/groups/uses)
-        self._index()
-
-    # -- indexes ---------------------------------------------------------
-    def _index(self):
-        snap = self.snap
-        self.superseded = set()
-        self.checks_by_target = defaultdict(list)
-        self.all_checks = []
-        for check in snap.all("checks"):
-            if self.audit_id is not None and check.body["audit_id"] != self.audit_id:
-                continue
-            self.all_checks.append(check)
-            if check.body["supersedes"] is not None:
-                self.superseded.add(check.body["supersedes"]["id"])
-        for check in self.all_checks:
-            self.checks_by_target[key_of(check.body["target"])].append(check)
-        self.observations_by_target = defaultdict(list)
-        for obs in snap.all("observations"):
-            self.observations_by_target[key_of(obs.body["target"])].append(obs)
-        self.reconciliations = []
-        superseded_rec = set()
-        for rec in snap.all("reconciliations"):
-            if self.audit_id is not None and rec.body["audit_id"] != self.audit_id:
-                continue
-            self.reconciliations.append(rec)
-            if rec.body["supersedes"] is not None:
-                superseded_rec.add(rec.body["supersedes"]["id"])
-        self.superseded_reconciliations = superseded_rec
-        self.reuse_index = defaultdict(list)
-        for decision in snap.all("reuse_decisions"):
-            if decision.body["decision"] == "reusable":
-                ref = decision.body["check_ref"]
-                self.reuse_index[("checks", ref["id"], ref["version"])].append(decision)
-        self.responses = {r.id: r for r in snap.all("responses")}
-        self._route_review_basis = {}
-        self.findings = []
-        self.findings_by_target = defaultdict(list)
-        self.findings_by_check = defaultdict(list)
-        self.findings_by_use = defaultdict(list)
-        for finding in snap.all("findings"):
-            if self.audit_id is not None and finding.body["audit_id"] != self.audit_id:
-                continue
-            self.findings.append(finding)
-            self.findings_by_target[key_of(finding.body["target"])].append(finding)
-            for ref in finding.body["check_refs"]:
-                self.findings_by_check[ref["id"]].append(finding)
-            for use_id in finding.body["affected_uses"]:
-                self.findings_by_use[use_id].append(finding)
-
-    def judgment_info(self, check: Record) -> dict:
-        key = key_of(pinned_of(check))
-        if key in self.judgments:
-            return self.judgments[key]
-        info = judgment_freshness(self.snap, check, superseded=check.id in self.superseded,
-                                  reuse_index=self.reuse_index)
-        response = self.responses.get(check.body["response_id"]) if check.body["response_id"] else None
-        info.update({"ref": pinned_of(check), "kind": check.body["kind"], "target": check.body["target"],
-                     "role": check.body["role"], "state": check.body["state"], "outcome": check.body["outcome"],
-                     "reviewer": check.body["reviewer"], "audit_id": check.body["audit_id"],
-                     "substantive": bool(check.body["reasoning"].strip()),
-                     "superseded": check.id in self.superseded,
-                     "response_state": None if response is None else response.body["state"],
-                     "exposure": None if response is None else response.body["exposure"],
-                     "revision": check.revision})
-        changes = info.pop("changes", None)
-        if changes:
-            self.judgment_changes[key] = changes
-        self.judgments[key] = info
-        return info
-
-    def finding_refs(self, target_key: str, check_ids=(), use_id=None) -> list:
-        found = list(self.findings_by_target.get(target_key, []))
-        for cid in check_ids:
-            found.extend(self.findings_by_check.get(cid, []))
-        if use_id is not None:
-            found.extend(self.findings_by_use.get(use_id, []))
-        seen, refs = set(), []
-        for f in sorted(found, key=lambda r: r.id):
-            if f.id not in seen and f.body["lifecycle"] != "superseded":
-                seen.add(f.id)
-                refs.append(pinned_of(f))
-        return refs
-
-    # -- obligations -------------------------------------------------------
-    def add_obligation(self, target: dict, kind: str, role: str, *, required: bool) -> str:
-        oid = obligation_id(self.audit_id, target, kind, role)
-        existing = self.obligations.get(oid)
-        if existing is not None:
-            existing["required"] = existing["required"] or required
-            return oid
-        self.obligations[oid] = {"id": oid, "target": {"collection": target["collection"], "id": target["id"]},
-                                 "kind": kind, "role": role, "required": required}
-        self.by_target[key_of(target)].append(oid)
-        return oid
+class _AuditScope:
+    def __init__(self, snap, audit):
+        self.snap, self.audit, self.problems = snap, audit, []
 
     def scope_statements(self) -> list:
         """Close accepted scope over consumed identities and exact establishing routes.
@@ -714,6 +676,117 @@ class _Derivation:
                     self.scope_diagnostics.append({"code": "register_establishment", "target_refs": [ref],
                                                    "message": message, "required": True})
         return ordered
+
+
+class _Derivation(_AuditScope):
+    def __init__(self, snap: Snapshot, audit: Record | None):
+        self.snap = snap
+        self.audit = audit
+        self.audit_id = None if audit is None else audit.id
+        self.problems: list = []
+        self.obligations: dict = {}          # id -> obligation dict
+        self.by_target: dict = defaultdict(list)   # key -> [obligation ids]
+        self.constituents: dict = {}         # obligation id -> constituent
+        self.judgments: dict = {}            # "checks:ID" -> info
+        self.judgment_changes: dict = {}    # internal freshness explanations, not a public record dump
+        self.support_closure = SupportClosure(self)
+        self.statements: list = []           # in-scope items/parts records
+        self.routes: dict = {}               # statement key -> list of argument ids
+        self.route_records: dict = {}        # statement key -> set of keys (arguments/groups/uses)
+        self._index()
+
+    # -- indexes ---------------------------------------------------------
+    def _index(self):
+        snap = self.snap
+        self.superseded = set()
+        self.checks_by_target = defaultdict(list)
+        self.all_checks = []
+        for check in snap.all("checks"):
+            if self.audit_id is not None and check.body["audit_id"] != self.audit_id:
+                continue
+            self.all_checks.append(check)
+            if check.body["supersedes"] is not None:
+                self.superseded.add(check.body["supersedes"]["id"])
+        for check in self.all_checks:
+            self.checks_by_target[key_of(check.body["target"])].append(check)
+        self.observations_by_target = defaultdict(list)
+        for obs in snap.all("observations"):
+            self.observations_by_target[key_of(obs.body["target"])].append(obs)
+        self.reconciliations = []
+        superseded_rec = set()
+        for rec in snap.all("reconciliations"):
+            if self.audit_id is not None and rec.body["audit_id"] != self.audit_id:
+                continue
+            self.reconciliations.append(rec)
+            if rec.body["supersedes"] is not None:
+                superseded_rec.add(rec.body["supersedes"]["id"])
+        self.superseded_reconciliations = superseded_rec
+        self.reuse_index = defaultdict(list)
+        for decision in snap.all("reuse_decisions"):
+            if decision.body["decision"] == "reusable":
+                ref = decision.body["check_ref"]
+                self.reuse_index[("checks", ref["id"], ref["version"])].append(decision)
+        self.responses = {r.id: r for r in snap.all("responses")}
+        self._route_review_basis = {}
+        self.findings = []
+        self.findings_by_target = defaultdict(list)
+        self.findings_by_check = defaultdict(list)
+        self.findings_by_use = defaultdict(list)
+        for finding in snap.all("findings"):
+            if self.audit_id is not None and finding.body["audit_id"] != self.audit_id:
+                continue
+            self.findings.append(finding)
+            self.findings_by_target[key_of(finding.body["target"])].append(finding)
+            for ref in finding.body["check_refs"]:
+                self.findings_by_check[ref["id"]].append(finding)
+            for use_id in finding.body["affected_uses"]:
+                self.findings_by_use[use_id].append(finding)
+
+    def judgment_info(self, check: Record) -> dict:
+        key = key_of(pinned_of(check))
+        if key in self.judgments:
+            return self.judgments[key]
+        info = judgment_freshness(self.snap, check, superseded=check.id in self.superseded,
+                                  reuse_index=self.reuse_index)
+        response = self.responses.get(check.body["response_id"]) if check.body["response_id"] else None
+        info.update({"ref": pinned_of(check), "kind": check.body["kind"], "target": check.body["target"],
+                     "role": check.body["role"], "state": check.body["state"], "outcome": check.body["outcome"],
+                     "reviewer": check.body["reviewer"], "audit_id": check.body["audit_id"],
+                     "substantive": bool(check.body["reasoning"].strip()),
+                     "superseded": check.id in self.superseded,
+                     "response_state": None if response is None else response.body["state"],
+                     "exposure": None if response is None else response.body["exposure"],
+                     "revision": check.revision})
+        changes = info.pop("changes", None)
+        if changes:
+            self.judgment_changes[key] = changes
+        self.judgments[key] = info
+        return info
+
+    def finding_refs(self, target_key: str, check_ids=(), use_id=None) -> list:
+        found = list(self.findings_by_target.get(target_key, []))
+        for cid in check_ids:
+            found.extend(self.findings_by_check.get(cid, []))
+        if use_id is not None:
+            found.extend(self.findings_by_use.get(use_id, []))
+        seen, refs = set(), []
+        for f in sorted(found, key=lambda r: r.id):
+            if f.id not in seen and f.body["lifecycle"] != "superseded":
+                seen.add(f.id)
+                refs.append(pinned_of(f))
+        return refs
+
+    # -- obligations -------------------------------------------------------
+    def add_obligation(self, target: dict, kind: str, role: str, *, required: bool) -> str:
+        oid = obligation_id(self.audit_id, target, kind, role)
+        existing = self.obligations.get(oid)
+        if existing is not None:
+            existing["required"] = existing["required"] or required
+            return oid
+        self.obligations[oid] = {"id": oid, "target": {"collection": target["collection"], "id": target["id"]},
+                                 "kind": kind, "role": role, "required": required}
+        self.by_target[key_of(target)].append(oid)
+        return oid
 
     def derive_obligations(self):
         snap, audit = self.snap, self.audit
@@ -972,14 +1045,26 @@ class _Derivation:
         if not usable:
             return "pending"
         current_ind = {(i["ref"]["id"], i["ref"]["version"]) for i in usable if i["freshness"] == "current"}
+        current_primary = [i for i in self._primary_checks_for(statement_key) if i["freshness"] == "current"]
+        primary_by_target = defaultdict(set)
+        for info in current_primary:
+            primary_by_target[key_of(info["target"])].add((info["ref"]["id"], info["ref"]["version"]))
         reconciled = set()
         for rec in reconciliations:
             info = judgment_freshness(self.snap, rec, superseded=False)
             if info["freshness"] != "current":
                 continue
+            # A preserved comparison cannot adjudicate a later primary opinion.
+            # Revised decisions may name that current opinion as a successor
+            # while retaining the original primary check in their comparison.
+            compared_primary = {(r["id"], r["version"])
+                                for r in rec.body["primary_checks"] + rec.body["successor_checks"]}
+            if not primary_by_target[key_of(rec.body["target"])] <= compared_primary:
+                continue
             # Each row is exact-target evidence. A route can legitimately need
             # distinct application, group and composition reconciliations.
-            listed = {(r["id"], r["version"]) for r in rec.body["independent_checks"]}
+            listed = {(r["id"], r["version"])
+                      for r in rec.body["independent_checks"] + rec.body["successor_checks"]}
             if listed & current_ind:
                 reconciled.update(listed)
         keys = set(self.route_records.get(statement_key, ())) | {statement_key}
@@ -993,9 +1078,8 @@ class _Derivation:
         if current_ind and current_ind <= reconciled and required_complete:
             return "complete"
         primary_outcomes = defaultdict(set)
-        for info in self._primary_checks_for(statement_key):
-            if info["freshness"] == "current":
-                primary_outcomes[(key_of(info["target"]), info["kind"])].add(info["outcome"])
+        for info in current_primary:
+            primary_outcomes[(key_of(info["target"]), info["kind"])].add(info["outcome"])
         for info in usable:
             if info["freshness"] == "current":
                 outcomes = primary_outcomes.get((key_of(info["target"]), info["kind"]), set())
@@ -1481,24 +1565,39 @@ def _triage_assessment(assessment):
 
 
 def _source_limits(snap: Snapshot, statements: list, route_records: dict, mode: str) -> list:
+    issues = [issue for issue in snap.all("source_issues") if issue.body["lifecycle"] == "open"]
+    if not issues or mode in ("full", "overview"):
+        return [pinned_of(issue) for issue in issues]
+
+    from .bindings import _Builder
+
+    # Reuse the same contextual evidence traversal as proof checks. In particular,
+    # exact targets, inherited setup and reviewed boundary segments can consume
+    # anchors absent from the statement's displayed passages or route evidence.
+    context = _Builder(snap)
     anchors, sources = set(), set()
     for statement in statements:
+        context.source_statement(ref_of(statement), exact=True)
         for passage in statement.body["passages"]:
             anchors.add(passage["anchor_id"])
-        for key in route_records.get(key_of(ref_of(statement)), ()):
-            collection, id = key.split(":", 1)
-            record = snap.live(collection, id)
-            if record is not None:
-                anchors.update(record.body.get("evidence_refs", []))
+    routes = {key for statement in statements for key in route_records.get(key_of(ref_of(statement)), ())}
+    for key in sorted(routes):
+        collection, id = key.split(":", 1)
+        if collection == "arguments":
+            context.argument(id)
+        elif collection == "groups":
+            context.group(id)
+        elif collection == "uses":
+            context.use(id)
+    anchors.update(entry["ref"]["id"] for entry in context.result(None)["records"]
+                   if entry["ref"]["collection"] == "anchors")
     for anchor_id in list(anchors):
         anchor = snap.live("anchors", anchor_id)
         if anchor is not None:
             sources.add(anchor.body["source_id"])
     limits = []
-    for issue in snap.all("source_issues"):
-        if issue.body["lifecycle"] != "open":
-            continue
-        relevant = mode in ("full", "overview") or issue.body["anchor_id"] in anchors \
+    for issue in issues:
+        relevant = issue.body["anchor_id"] in anchors \
             or (issue.body["anchor_id"] is None and issue.body["source_id"] in sources)
         if relevant:
             limits.append(pinned_of(issue))

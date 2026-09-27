@@ -93,6 +93,25 @@ export function readerFixture() {
     provenance_groups:[],finding_refs:[finding],source_limit_refs:[]};
   input.display ||= {}; input.display.refs ||= {};
   input.display.refs[`${current.collection}:${current.id}:${current.version}`] = {proof_idea_html:'Reduce by the supplier criterion, then verify the final restriction.'};
+  const labels = [[current, 'Theorem $S$', 'Theorem <math display="inline"><semantics><mi>S</mi><annotation encoding="application/x-tex">S</annotation></semantics></math>'],
+    [supplier, 'Bound $J_\\lambda$', 'Bound <math display="inline"><semantics><msub><mi>J</mi><mi>λ</mi></msub><annotation encoding="application/x-tex">J_\\lambda</annotation></semantics></math>']];
+  for (const [ref, label, labelHtml] of labels) {
+    projection.records.find(row => row.ref.collection === ref.collection && row.ref.id === ref.id && row.ref.version === ref.version).body.label = label;
+    projection.nodes.find(row => row.item_ref.id === ref.id).label = label;
+    const key = `${ref.collection}:${ref.id}:${ref.version}`;
+    input.display.refs[key] = {...input.display.refs[key],label_html:labelHtml};
+  }
+  const blocked = {...node.assessment,state:'amber',label:'premise unavailable',explanation:'premise unavailable',
+    availability:'unavailable',local_state:'green',local_label:'supported'};
+  node.assessment = blocked;
+  detail.reader.targets[0].assessment = blocked;
+  detail.reader.applications[0].assessment = blocked;
+  const explanation = {availability:'unavailable',code:'scope_unavailable',
+    message:'The supplier depends on a private scope that is not active or discharged at this use.',
+    target_ref:supplier,path_refs:[use,supplier],source_scope_ref:formerlyHidden,
+    active_scope_ref:local,blocking_scope_ref:formerlyHidden};
+  detail.reader.targets[0].support_explanation = explanation;
+  detail.reader.applications[0].support_explanation = explanation;
   return input;
 }
 
@@ -100,7 +119,7 @@ function checkReader(results) {
   const input = readerFixture(), rendered = renderProjection(Buffer.from(JSON.stringify(input)));
   const scan = scanHtml(rendered.html), overview = scan.elements.find(row => row.attrs['data-reader-overview'] && row.attrs.class === 'proof-reader-overview');
   const overviewText = textOf(scan, overview), problems = [];
-  for (const text of ['Exact audited statement','Main proof strategy','Dependencies and their roles','Boundary case remains unable to verify.','Only for x > 0.','cases inference'])
+  for (const text of ['Exact audited statement','Main proof strategy','Dependencies and their roles','Boundary case remains unable to verify.','Only for x > 0.','cases inference','One blocking requirement','private scope'])
     if (!overviewText.includes(text)) problems.push(`missing ${text}`);
   const fields = scan.elements.filter(row => row.attrs['data-reader-detail'] === overview.attrs['data-reader-overview'] && row.attrs['data-reader-field']);
   if (!fields.some(row => row.attrs['data-reader-context'] === 'target:0' && row.attrs['data-reader-field'] === 'statement.text' && row.attrs['data-reader-ref'].endsWith(':1')))
@@ -129,6 +148,11 @@ function checkReader(results) {
   if (representationReceipt(rendered.model,scanHtml(changed)).status !== 'fail') problems.push('altered opening strategy passed representation acceptance');
   const removed = rendered.html.slice(0,strategy.start) + rendered.html.slice(strategy.closeEnd);
   if (representationReceipt(rendered.model,scanHtml(removed)).status !== 'fail') problems.push('hidden template strategy masked missing overview strategy');
+  const mathLabel = fields.find(row => row.attrs['data-reader-context'] === 'application:0:from');
+  if (!mathLabel || !rendered.html.slice(mathLabel.openEnd, mathLabel.closeStart).includes('<math')) problems.push('supplier label lost its typeset math');
+  const support = scan.elements.find(row => row.attrs['data-reader-support'] === 'target:0');
+  const supportChanged = rendered.html.slice(0,support.openEnd) + 'Support available.' + rendered.html.slice(support.closeStart);
+  if (representationReceipt(rendered.model,scanHtml(supportChanged)).status !== 'fail') problems.push('altered support explanation passed representation acceptance');
   results.push({check:'reader:pinned-context-and-tampering',ok:!problems.length,problems});
   const node = input.projection.nodes.find(row => row.kind === 'theorem');
   delete input.projection.records.find(row => row.ref.id === node.item_ref.id && row.ref.version === 2).body.proof_idea;

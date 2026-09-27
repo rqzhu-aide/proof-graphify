@@ -107,6 +107,14 @@ class _Closure:
         self.guards.add((relation, collection, id))
 
     def members(self, relation, collection, id):
+        if relation == "audit_scope":
+            cache_key = relation, collection, id
+            if not hasattr(self, "_scope_members"):
+                self._scope_members = {}
+            if cache_key not in self._scope_members:
+                self._scope_members[cache_key] = relation_members(self.db.conn, relation,
+                    {"collection": collection, "id": id})
+            return self._scope_members[cache_key]
         return relation_members(self.db.conn, relation, {"collection": collection, "id": id})
 
     def pull(self, owner_collections, *lookups):
@@ -269,7 +277,11 @@ class _Closure:
         if self.mode in ("primary", "reconcile"):
             self.guard("checks_or_findings_for_target", "audits", audit_id)
             self.assessments("audits", audit_id)
-        for target in audit.body["targets"]:
+        targets = audit.body["targets"]
+        if audit.body["mode"] == "full":
+            self.guard("audit_scope", "audits", audit_id)
+            targets = [{"collection": c, "id": i} for c, i, _ in self.members("audit_scope", "audits", audit_id)]
+        for target in targets:
             self.statement_closure(target)
         self.add_id("qualifications", audit.body["qualification_id"])
 
@@ -800,6 +812,14 @@ class _WorkState:
         return sorted(found)
 
     def relation_members(self, relation, key):
+        if relation == "audit_scope":
+            from .assessment import TraversalLimit, audit_scope_members
+            try:
+                return audit_scope_members(self, key)
+            except TraversalLimit as exc:
+                raise _ContextLimit(records=self.max_records + 1 if exc.bound == "records" else len(self.sizes),
+                    bytes=self.max_bytes + 1 if exc.bound == "record bytes" else self.body_bytes,
+                    contributors=self.contributors()) from exc
         cache_key = relation, key["collection"], key["id"]
         if cache_key not in self.relations:
             owners, field, legal = RELATIONS[relation]
@@ -989,7 +1009,12 @@ class _LocalClosure(_Closure):
                 self.borrowed_proof(target)
         elif target["collection"] == "audits":
             audit = self.add_id("audits", target["id"])
-            for ref in audit.body["targets"]:
+            targets = audit.body["targets"]
+            if audit.body["mode"] == "full":
+                self.guard("audit_scope", "audits", audit.id)
+                targets = [{"collection": c, "id": i} for c, i, _ in
+                           self.state.relation_members("audit_scope", target)]
+            for ref in targets:
                 self.supplier(ref)
         self.assessments(target["collection"], target["id"])
         for pin in task.get("draft_refs", []) + task.get("judgment_refs", []):

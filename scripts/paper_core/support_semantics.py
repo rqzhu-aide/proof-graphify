@@ -219,7 +219,7 @@ class SupportClosure:
         path, seen, current = [], set(), key
         for _ in range(limit):
             if current in seen:
-                return {"availability": availability, "code": "unfounded_cycle", "path": path,
+                return {"availability": availability, "code": "unfounded_cycle", "path": path, "target": path[-1],
                         "message": "Recorded dependencies form a cycle without an established starting premise."}
             seen.add(current)
             if current[0] == "statement":
@@ -270,4 +270,5 @@ class SupportClosure:
                 continue
             return dict(detail, code="establishment_unresolved", message="No current recorded route establishes this statement in the active scope.")
         return {"availability": availability, "code": "explanation_truncated", "path": path,
+                "target": path[-1] if path else None,
                 "message": "Further blocking dependencies remain; inspect the last displayed requirement."}

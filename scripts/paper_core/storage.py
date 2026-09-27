@@ -403,6 +403,7 @@ class Database:
             [(collection, id, version, facet, value) for facet, value in sorted(facets.items())])
 
     def insert_binding(self, collection: str, id: str, version: int, packet_id, bindings: dict):
+        self._require_audit_scope_feature(bindings.get("relations", []))
         self.conn.execute(
             """INSERT INTO evidence_bindings (owner_collection, owner_id, owner_version, packet_id, bindings_json)
                VALUES (?, ?, ?, ?, ?)""", (collection, id, version, packet_id, body_text(bindings)))
@@ -411,10 +412,23 @@ class Database:
         version = manifest.get("packet_version")
         if isinstance(version, bool) or version not in (1, 2):
             raise InvalidRequest(f"unsupported packet_version {version!r}")
+        guards = list(manifest.get("membership_guards", []))
+        for task in manifest.get("work", {}).get("tasks", []):
+            guards.extend(task.get("membership_guards", []))
+        self._require_audit_scope_feature(guards)
         self.conn.execute(
             """INSERT INTO packets (packet_id, packet_version, base_revision, mode, manifest_json,
                                     payload_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (packet_id, version, base_revision, mode, body_text(manifest), payload_sha256, now_iso()))
+
+    def _require_audit_scope_feature(self, relations):
+        if not any(row["relation"] == "audit_scope" for row in relations):
+            return
+        from . import AUDIT_SCOPE_BINDING_FEATURE
+        features = set(json.loads(self.conn.execute("SELECT value FROM metadata WHERE key='features'").fetchone()[0]))
+        if AUDIT_SCOPE_BINDING_FEATURE not in features:
+            features.add(AUDIT_SCOPE_BINDING_FEATURE)
+            self.set_metadata("features", json.dumps(sorted(features)))
 
     def _require_work_transaction(self):
         if not self.write or not self.conn.in_transaction:

@@ -250,6 +250,24 @@ function runFixture(name, withWork = false, withReader = false) {
     assert.equal(destination.getAttribute('data-record-ref'),sourceLink.getAttribute('data-jump-record'));
     for (let ancestor = destination; ancestor; ancestor = ancestor.parentElement)
       if (ancestor.tagName === 'details') assert(ancestor.hasAttribute('open'),'Reader links must reveal canonical evidence.');
+    const label = document.querySelector('[data-reader-context="application:0:from"]');
+    assert(label.querySelector('math'), 'A linked supplier label must retain its typeset formula.');
+    const labelLink = label.closest('.proof-jump');
+    labelLink.click(); flush();
+    assert.equal(document.querySelector('.is-target').getAttribute('data-record-ref'), labelLink.getAttribute('data-jump-record'),
+      'Typesetting a label must preserve its exact evidence destination.');
+    search.value = 'Bound $J_\\lambda$';
+    dispatch(search, {type:'input'}); flush();
+    const labelHit = document.getElementById('proof-search-results').querySelector('button');
+    assert(labelHit, 'Search must keep the original plain-text mathematical label.');
+    labelHit.click(); flush();
+    assert(document.querySelector('.is-target'), 'Label search must retain a navigable result.');
+    for (const role of ['application','blocking_scope']) {
+      const supportLink = document.querySelector(`[data-reader-support-link="${role}"]`).querySelector('.proof-jump');
+      supportLink.click(); flush();
+      assert.equal(document.querySelector('.is-target').getAttribute('data-record-ref'), supportLink.getAttribute('data-jump-record'),
+        'Blocking support must link to the exact application or scope evidence.');
+    }
   }
   const notices = scan.elements.filter(e => Object.hasOwn(e.attrs, 'data-proof-limitation'));
   assert.deepEqual(notices.map(e => textOf(scan, e)), input.projection.summary.limitations);

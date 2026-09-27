@@ -132,6 +132,8 @@ def worker_guidance(mode, *, composition=False):
         guidance["coverage_note"] = (
             "Link coverage claims to statements the checks actually examined, not merely cited anchors. "
             "Use check_task_ids for this response or existing_check_refs for saved checks in the same argument. "
+            "Keep replaces present (null for new coverage). These are controller response fields; "
+            "direct stored coverage uses check_ids and replacement in its enclosing edit instead. "
             "Save partial work when coverage remains unfinished.")
     return guidance
 
@@ -147,9 +149,17 @@ def _response_guidance(mode):
         # row and source-target interface belong in this companion file.
         return {"mode": mode, "judgment_shape": describe(c.JUDGMENT),
                 "source_target_template": skeleton(c.SOURCE_TARGET),
+                "canonical_target_collections": {kind: list(collections)
+                                                 for kind, collections in c.CHECK_TARGETS.items()},
+                "source_target_example": {
+                    "kind": "composition",
+                    "target": {"source_anchor_id": "<supplied proof anchor ID>",
+                               "description": "The complete written route establishing the requested conclusion."}},
                 "note": "Use the supplied response scaffold. Fields are required even when nullable. "
                         "For an inference without a supplied canonical ID, use a source target; "
-                        "the coordinator maps it after preserving your unchanged response. "
+                        "a composition checks an argument, not its conclusion item. The example shows "
+                        "only kind and target, not a completed judgment; replace its anchor placeholder. "
+                        "The coordinator maps it after preserving your unchanged response. "
                         "Choose every kind, state, outcome, condition and evidence reference yourself."}
     if mode == "primary":
         return {"mode": mode, "response_shape": describe(c.WORK_PRIMARY_RESPONSE),
@@ -158,6 +168,7 @@ def _response_guidance(mode):
     if mode == "reconcile":
         return {"mode": mode, "row_shape": describe(c.BODY_SCHEMAS["reconciliations"]),
                 "note": "Choose exact-target pins from coordinator guidance; author the decision and rationale. "
+                        "Preserve the scaffold request_id and use that same ID in the submission envelope. "
                         "An empty pin list or template is not completed reconciliation."}
     raise InvalidRequest(f"unknown assistance mode {mode!r}", code="ASSISTANCE_MODE")
 

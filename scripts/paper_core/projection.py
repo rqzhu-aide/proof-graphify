@@ -719,6 +719,36 @@ class _Projector:
         self._reader_scopes[cache_key] = result
         return result
 
+    def reader_support_explanation(self, detail, key, assessment):
+        """Pin the existing support trace for display, without deriving another verdict."""
+        if self.overview or self.A["mode"] == "triage" \
+                or assessment.get("availability") not in ("conditional", "unavailable"):
+            return None
+        if key[0] == "statement" and self.snap.kind_of({"collection": key[1], "id": key[2]}) \
+                in ("assumption", "definition"):
+            return None
+        explanation = self.d.support_closure.explain(key)
+        if explanation is None:
+            return None
+
+        def pin(ref):
+            record = self.snap.get(ref) if ref else None
+            if record is None:
+                return None
+            section = {"uses": "applications", "arguments": "derivations",
+                       "groups": "derivations"}.get(record.collection, "premises")
+            detail.add(section, [record])
+            return pinned_of(record)
+
+        result = {field: explanation[field] for field in ("availability", "code", "message")}
+        result["target_ref"] = pin(explanation.get("target"))
+        result["path_refs"] = [p for ref in explanation.get("path", []) if (p := pin(ref))]
+        for field in ("source_scope", "active_scope", "blocking_scope", "group_scope"):
+            if field + "_id" in explanation:
+                identity = explanation[field + "_id"]
+                result[field + "_ref"] = pin({"collection": "scopes", "id": identity}) if identity else None
+        return result
+
     def item_reader(self, detail, item, statements, intermediates, arguments, member_uses, provenance):
         """Select reader contexts from this snapshot; all prose remains in pinned record bodies."""
         snap = self.snap
@@ -735,13 +765,16 @@ class _Projector:
                     self.problems.append(f"exact statement for {key_of(ref)} has no stored body")
                     source, exact_state = statement, "missing"
             assessment = self.A["assessments"].get(key_of(ref))
+            public = public_assessment(assessment) if assessment else \
+                public_assessment(reduce([])) if self.overview else \
+                dict(OUTSIDE_SCOPE, check_refs=[], finding_refs=[], missing_obligation_ids=[])
             targets.append({"target_ref": pinned_of(statement), "spec_ref": pinned_of(spec) if spec else None,
                 "statement_ref": pinned_of(source), "statement_field": "statement",
                 "exact_state": exact_state,
                 "scope_chain": self.reader_scope(detail, snap.exact_scope(ref)),
-                "assessment": public_assessment(assessment) if assessment else
-                    public_assessment(reduce([])) if self.overview else
-                    dict(OUTSIDE_SCOPE, check_refs=[], finding_refs=[], missing_obligation_ids=[])})
+                "assessment": public,
+                "support_explanation": self.reader_support_explanation(detail,
+                    self.d.support_closure.statement_key(ref, snap.exact_scope(ref)), public)})
 
         # Follow only recorded application inferences. Ownership supplies the search boundary,
         # never evidence that an owned subsidiary claim is required by the displayed result.
@@ -835,7 +868,9 @@ class _Projector:
                 "group_ref": pinned_of(group) if group else None,
                 "scope_chain": self.reader_scope(detail, scope_id),
                 **context(use.body["to"], associated),
-                "assessment": assessment, "refinement_refs": [pinned_of(record) for record in refinements],
+                "assessment": assessment,
+                "support_explanation": self.reader_support_explanation(detail, ("use", use.id), assessment),
+                "refinement_refs": [pinned_of(record) for record in refinements],
                 "refined_use_refs": list(refined_refs.values()), "summary_use_refs": summary_for[use.id]})
         return {"version": 1, "item_ref": pinned_of(item), "strategy_ref": pinned_of(item),
                 "targets": targets, "arguments": argument_rows, "applications": application_rows,
@@ -1032,7 +1067,11 @@ class _Projector:
             details[f"item:{item_id}"] = self.item_detail(item, item_id in scoped).build()
         for connection in connections:
             traces, context = connection_details[connection["id"]]
-            details[connection["detail_key"]] = self.connection_detail(connection["id"], traces, context).build()
+            detail = self.connection_detail(connection["id"], traces, context)
+            for application in connection["applications"]:
+                application["support_explanation"] = self.reader_support_explanation(
+                    detail, ("use", application["use_id"]), application["assessment"])
+            details[connection["detail_key"]] = detail.build()
         if self.d.audit is not None and any(o["required"] and o["target"] == ref_of(self.d.audit)
                                            for o in A["obligations"]):
             # Global examinations need a real reader destination, but never a

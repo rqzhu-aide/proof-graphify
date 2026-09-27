@@ -352,9 +352,20 @@ def _freshness(original, active, plan):
             raise InvalidRequest("assignment lacks pinned audit provenance", code="WORK_PACKET_REQUIRED")
         old_audit = db.version("audits", audit_ref["id"], audit_ref["version"])
         live_audit = db.head("audits", audit_ref["id"])
+        ignored_audit_fields = {"report_path"}
+        # Only new primary global assignments declare qualification-independent
+        # mathematical inputs. Keep historical full bindings and other roles strict.
+        submitted_tasks = [old_tasks.get(tid) for tid in plan["task_ids"]]
+        if original["mode"] == "primary" and submitted_tasks and all(
+                task is not None and task["role"] == "primary"
+                and task["target"] == {"collection": "audits", "id": audit_ref["id"]}
+                and any(entry["ref"] == audit_ref and entry["facet"] == "proof"
+                        for entry in task["consumed_inputs"])
+                for task in submitted_tasks):
+            ignored_audit_fields.add("qualification_id")
         if (old_audit is None or live_audit is None or live_audit.retired
-                or {k: v for k, v in old_audit.body.items() if k != "report_path"}
-                != {k: v for k, v in live_audit.body.items() if k != "report_path"}):
+                or {k: v for k, v in old_audit.body.items() if k not in ignored_audit_fields}
+                != {k: v for k, v in live_audit.body.items() if k not in ignored_audit_fields}):
             raise ConflictError("audit scope or checking protocol changed")
         for tid in plan["task_ids"]:
             if tid not in old_tasks or tid not in fresh_tasks:
@@ -377,6 +388,9 @@ def _freshness(original, active, plan):
             now = db.head(ref["collection"], ref["id"])
             facet = {"items": "statement", "parts": "statement", "uses": "application",
                      "groups": "inference", "arguments": "proof", "scopes": "scope"}.get(ref["collection"], "full")
+            if (ref["collection"] == "audits" and ref["id"] == audit_ref["id"]
+                    and "qualification_id" in ignored_audit_fields):
+                facet = "proof"
             if (before is None or now is None or now.retired
                     or facet_digests(ref["collection"], before.body)[facet]
                     != facet_digests(ref["collection"], now.body)[facet]

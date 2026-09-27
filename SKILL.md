@@ -2,7 +2,7 @@
 name: proof-graphify
 description: Build a selective, source-backed interactive map of a paper's main results, important prerequisites, and their connections. Use to understand argument structure and navigate results, not to reconstruct detailed proof steps or verify proofs.
 metadata:
-  version: "3.1.3"
+  version: "3.1.4"
 ---
 
 # Proof Graphify

@@ -122,6 +122,9 @@ class State:
         return rows
 
     def relation_members(self, relation, key) -> list:
+        if relation == "audit_scope":
+            from .assessment import audit_scope_members
+            return audit_scope_members(self, key)
         if relation == "uses_in_group":
             candidates = {i for _, i, _ in relation_members(self.db.conn, relation, key)}
             candidates.update(p.id for p in self.overlay.values() if p.collection in ("uses", "application_details"))

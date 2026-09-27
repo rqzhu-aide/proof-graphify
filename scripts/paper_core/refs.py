@@ -21,6 +21,7 @@ RELATIONS = {
     "checks_or_findings_for_target": (("checks", "findings"), "/target", None),
     "target_specs_for_target": (("target_specs",), "/target", ("items", "parts")),
     "refinements_for_use": (("connection_refinements",), "/summary_use_id", ("uses",)),
+    "audit_scope": (("items", "parts"), None, ("audits",)),
 }
 
 
@@ -68,6 +69,10 @@ def facet_digests(collection: str, body: dict) -> dict:
         facets["application"] = digest(body)
     elif collection == "target_specs":
         facets["statement"] = digest({k: v for k, v in body.items() if k != "fidelity_ref"})
+    elif collection == "audits":
+        # Reviewer eligibility is checked separately from primary global mathematics.
+        # Keep every other audit field consequential, including publication metadata.
+        facets["proof"] = digest({k: v for k, v in body.items() if k != "qualification_id"})
     elif collection == "proof_boundaries":
         facets["coverage"] = digest(body)
     elif collection == "groups":
@@ -167,6 +172,9 @@ def relation_members(conn, relation: str, key: dict, *, revision=None):
     owners, field_path, legal = RELATIONS[relation]
     if legal is not None and key["collection"] not in legal:
         raise ValueError(f"relation {relation} does not accept keys in {key['collection']}")
+    if relation == "audit_scope":
+        from .assessment import audit_scope_members_sql
+        return audit_scope_members_sql(conn, key, revision)
     members = referrers(conn, owners, field_path, [(key["collection"], key["id"])], revision=revision)
     if relation == "uses_in_group":
         # New applications own inference membership. Historical v3 uses remain

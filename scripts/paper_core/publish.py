@@ -24,7 +24,7 @@ from .storage import Database, now_iso, paper_record
 
 RENDERER = Path(__file__).resolve().parent / "renderer" / "render_projection.mjs"
 RENDER_TIMEOUT = 120
-FRAGMENT_FIELDS = ("statement", "reason", "needed_form", "rationale", "conditions", "reasoning", "description",
+FRAGMENT_FIELDS = ("label", "statement", "reason", "needed_form", "rationale", "conditions", "reasoning", "description",
                    "proof_idea", "regime", "uncertainty", "impact_reason")
 COUNT_NAMES_STATES = ("green", "red", "gray", "amber")
 
@@ -479,6 +479,71 @@ def _reader_failures(scan, projection):
     for key in expected:
         if shown[key] != 1:
             failures.append(f"reader field missing or duplicated in its context: {key}")
+
+    explanations = {}
+    for detail_key, detail in projection["details"].items():
+        for field, prefix in (("targets", "target"), ("applications", "application")):
+            for index, row in enumerate((detail.get("reader") or {}).get(field, [])):
+                if row.get("support_explanation"):
+                    explanations[detail_key, f"{prefix}:{index}"] = row["support_explanation"]
+    for connection in projection["connections"]:
+        applications = {row["use_id"]: row for row in connection.get("applications", [])}
+        identities = list(dict.fromkeys(connection["primary_use_ids"] + list(applications)))
+        for index, identity in enumerate(identities):
+            if explanation := applications.get(identity, {}).get("support_explanation"):
+                explanations[connection["detail_key"], f"application:{index}"] = explanation
+    shown_explanations = Counter()
+
+    def support_visible(element, key):
+        if not inside_overview(element, key[0]):
+            return False
+        for parent in ancestors(element):
+            # Internal, historical and summary applications may be disclosed as a
+            # whole. Their support notice must remain visible within that row.
+            if key[1].startswith("application:") and "data-reader-application" in parent["attrs"]:
+                return parent["attrs"]["data-reader-application"] == key[1].split(":")[1]
+            if parent["tag"] == "details" and "open" not in parent["attrs"]:
+                return False
+        return True
+
+    for element in scan.elements:
+        attrs = element["attrs"]
+        if "data-reader-support" not in attrs:
+            continue
+        key = attrs.get("data-reader-detail"), attrs["data-reader-support"]
+        shown_explanations[key] += 1
+        explanation = explanations.get(key)
+        if explanation is None or not support_visible(element, key):
+            failures.append(f"unexpected or hidden reader support explanation: {key}")
+            continue
+        children, pending = [], list(element["children"])
+        while pending:
+            child = pending.pop()
+            children.append(child)
+            pending.extend(child["children"])
+        messages = [e for e in children if "data-reader-support-message" in e["attrs"]]
+        if attrs.get("data-reader-support-code") != explanation["code"] \
+                or attrs.get("data-reader-support-availability") != explanation["availability"] \
+                or len(messages) != 1 or "".join(messages[0]["text"]).strip() != explanation["message"] \
+                or not support_visible(messages[0], key):
+            failures.append(f"reader support explanation differs from its snapshot: {key}")
+        links = {field.removesuffix("_ref"): ref for field, ref in explanation.items()
+                 if field.endswith("_ref") and ref}
+        application = next((ref for ref in explanation["path_refs"] if ref["collection"] == "uses"), None)
+        if application:
+            links["application"] = application
+        shown_links = [e for e in children if "data-reader-support-link" in e["attrs"]]
+        if Counter(e["attrs"]["data-reader-support-link"] for e in shown_links) != Counter(links.keys()):
+            failures.append(f"reader support links differ from their context: {key}")
+        for link in shown_links:
+            ref = links.get(link["attrs"]["data-reader-support-link"])
+            if ref is None or link["attrs"].get("data-reader-support-ref") != pin(ref) \
+                    or not support_visible(link, key) \
+                    or not any(child["attrs"].get("data-jump-record") == pin(ref) for child in link["children"]):
+                failures.append(f"reader support link does not reach its pinned evidence: {key}")
+    for key in explanations:
+        if shown_explanations[key] != 1:
+            failures.append(f"reader support explanation missing or duplicated: {key}")
     return failures
 
 

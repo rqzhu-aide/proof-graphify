@@ -6,7 +6,7 @@ New-format code never imports the legacy ``proofcheck.py`` monolith.
 """
 from __future__ import annotations
 
-CORE_VERSION = "2.3.0"
+CORE_VERSION = "2.3.1"
 STORAGE_FORMAT = 4
 CONTRACT_VERSION = 4
 CONTRACT_NAME = "proofcheck-records/4"
@@ -32,7 +32,8 @@ DEFAULT_FEATURES = (
     "route-review/1",
 )
 WORK_CONTEXT_EXTENSION_FEATURE = "work-context-extension/1"
-SUPPORTED_FEATURES = DEFAULT_FEATURES + (WORK_CONTEXT_EXTENSION_FEATURE,)
+AUDIT_SCOPE_BINDING_FEATURE = "audit-scope-binding/1"
+SUPPORTED_FEATURES = DEFAULT_FEATURES + (WORK_CONTEXT_EXTENSION_FEATURE, AUDIT_SCOPE_BINDING_FEATURE)
 STORAGE_FORMATS_READABLE = (2, 3, 4)
 STORAGE_FORMATS_WRITABLE = (4,)
 LEGACY_OVERVIEW_FORMAT = "archify-paper-database-1"
