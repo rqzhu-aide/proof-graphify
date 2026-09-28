@@ -2,6 +2,8 @@
 
 Start with the paper's main results, then include prerequisites that materially explain them. There is no fixed node count or one-hop limit. A supporting statement unrelated to the selected results calls for a relevance check; a main result with no located prerequisites is valid without invented arrows. Describe the selection and omitted material once in `scope`.
 
+Check the supplied manuscript files for relevant companion TeX, appendix, or supplement content before describing a proof as unavailable. Respect an explicit main-text-only scope; describe supplied material excluded by scope as omitted rather than unavailable.
+
 Use the [minimal seed](../examples/representer-theorem/seed.json) and [database workflow](database.md). A seed declares `schema_version: 3` and has `source`; a captured export instead has `source_revision` and generated bookkeeping. Do not combine the two forms. New work uses `init --focused`.
 
 ## Statements and main-result roles
@@ -10,7 +12,7 @@ Use the [minimal seed](../examples/representer-theorem/seed.json) and [database 
 |---|---|
 | Dataset | `schema_version`, `title`, `scope`, `source`, `items`, `uses`, nonempty `main_items` |
 | Source | `title`; `file` when the root manuscript is a file |
-| Item | `id`, `kind`, `label`, `caption`, `statement: {form, text}`, and `source` or nonempty `passages`; optional `proof_idea` |
+| Item | `id`, `kind`, `label`, `caption`, `statement: {form, text}`, and `source`, nonempty `passages`, or both (`source` becomes the first `statement` passage); optional `proof_idea` |
 | Use | `from`, `to`, `reason`; optional `id`, `type`, `source`, `regime`, `issue` |
 
 Choose stable IDs independent of printed numbering. `main_items` contains unique IDs from the selected major statements; it identifies main-result roles, not a separate record type or a filter. A main theorem may support another main theorem while retaining one identity.
@@ -21,11 +23,11 @@ Represent one physical statement once. Several equations defining one coherent s
 
 For a main result, use `proof_idea` to explain the written argument's central mechanism and how its important inputs work together, usually in two to four sentences. For example: projection preserves training evaluations, while a nonzero orthogonal component increases the norm, so a strictly increasing penalty excludes it at a finite minimizer. Name the essential restriction or turning point instead of repeating the conclusion or listing lemma numbers. An informative caption such as “Projection preserves predictions” can expose the same mechanism briefly.
 
-Store this explanation as a nonempty string on the item, separate from its precise statement. Ground it in the item's proof/evidence passages and the located contributions already being read; add a passage only when needed to support the explanation. Compare it in the same item review. Supporting lemmas may also benefit, but assumptions and definitions need no routine proof idea. If the written argument is missing or unclear, omit the explanation and disclose the limitation in the existing `issue` or scope. Do not invent a strategy or add proof-step nodes to fill the section. Existing records without the field remain usable.
+Store this explanation as a nonempty string on the item, separate from its precise statement. Ground it in the item's proof/evidence passages and the located contributions already being read; add a passage only when needed to support the explanation. Compare it in the same item review. Supporting lemmas may also benefit, but assumptions and definitions need no routine proof idea. When the full proof is unavailable, an explicit main-text argument description can support a limited `proof_idea`; identify that basis and keep to the mechanism it states. A bound or conclusion alone does not establish how the proof uses it. If the available text leaves the argument unclear, omit the explanation and disclose the limitation in the existing `issue` or scope. Do not invent a strategy or add proof-step nodes to fill the section. Existing records without the field remain usable.
 
 Use ordinary Unicode prose with explicitly delimited LaTeX in statements, proof ideas, reasons, issues, regimes, and scope. JSON encodes a single LaTeX backslash as `\\`, for example `"\\(X_n\\xrightarrow{p}X\\)"`; after JSON parsing the text has single backslashes. Read private macro definitions and write their meaning with standard LaTeX commands in authored summaries. Preserve captured passages literally. Check representative notation in the current draft before bulk comparisons when needed, using `math_diagnostics` to locate repairs; do not replace the database to repair display text.
 
-Invalid JSON escapes fail immediately; valid escapes such as `\r`, `\n`, and `\t` can silently consume the beginning of a LaTeX command. For math-heavy seeds or batches, an optional Python serializer avoids manual escaping. Given an existing `seed` object:
+Invalid JSON escapes fail immediately; valid escapes such as `\r`, `\n`, and `\t` can silently consume the beginning of a LaTeX command. For math-heavy seeds or batches, an optional Python serializer avoids manual escaping. Run this example from the chosen overview folder, or give its absolute `work/seed.json` path. Given an existing `seed` object:
 
 ```python
 import json
@@ -77,7 +79,7 @@ Use page-only locations for a PDF. This seed illustrates the shape; replace the 
 }
 ```
 
-Each PDF anchor captures the whole physical page's extracted text. Line ranges require a captured text source; they cannot select lines within a PDF page. Use an available page-viewing tool or a shared renderer such as PyMuPDF for page images; `pypdf` extracts text but does not render images. No second extractor is required. Establish image capability on the first page inspection already needed: correct an ordinary path error, but stop retrying a route that explicitly cannot supply usable images. Capability depends on the available tool, not the agent name; a missing browser does not imply missing image input.
+Each PDF anchor captures the whole physical page's extracted text. Line ranges require a captured text source; they cannot select lines within a PDF page. Use an available page-viewing tool or a shared renderer such as PyMuPDF for page images; `pypdf` extracts text but does not render images. No second extractor is required. Establish image capability on the first page inspection already needed: correct an ordinary path error, but stop retrying a route that explicitly cannot supply usable images. Check the available tool's image capabilities; a missing browser does not imply missing image input.
 
 Prefer direct PDF anchors. Extraction replacements such as `�` disclose lost characters, not recovered mathematics. If a derived transcript is genuinely needed, register the original PDF as a source before comparisons and disclose the derivation; transcript lines are text evidence and supplemental PDF pages are navigation metadata. Never guess missing glyphs. Apply the formula comparison guidance below to the affected records.
 

@@ -113,7 +113,7 @@ function dispatch(target, event) {
     }
   }
 }
-let active = null, relation = null;
+let active = null, relation = null, centers = 0;
 const focus = {
   active: () => active, relationship: () => relation,
   set(id) { active = id; relation = null; chip.hidden = false; svg.setAttribute('data-focus-active', id); notifyFocus(); },
@@ -128,7 +128,7 @@ svg.addEventListener('click', event => {
 });
 document.getElementById('btn-focus-clear').addEventListener('click', () => focus.clear());
 const context = vm.createContext({
-  document, window, Archify: { focus, view: { centerAt() {}, reset() {} } },
+  document, window, Archify: { focus, view: { centerAt() { centers++; }, reset() {} } },
   MutationObserver: class { constructor(callback) { this.callback = callback; } observe() { observers.push(this.callback); } },
   requestAnimationFrame: schedule, cancelAnimationFrame: id => callbacks.delete(id),
   setTimeout: schedule, clearTimeout: id => callbacks.delete(id),
@@ -137,6 +137,7 @@ const context = vm.createContext({
 const runtime = packet.scripts.find(source => source.includes("JSON.parse(document.getElementById('proof-overview-data').textContent)"));
 assert(runtime, 'Generated proof runtime is missing.');
 vm.runInContext(runtime, context); flush();
+assert.equal(centers, 0, 'Opening the overview must retain the complete selected graph.');
 assert(!container.contains(chip), 'Details remain constrained by the shallow diagram instead of following it in document flow.');
 assert.equal(chip.parentElement, container.parentElement, 'Details must remain in the reader document beside the diagram.');
 const panel = document.getElementById('proof-selection');
@@ -148,6 +149,7 @@ assert(!panel.innerHTML.includes('RESULT_TEXT'));
 assert.equal(scrolls.at(-1), 'focus-chip', 'Selecting an ordinary item must reveal its details.');
 
 dispatch(document.querySelector('[data-proof-main="result"]'), { type: 'click' }); flush();
+assert(centers > 0, 'Explicit result navigation must retain its readable camera view.');
 assert.match(panel.innerHTML, /RESULT_TEXT/);
 assert.equal(scrolls.at(-1), 'focus-chip', 'Result navigation must not scroll the graph over the details.');
 

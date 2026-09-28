@@ -536,13 +536,18 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                 "next_actions": ["inspect the request, then explicitly replay the unchanged input"]}
 
 
+def initial_request_id(manifest):
+    """Stable assistance for the first attempt, not a limit on later attempts."""
+    return "req_" + digest({"command": "work submit initial", "packet_id": manifest["packet_id"]})
+
+
 def response_scaffold(manifest):
     mode = manifest["mode"]
     if mode == "independent":
         return {"packet_id": manifest["packet_id"], "covered_targets": manifest["targets"],
                 "coverage_note": "", "exposure_report": {"status": "none_known", "note": ""}, "judgments": []}
     if mode == "reconcile":
-        return {"contract_version": CONTRACT_VERSION, "request_id": new_id("request"), "packet_id": manifest["packet_id"],
+        return {"contract_version": CONTRACT_VERSION, "request_id": initial_request_id(manifest), "packet_id": manifest["packet_id"],
                 "edits": []}
     results = []
     for task in manifest["work"]["tasks"]:
@@ -556,14 +561,32 @@ def response_scaffold(manifest):
     return {"packet_id": manifest["packet_id"], "results": results, "coverage": [], "findings": []}
 
 
+def _assignment_assistance(db, result, *, assessed=None):
+    from .assistance import coordinator_guidance, skeleton, worker_guidance
+    manifest = result["manifest"]
+    mode = manifest["mode"]
+    result["initial_request_id"] = initial_request_id(manifest)
+    result["scaffold"] = response_scaffold(manifest)
+    envelope = skeleton(WORK_SUBMISSION)
+    envelope.update(request_id=result["initial_request_id"], packet_id=manifest["packet_id"])
+    result["submission_envelope_template"] = envelope
+    result["worker_guidance"] = worker_guidance(mode, composition=any(
+        task["kind"] == "composition" for task in manifest.get("work", {}).get("tasks", ())))
+    result["coordinator_guidance"] = coordinator_guidance(db, manifest, assessed=assessed)
+    result["worker_delivery_files"] = ["worker-packet.json", "response-scaffold.json", "worker-guidance.json"]
+    if mode == "reconcile":
+        result["worker_delivery_files"].append("coordinator-guidance.json")
+    result["artifact_note"] = (
+        "The envelope template is coordinator-only first-attempt assistance; fill the actual reviewer and "
+        "independent qualification/exposure before submission. Recover saved submissions by their request ID "
+        "and preserve existing authored files and IDs. Changed responses, provenance or rebase need a fresh "
+        "attempt ID. Coordinator guidance reflects the current assessment and can change after a commit; "
+        "export to a fresh explicitly chosen directory if existing files differ.")
+    return result
+
+
 def _assist(db, prepared, *, assessed=None):
-    if prepared.get("prepared"):
-        from .assistance import coordinator_guidance, worker_guidance
-        prepared["scaffold"] = response_scaffold(prepared["manifest"])
-        prepared["worker_guidance"] = worker_guidance(prepared["mode"], composition=any(
-            task["kind"] == "composition" for task in prepared["manifest"].get("work", {}).get("tasks", ())))
-        prepared["coordinator_guidance"] = coordinator_guidance(db, prepared["manifest"], assessed=assessed)
-    return prepared
+    return _assignment_assistance(db, prepared, assessed=assessed) if prepared.get("prepared") else prepared
 
 
 def extend_work(db, *, packet_id, request):
@@ -618,14 +641,18 @@ def inspect_work(db, *, request_id=None, packet_id=None, audit_id=None, limit=20
                 "response_sha256": row["response_sha256"], "packet_id": row["packet_id"]}
     if packet_id:
         row = _packet(db, packet_id)
-        from .assistance import coordinator_guidance, worker_guidance
-        return {"packet_id": packet_id, "revision": row["base_revision"], "manifest": row["manifest"],
-                "packet": _parse(db.get_blob(row["payload_sha256"]), "stored packet"),
-                "scaffold": response_scaffold(row["manifest"]),
-                "worker_guidance": worker_guidance(row["manifest"]["mode"], composition=any(
-                    task["kind"] == "composition" for task in row["manifest"].get("work", {}).get("tasks", ()))),
-                "coordinator_guidance": coordinator_guidance(db, row["manifest"]),
-                "submissions": db.work_submissions(packet_id=packet_id, limit=20)}
+        submissions = db.work_submissions(packet_id=packet_id, limit=21)
+        result = _assignment_assistance(db, {"packet_id": packet_id, "revision": row["base_revision"],
+            "manifest": row["manifest"], "packet": _parse(db.get_blob(row["payload_sha256"]), "stored packet"),
+            "submissions": submissions[:20], "submissions_truncated": len(submissions) > 20})
+        if submissions:
+            result["submission_recovery"] = {
+                "request_ids": [entry["request_id"] for entry in submissions[:20]],
+                "selection_required": True,
+                "note": "Select the saved attempt explicitly with work inspect --request REQUEST_ID. "
+                        "Its stored envelope and response bytes, including any older request ID, take precedence "
+                        "over initial templates. No attempt has been selected. Use audit history if truncated."}
+        return result
     if type(limit) is not int or not 1 <= limit <= 100:
         raise InvalidRequest("limit must be between 1 and 100")
     if db.head("audits", audit_id) is None:
@@ -664,6 +691,26 @@ def inspect_work(db, *, request_id=None, packet_id=None, audit_id=None, limit=20
 
 def write_artifacts(db, result, directory):
     """Write explicit inspection/preparation files without replacing differing files or sources."""
+    try:
+        return _write_artifacts(db, result, directory)
+    except (CoreError, OSError) as exc:
+        selector = f"--request {result['request_id']}" if result.get("request_id") else f"--packet {result['packet_id']}"
+        recovery = f'work inspect "{db.path}" {selector} --out <fresh-directory>'
+        record = {"packet_id": result.get("packet_id"), "recovery_command": recovery}
+        if result.get("request_id"):
+            record["request_id"] = result["request_id"]
+        note = f" Saved work remains available. Recover with {recovery}."
+        if isinstance(exc, CoreError):
+            exc.message += note
+            exc.args = (exc.message,)
+            exc.records.append(record)
+            exc.retry = recovery
+            raise
+        raise InvalidRequest(f"Cannot write assignment artifacts: {exc}.{note}", code="ARTIFACT_WRITE_FAILED",
+                             records=[record], retry=recovery) from exc
+
+
+def _write_artifacts(db, result, directory):
     destination = Path(directory).resolve()
     protected = {db.path.resolve()}
     paper = db.heads("papers")[0]
@@ -677,6 +724,8 @@ def write_artifacts(db, result, directory):
         for key in ("worker_guidance", "coordinator_guidance"):
             if key in result:
                 files[key.replace("_", "-") + ".json"] = canonical_bytes(result[key])
+        if "submission_envelope_template" in result:
+            files["submission-envelope-template.json"] = canonical_bytes(result["submission_envelope_template"])
     elif result.get("request_id"):
         files = {"submission-envelope.json": db.get_blob(result["envelope_sha256"]),
                  "worker-response.json": db.get_blob(result["response_sha256"])}

@@ -803,5 +803,27 @@ class IntermediateRevisionTests(unittest.TestCase):
             self.assertEqual(after_packet[key], before_packet[key], key)
 
 
+class BlankLineAnchorTests(unittest.TestCase):
+    def test_relocate_exact_keeps_unchanged_ranges_ending_on_a_blank_line(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / "main.tex").write_text("Alpha statement.\n\nProof. Done.\n\nProof. Done.\n\nEnd.\n", encoding="utf-8")
+            item = lambda identifier, start: {
+                "id": identifier, "kind": "lemma", "label": identifier.title(), "caption": "Blank-line range",
+                "statement": {"form": "synopsis", "text": "A statement."},
+                "source": {"start_line": start, "end_line": start + 1}}
+            seed = {"schema_version": 3, "title": "Blank-line anchors", "scope": "Ranges ending on blank lines.",
+                    "source": {"title": "Paper", "file": "main.tex"},
+                    "items": [item("alpha", 1), item("beta", 3), item("gamma", 5)], "uses": [], "main_items": ["alpha"]}
+            (base / "seed.json").write_text(json.dumps(seed), encoding="utf-8")
+            db = base / "records.sqlite"
+            database.init_database(db, base / "seed.json")
+            before = database.export_snapshot(db)
+            database.refresh_database(db, before["snapshot_id"], relocate_exact=True)
+            after = database.export_snapshot(db)
+            self.assertEqual(after["snapshot_id"], before["snapshot_id"])
+            self.assertEqual(after["anchors"], before["anchors"])
+
+
 if __name__ == "__main__":
     unittest.main()

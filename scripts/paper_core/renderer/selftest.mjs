@@ -162,6 +162,45 @@ function checkReader(results) {
   results.push({check:'reader:missing-strategy',ok:missing.includes('Proof-strategy summary not recorded.') && (missing.match(/proof-muted proof-stale-hint/g) || []).length === 1 && missing.includes('This status summary does not identify which change made the work stale.')});
 }
 
+function checkReaderClutter(results) {
+  const input = readerFixture(), projection = input.projection, summary = projection.summary;
+  const diagnostics = Array.from({length: 80}, (_, i) => `register establishment for items:itm_internal_${i}: no exact proof route`);
+  summary.limitations = diagnostics;
+  summary.progress.process_complete = false;
+  summary.factual = {
+    revision: projection.snapshot_revision, process_complete: false,
+    scope: {exclusions: []},
+    work: {checks: {current_complete: 0, draft: 0, needs_review: 0, historical_complete: 0, superseded: 0},
+      current_primary_outcomes: {supported: 0, gap: 0, refuted: 0, inconclusive: 0}},
+    statement_support: {counts: {available: 0, conditional: 0, unavailable: 0}, unresolved: []},
+    source_limits: [{label: 'Supplement', source_path: 'supplement.pdf', description: 'The final proof page is unavailable.'}],
+    unresolved_external_sources: [],
+    independent_review: {state: 'pending', qualification_limitations: ['Independent review is unavailable.']},
+  };
+  projection.worklist = {revision: projection.snapshot_revision, analysis_complete: true, tasks: [],
+    coordinator_actions: diagnostics.map(message => ({message}))};
+  const saved = JSON.stringify(projection), {html, receipt} = renderProjection(Buffer.from(JSON.stringify(input)));
+  const scan = scanHtml(html), problems = [];
+  const opening = scan.elements.find(row => Object.hasOwn(row.attrs, 'data-reader-report-state'));
+  const openingText = textOf(scan, opening);
+  if (openingText.includes('itm_internal_')) problems.push('technical record IDs still precede the graph');
+  for (const text of ['Audit process incomplete.', 'The final proof page is unavailable.', 'Independent review is unavailable.'])
+    if (!openingText.includes(text)) problems.push(`reader lost a material limitation: ${text}`);
+  const diagnosticRows = scan.elements.filter(row => Object.hasOwn(row.attrs, 'data-proof-limitation'));
+  const isFolded = row => { for (let parent = row.parent; parent; parent = parent.parent)
+    if (parent.tag === 'details' && !Object.hasOwn(parent.attrs, 'open')) return true; return false; };
+  if (JSON.stringify(diagnosticRows.map(row => textOf(scan, row))) !== JSON.stringify(diagnostics)
+      || !diagnosticRows.every(isFolded)) problems.push('completion diagnostics were lost or expanded by default');
+  const panel = scan.elements.find(row => row.attrs.id === 'proof-work-panel');
+  if (panel?.tag !== 'details' || Object.hasOwn(panel.attrs, 'open')) problems.push('work queue expands before the reader asks for it');
+  const targets = scan.elements.find(row => Object.hasOwn(row.attrs, 'data-proof-scope-targets'));
+  if (textOf(scan, targets).includes('items:')) problems.push('scope targets still display internal references');
+  const embedded = scan.elements.find(row => row.attrs.id === 'proof-projection');
+  if (JSON.stringify(JSON.parse(embedded.text)) !== saved || receipt.nodes !== projection.nodes.length)
+    problems.push('reader cleanup changed the saved evidence or omitted graph nodes');
+  results.push({check: 'reader:clutter-preserves-evidence-and-limitations', ok: !problems.length, problems});
+}
+
 function checkFixtures(results, workdir) {
   for (const name of PASSING) {
     const output = path.join(workdir, name.replace(/\.json$/, '.html'));
@@ -222,6 +261,7 @@ export function main() {
     checkHashes(results);
     checkFixtures(results, workdir);
     checkReader(results);
+    checkReaderClutter(results);
   } finally {
     rmSync(workdir, { recursive: true, force: true });
   }

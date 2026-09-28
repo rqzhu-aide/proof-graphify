@@ -667,26 +667,43 @@ export function layoutGraph(model) {
     components.push({ members, ranks, returnConnections, rowCount: Math.max(...ranks.map((rank) => rank.length)) });
   });
   const longConnections = model.connectionList.filter((connection) => nodes.get(connection.to).rank > nodes.get(connection.from).rank + 1);
-  let top = BOX.margin;
+  const headingHeight = components.length > 1 ? 32 : 0, gapX = 24, gapY = 68;
+  components.forEach((component) => {
+    component.width = BOX.margin * 2 + (component.ranks.length - 1) * BOX.column + BOX.w;
+    component.height = headingHeight + (component.returnConnections.length ? 20 + component.returnConnections.length * 24 : 0)
+      + (component.rowCount - 1) * BOX.row + BOX.h;
+  });
+  // Pack disconnected arguments in stable rows. Their internal ranks and routes
+  // are unchanged; an inventory of isolated results no longer forms one tall strip.
+  const widest = Math.max(...components.map((component) => component.width));
+  const area = components.reduce((sum, component) => sum + component.width * (component.height + gapY), 0);
+  const rowWidth = components.length > 1 ? Math.max(widest, Math.sqrt(area * 1.5)) : widest;
+  let left = 0, top = BOX.margin, rowBottom = top, width = 0;
   components.forEach((component, componentIndex) => {
+    if (left && left + component.width > rowWidth) {
+      left = 0;
+      top = rowBottom + gapY;
+    }
+    component.left = left;
     component.top = top;
-    component.railTop = top + (components.length > 1 ? 32 : 0);
+    component.railTop = top + headingHeight;
     component.nodeTop = component.railTop + (component.returnConnections.length ? 20 + component.returnConnections.length * 24 : 0);
     component.ranks.forEach((rank, r) => rank.forEach((node, index) => {
-      node.x = BOX.margin + r * BOX.column;
+      node.x = left + BOX.margin + r * BOX.column;
       node.y = component.nodeTop + index * BOX.row;
       node.width = BOX.w;
       node.height = BOX.h;
       node.component = componentIndex;
     }));
     component.bottom = component.nodeTop + (component.rowCount - 1) * BOX.row + BOX.h;
-    top = component.bottom + 68;
+    rowBottom = Math.max(rowBottom, component.bottom);
+    width = Math.max(width, left + component.width);
+    left += component.width + gapX;
   });
-  const rankCount = Math.max(...components.map((component) => component.ranks.length));
   return {
     nodes, components, incoming, outgoing, longConnections, feedback,
-    width: BOX.margin * 2 + (rankCount - 1) * BOX.column + BOX.w,
-    height: top - 68 + BOX.margin,
+    width,
+    height: rowBottom + BOX.margin,
   };
 }
 
@@ -1010,19 +1027,19 @@ ${external.length ? `<h4>Unresolved external suppliers</h4><ul>${external.join('
     const count = (name, value) => `<span class="proof-count" data-proof-count="${name}">${value}</span>`;
     const stateList = (prefix, tallies) => `<ul class="proof-state-list">${STATES.map((state) => `<li class="s-${state}">${stateBadge(state)} ${count(`${prefix}.${state}`, tallies[state])}</li>`).join('')}</ul>`;
     const progress = summary.progress;
-    const findingItems = summary.findings.refs.map((id) => {
+    const findingItems = summary.findings.refs.map((id, index) => {
       const record = model.recordsByLoose.get(`findings:${id}`);
       const body = record ? record.body : null;
       const meta = body ? [body.category, body.lifecycle].filter(isString).map((value) => `<span class="proof-pill">${esc(value)}</span>`).join(' ') : '<span class="proof-muted">not in projection records</span>';
       const text = body && isString(body.description) ? `<span class="proof-finding-text">${esc(body.description.length > 160 ? `${body.description.slice(0, 159)}…` : body.description)}</span>` : '';
-      return `<li data-proof-finding="${esc(id)}">${this.idLink(id, 'findings')} ${meta} ${text}</li>`;
+      return `<li data-proof-finding="${esc(id)}">${this.humanLink({collection:'findings', id}, `Finding ${index + 1}`)} ${meta} ${text}</li>`;
     });
     const limitItems = summary.source_limits.map((id) => {
       const record = model.recordsByLoose.get(`source_issues:${id}`);
       const body = record ? record.body : null;
       const meta = body ? [body.category, body.lifecycle].filter(isString).map((value) => `<span class="proof-pill">${esc(value)}</span>`).join(' ') : '';
       const text = body && isString(body.description) ? `<span class="proof-finding-text">${esc(body.description.length > 160 ? `${body.description.slice(0, 159)}…` : body.description)}</span>` : '';
-      return `<li data-proof-source-limit="${esc(id)}">${this.idLink(id, 'source_issues')} ${meta} ${text}</li>`;
+      return `<li data-proof-source-limit="${esc(id)}">${this.humanLink({collection:'source_issues', id}, 'Source limitation')} ${meta} ${text}</li>`;
     });
     const scope = summary.scope;
     const exclusionItems = summary.factual ? summary.factual.scope.exclusions.map((entry, index) =>
@@ -1071,7 +1088,7 @@ ${limitItems.length ? `<ul class="proof-finding-list">${limitItems.join('')}</ul
 <h3>Scope</h3>
 <dl class="proof-kv">
 <dt>Mode</dt><dd data-proof-scope-mode>${esc(scope.mode)}</dd>
-<dt>Audit targets</dt><dd data-proof-scope-targets>${scope.target_refs.length ? scope.target_refs.map((ref) => this.recordLink(ref, false)).join(', ') : `<span class="proof-muted">${projection.audit_id === null ? 'Recorded items; no audit selected' : 'No explicit audit targets recorded'}</span>`}</dd>
+<dt>Audit targets</dt><dd data-proof-scope-targets>${scope.target_refs.length ? scope.target_refs.map((ref) => `<span data-proof-scope-target="${esc(looseKey(ref))}">${this.humanLink(ref, this.humanLabel(ref))}</span>`).join(', ') : `<span class="proof-muted">${projection.audit_id === null ? 'Recorded items; no audit selected' : 'No explicit audit targets recorded'}</span>`}</dd>
 <dt>Audit exclusions</dt><dd data-proof-scope-exclusions>${exclusionItems.length ? `<ul class="proof-plain-list">${exclusionItems.join('')}</ul>` : '<span class="proof-muted">none recorded</span>'}</dd>
 <dt>Snapshot revision</dt><dd>${projection.snapshot_revision}</dd>
 <dt>Published revision</dt><dd>${summary.published_revision === null ? '<span class="proof-muted">not published</span>' : summary.published_revision}</dd>
@@ -1124,7 +1141,15 @@ ${reviewMark}
     const badgeSvg = this.badgesHtml(badges);
     const components = graph.components.length > 1 ? graph.components.map((component) => {
       const ends = component.members.filter((node) => !graph.outgoing.get(node.id).length).map((node) => node.source.label);
-      return `<g class="proof-component" aria-hidden="true"><path d="M 22 ${component.top + 16} H ${graph.width - 22}"/><text x="${BOX.margin}" y="${component.top + 9}" font-size="11">Linked argument: ${esc(ends.join(', '))}</text></g>`;
+      const title = component.members.length === 1 ? 'Unconnected result' :
+        `Linked argument: ${(ends.length ? ends : component.members.map((node) => node.source.label)).join(', ')}`;
+      const limit = Math.floor((component.width - 2 * BOX.margin) / (11 * 0.61));
+      let label = title;
+      if (textUnits(label) > limit) {
+        while (textUnits(label) > limit - 1) label = [...label].slice(0, -1).join('');
+        label += '…';
+      }
+      return `<g class="proof-component" aria-hidden="true"><title>${esc(title)}</title><path d="M ${component.left + 22} ${component.top + 16} H ${component.left + component.width - 22}"/><text x="${component.left + BOX.margin}" y="${component.top + 9}" font-size="11">${esc(label)}</text></g>`;
     }).join('\n') : '';
     const markers = STATES.map((state) => `<marker id="proof-arrow-${state}" markerWidth="8" markerHeight="6" refX="7.2" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 3 L0 6 Z" class="proof-arrowhead s-${state}"/></marker>`).join('');
     return `<svg class="proof-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${graph.width} ${graph.height}" width="${graph.width}" height="${graph.height}" role="group" aria-labelledby="proof-graph-heading" aria-describedby="proof-graph-desc">
@@ -1140,6 +1165,8 @@ ${nodes.join('\n')}
   badgesHtml(badges) {
     const { graph } = this;
     const occupied = [...graph.nodes.values()].map((node) => ({ x: node.x - 6, y: node.y - 6, w: BOX.w + 12, h: BOX.h + 12 }));
+    if (graph.components.length > 1) graph.components.forEach((component) =>
+      occupied.push({x:component.left + 22, y:component.top - 3, w:component.width - 44, h:26}));
     const intersects = (a, b) => a.x < b.x + b.w + 3 && a.x + a.w + 3 > b.x && a.y < b.y + b.h + 3 && a.y + a.h + 3 > b.y;
     return badges.map(({ connection, description, labels, points }) => {
       const w = Math.max(...labels.map((label) => textUnits(label))) * 5.7 + 12, h = labels.length * 14 + 6;
@@ -1259,7 +1286,7 @@ ${articles.join('\n')}
 
   detailHtml(key, detail) {
     const owners = this.owners.get(key) || [];
-    const header = owners.length ? owners.map((owner) => (owner.type === 'node' ? this.nodeHeader(owner.node, detail.reader) : this.connectionHeader(owner.connection))).join('\n') : `<div class="proof-detail-owner"><h3 class="proof-detail-heading" tabindex="-1">${esc(key)}</h3></div>`;
+    const header = owners.length ? owners.map((owner) => (owner.type === 'node' ? this.nodeHeader(owner.node, detail.reader) : this.connectionHeader(owner.connection))).join('\n') : `<div class="proof-detail-owner"><h3 class="proof-detail-heading" tabindex="-1">${key.startsWith('audit:') ? 'Whole-audit examinations' : 'Audit evidence'}</h3></div>`;
     const sections = detail.sections.map((section) => this.sectionHtml(key, section)).join('\n');
     const recordLinks = detail.record_refs.length ? `<details class="proof-disclosure proof-technical"><summary>Technical record index (${detail.record_refs.length})</summary><p class="proof-detail-key">${esc(key)}</p><p class="proof-detail-records">${detail.record_refs.map((ref) => this.recordLink(ref, true)).join(', ')}</p></details>` : '';
     const outgoing = owners.filter(o => o.type === 'node').flatMap(o => this.model.connectionList.filter(c => c.from === o.node.id));
@@ -1571,8 +1598,14 @@ ${headline}
 
   readerReportState() {
     const summary = this.model.summary;
-    const limits = [...(summary.limitations || []), ...(summary.factual?.source_limits || []).map(row => `${row.source_path || row.label}: ${row.description}`), ...(summary.factual?.independent_review?.qualification_limitations || [])];
-    return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${summary.progress.process_complete ? 'Required audit process complete.' : 'Audit process incomplete.'} Mathematical support is stated separately for each result and application.</p>${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}</section>`;
+    // Completion diagnostics remain in the summary disclosure. Their raw record
+    // IDs can otherwise fill several screens before a reader reaches the graph.
+    const limits = [...(summary.factual?.source_limits || []).map(row => `${row.source_path || row.label}: ${row.description}`), ...(summary.factual?.independent_review?.qualification_limitations || [])];
+    const nodes = this.model.nodeList.length, connections = this.model.connectionList.length;
+    const mapState = !nodes ? 'No results have been recorded in this report.' : !connections
+      ? `${nodes} results are recorded, but no connections between them are recorded. This does not establish that the results are independent.`
+      : `${nodes} results and ${connections} connections are shown in the recorded map.`;
+    return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${summary.progress.process_complete ? 'Required audit process complete.' : 'Audit process incomplete.'} Mathematical support is stated separately for each result and application.</p><p class="proof-muted">${mapState}</p>${summary.limitations?.length ? '<p class="proof-muted">Unresolved audit requirements are listed in the audit progress below.</p>' : ''}${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}</section>`;
   }
 
   page(fontStyle) {
@@ -1581,8 +1614,9 @@ ${headline}
     const beforeGraph = `<div id="proof-main" class="proof-reader"><p class="proof-kicker">Proof audit${model.build.kind === 'release' ? ' · release' : ' · working copy'}</p>${this.readerReportState()}<details class="proof-build-disclosure"><summary>Audit progress, findings and source version</summary><p class="proof-build">${this.buildLine()}</p>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
 ${mainNavigation(model.nodeList, model.connectionList, requested)}
 <h2 id="proof-graph-heading" class="proof-visually-hidden">Dependency graph</h2><p id="proof-graph-desc" class="proof-visually-hidden">Major results and their recorded uses. Connection colors describe the represented assessments under declared premises.</p>`;
+    const pendingWork = model.projection.worklist?.tasks.filter(task => task.required && task.state !== 'satisfied').length;
     const afterGraph = `<div class="proof-reader">${this.graph ? this.legendHtml() : this.indexHtml()}
-${model.projection.worklist ? '<section id="proof-work-panel" class="proof-panel" aria-labelledby="proof-work-heading"><h2 id="proof-work-heading">Work remaining</h2><p>These are examination states, separate from the proof support colors.</p><p id="proof-work-status" role="status"></p><ol id="proof-work-list"></ol><button id="proof-work-more" type="button">Show more</button><ul id="proof-work-actions"></ul></section>' : ''}
+${model.projection.worklist ? `<details id="proof-work-panel" class="proof-panel proof-disclosure" aria-labelledby="proof-work-heading"><summary id="proof-work-heading">Remaining audit work${pendingWork ? ` (${pendingWork} examinations)` : ''}</summary><p>These are examination states, separate from the proof support colors.</p><p id="proof-work-status" role="status"></p><ol id="proof-work-list"></ol><button id="proof-work-more" type="button">Show more</button><ul id="proof-work-actions"></ul></details>` : ''}
 <section id="proof-search-panel" class="proof-panel" aria-labelledby="proof-search-heading">
 <h2 id="proof-search-heading">Search the audit record</h2>
 <div class="proof-search-row"><label for="proof-search">Search every record body in this projection</label><input id="proof-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search records, e.g. lemma or an identifier"></div>
@@ -2335,7 +2369,7 @@ const RUNTIME_JS = `(function () {
       event.preventDefault(); event.stopPropagation();
       viewer.focus.inspectRelationshipById(badge.getAttribute('data-edge-badge'), { toggle: false });syncViewer();
     }, true);
-    requestAnimationFrame(function () { syncViewer();readableView(viewer.focus.active()); });
+    requestAnimationFrame(syncViewer);
   } else {
     // The index uses the same shell, but exporting a hidden empty camera would be misleading.
     var exportButton = doc.getElementById('btn-export');

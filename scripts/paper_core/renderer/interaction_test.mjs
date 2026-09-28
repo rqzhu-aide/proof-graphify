@@ -2,9 +2,41 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { renderProjection } from './render_projection.mjs';
+import { BOX, layoutGraph, renderProjection } from './render_projection.mjs';
 import { scanHtml, textOf } from './html_scan.mjs';
 import { readerFixture } from './selftest.mjs';
+
+function disconnectedLayout() {
+  const isolated = {nodeList:Array.from({length:18}, (_, i) => ({id:`isolated_${i}`})), connectionList:[], layout:{mode:'dag'}};
+  const compact = layoutGraph(isolated);
+  assert(compact.height < 1200, 'An unconnected inventory must not become an unreadably tall single column.');
+  assert(new Set([...compact.nodes.values()].map(node => node.x)).size > 1,
+    'Disconnected components should use the available horizontal space.');
+  assert.deepEqual([...compact.nodes.keys()], isolated.nodeList.map(node => node.id));
+  assert.deepEqual([...layoutGraph(isolated).nodes.values()], [...compact.nodes.values()], 'Packing must remain deterministic.');
+
+  // Different component widths/heights and a return edge exercise row packing,
+  // while all inferential ranks and directions stay inside their own component.
+  const mixed = {nodeList:Array.from({length:14}, (_, i) => ({id:`mixed_${i}`})),
+    connectionList:[[0,1],[1,2],[2,0],[3,4],[4,5],[3,5],[6,7],[6,8],[6,9]]
+      .map(([from,to],i) => ({id:`edge_${i}`,from:`mixed_${from}`,to:`mixed_${to}`})), layout:{mode:'cyclic'}};
+  const graph = layoutGraph(mixed);
+  for (const edge of mixed.connectionList)
+    assert.equal(graph.nodes.get(edge.from).component, graph.nodes.get(edge.to).component);
+  for (const component of graph.components) {
+    assert(component.left >= 0 && component.left + component.width <= graph.width);
+    assert(component.top >= 0 && component.bottom <= graph.height);
+    for (const node of component.members) {
+      assert(node.x >= component.left && node.x + BOX.w <= component.left + component.width);
+      assert(node.y >= component.top && node.y + BOX.h <= component.bottom);
+    }
+    for (const other of graph.components) if (component !== other)
+      assert(component.left + component.width <= other.left || other.left + other.width <= component.left ||
+        component.bottom <= other.top || other.bottom <= component.top, 'Packed components must not overlap.');
+  }
+  return {fixture:'disconnected components', nodes:compact.nodes.size, width:compact.width, height:compact.height,
+    mixed_components:graph.components.length, stable_layout:true};
+}
 
 function runFixture(name, withWork = false, withReader = false) {
   const input = withReader ? readerFixture() : JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
@@ -164,6 +196,7 @@ function runFixture(name, withWork = false, withReader = false) {
     requestAnimationFrame: schedule, setTimeout: schedule, clearTimeout: id => callbacks.delete(id) });
   const runtime = scripts.find(s => s.attrs.id === 'proof-runtime');
   vm.runInContext(runtime.text, context); flush();
+  assert.equal(centers, 0, 'Opening a report must retain the complete graph instead of zooming into an arbitrary node.');
   const detail = key => document.querySelector(`[data-proof-detail="${key}"]`);
   if (withWork) {
     const panel = document.getElementById('proof-work-list'), more = document.getElementById('proof-work-more');
@@ -201,7 +234,8 @@ function runFixture(name, withWork = false, withReader = false) {
     const main = document.querySelector('[data-proof-main]'); main.click(); flush();
     assert.equal(active, main.getAttribute('data-proof-main'));
     document.getElementById('proof-full-structure').click(); flush(); assert.equal(reset, 1);
-    document.getElementById('proof-readable-view').click(); assert(centers >= 2);
+    const beforeReadable = centers;
+    document.getElementById('proof-readable-view').click(); assert(centers > beforeReadable);
     const previousCenters = centers;
     const showInGraph = document.querySelector('[data-focus-node]'); showInGraph.click(); flush();
     assert.equal(active, showInGraph.getAttribute('data-focus-node'));
@@ -275,6 +309,7 @@ function runFixture(name, withWork = false, withReader = false) {
 }
 
 console.log(JSON.stringify([
+  disconnectedLayout(),
   ...['dag_small.json', 'index_fallback.json', 'long_math.json'].map(name => runFixture(name)),
   runFixture('dag_small.json', true), runFixture('index_fallback.json', true),
   runFixture('dag_small.json', false, true),

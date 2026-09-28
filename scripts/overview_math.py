@@ -39,6 +39,12 @@ _ATTRIBUTES = frozenset((
     "separators equalrows equalcolumns columnlines rowlines frame framespacing "
     "side minlabelspacing rowspan columnspan"
 ).split())
+_DECODED_ESCAPE = re.compile(
+    r"\t(?:heta|au|imes|ilde|riangle|frac|o(?!\s*\())(?![A-Za-z])"
+    r"|\n(?:abla|otin)(?![A-Za-z])"
+    r"|\r(?:Vert|vert|ho|ight(?:arrow)?|angle|floor|ceil|brace)(?![A-Za-z])")
+_CONTROL_NAMES = {"\t": "tab", "\n": "newline", "\r": "carriage return"}
+_CONTROL_LETTERS = {"\t": "t", "\n": "n", "\r": "r"}
 
 
 def _escaped(text: str, index: int) -> bool:
@@ -93,15 +99,17 @@ def _spans(text: str):
 
 def _check_tex(tex: str) -> None:
     """Reject structures the converter can otherwise silently discard or expand."""
-    # JSON accepts \r, so an under-escaped \rVert becomes a carriage return
-    # followed by Vert. The converter then renders the remaining letters as
-    # mathematics without an error. Only flag these distinctive remnants:
-    # ordinary whitespace and ambiguous newline/tab + words are not evidence
-    # of a lost command. A CRLF does not match, nor does a longer identifier.
-    damaged = re.search(r"\r(Vert|vert)(?![A-Za-z])", tex)
+    # JSON accepts \t, \n and \r, so an under-escaped \rVert becomes a carriage
+    # return followed by Vert (likewise \theta, \rho, \nabla). The converter then
+    # renders the remaining letters as mathematics without an error. Only flag
+    # these distinctive remnants: ordinary whitespace and ambiguous newline/tab +
+    # words (such as eq, ext, u) are not evidence of a lost command. A CRLF does
+    # not match, nor does a longer identifier or little-o notation.
+    damaged = _DECODED_ESCAPE.search(tex)
     if damaged:
-        raise ValueError("likely decoded LaTeX escape: carriage return + " + damaged[1]
-                         + "; check JSON escaping for \\r" + damaged[1])
+        control, remnant = damaged[0][0], damaged[0][1:]
+        raise ValueError("likely decoded LaTeX escape: " + _CONTROL_NAMES[control] + " + " + remnant
+                         + "; check JSON escaping for \\" + _CONTROL_LETTERS[control] + remnant)
     depth = 0
     for index, character in enumerate(tex):
         if character in "{}" and not _escaped(tex, index):

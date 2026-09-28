@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import paper_records as records
@@ -114,6 +115,83 @@ class LocatorDiagnosticsTests(unittest.TestCase):
         files, notes = records._capture([self.source], self.base)
         self.assertEqual({file['path'] for file in files}, {'main.tex', 'proof.tex'})
         self.assertEqual(notes, [])
+
+
+class CaptureContainmentTests(unittest.TestCase):
+    """Discovered inputs stay under the manuscript root; explicit sources may live anywhere."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.outer = Path(self.tmp.name).resolve()
+        self.base = self.outer / 'paper'
+        self.base.mkdir()
+        self.source = self.base / 'main.tex'
+        (self.outer / 'private.tex').write_text('Outside the manuscript.\n', encoding='utf-8')
+        (self.outer / 'private.sty').write_text('\\newcommand{\\secret}{}\n', encoding='utf-8')
+
+    def test_relative_and_absolute_escapes_are_reported_not_captured(self):
+        absolute = (self.outer / 'private.tex').as_posix()
+        self.source.write_text('\\documentclass{article}\n\\usepackage{../private}\n'
+                               '\\input{../private}\n\\input{' + absolute + '}\n', encoding='utf-8')
+        files, notes = records._capture([self.source], self.base)
+        self.assertEqual([file['path'] for file in files], ['main.tex'])
+        self.assertEqual(len([note for note in notes if 'outside the manuscript root' in note]), 3)
+
+    def test_network_input_is_rejected_before_the_filesystem_is_probed(self):
+        probed, is_file = [], Path.is_file
+
+        def recording(path):
+            probed.append(str(path))
+            return False if str(path).startswith(('//', '\\\\')) else is_file(path)
+
+        self.source.write_text('\\input{//fileserver.invalid/share/notes}\n', encoding='utf-8')
+        with mock.patch.object(Path, 'is_file', autospec=True, side_effect=recording):
+            files, notes = records._capture([self.source], self.base)
+        self.assertEqual([file['path'] for file in files], ['main.tex'])
+        self.assertFalse(any('fileserver' in path for path in probed))
+        self.assertIn('outside the manuscript root', notes[0])
+
+    def test_in_root_parent_segments_are_still_captured(self):
+        (self.base / 'chapters').mkdir()
+        (self.base / 'macros.tex').write_text('Macros.\n', encoding='utf-8')
+        (self.base / 'shared.tex').write_text('Shared.\n', encoding='utf-8')
+        (self.base / 'chapters' / 'one.tex').write_text('\\input{../shared}\n', encoding='utf-8')
+        self.source.write_text('\\documentclass{article}\n\\input{chapters/../macros}\n'
+                               '\\input{chapters/one}\n', encoding='utf-8')
+        files, notes = records._capture([self.source], self.base)
+        self.assertEqual({file['path'] for file in files},
+                         {'main.tex', 'macros.tex', 'chapters/one.tex', 'shared.tex'})
+        self.assertEqual(notes, [])
+
+    def test_explicit_outside_source_and_its_local_inputs_are_captured(self):
+        (self.outer / 'appendix').mkdir()
+        appendix = self.outer / 'appendix' / 'proofs.tex'
+        appendix.write_text('\\input{lemma}\n', encoding='utf-8')
+        (self.outer / 'appendix' / 'lemma.tex').write_text('Lemma proof.\n', encoding='utf-8')
+        self.source.write_text('\\documentclass{article}\nBody.\n', encoding='utf-8')
+        files, notes = records._capture([self.source, appendix], self.base)
+        self.assertEqual({Path(file['path']).name for file in files}, {'main.tex', 'proofs.tex', 'lemma.tex'})
+        self.assertEqual(notes, [])
+
+    def test_input_naming_an_explicit_outside_source_is_captured_without_a_note(self):
+        # A refresh passes back every file captured earlier, including one an older
+        # version discovered outside the root; the note must not contradict the capture.
+        self.source.write_text('\\documentclass{article}\n\\input{../private}\n', encoding='utf-8')
+        files, notes = records._capture([self.source, self.outer / 'private.tex'], self.base)
+        self.assertEqual({Path(file['path']).name for file in files}, {'main.tex', 'private.tex'})
+        self.assertEqual(notes, [])
+
+    def test_in_root_link_to_an_outside_file_is_not_followed(self):
+        link = self.base / 'linked.tex'
+        try:
+            link.symlink_to(self.outer / 'private.tex')
+        except (OSError, NotImplementedError):
+            self.skipTest('symbolic links are unavailable')
+        self.source.write_text('\\input{linked}\n', encoding='utf-8')
+        files, notes = records._capture([self.source], self.base)
+        self.assertEqual([file['path'] for file in files], ['main.tex'])
+        self.assertIn('outside the manuscript root', notes[0])
 
 
 if __name__ == '__main__':

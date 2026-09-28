@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import CONTRACT_NAME, CONTRACT_VERSION, CORE_VERSION, PACKET_VERSION, PROJECTION_VERSION, STORAGE_FORMAT
 from .acceptance import apply_batch
-from .errors import CoreError, InvalidRequest
+from .errors import CoreError, InvalidRequest, PublicationError
 from .export_import import import_legacy, migrate_overview, write_export
 from .ids import COLLECTIONS, PREFIXES, new_id
 from .packets import MODES, get_packet
@@ -361,27 +361,65 @@ def cmd_work_list(args):
 
 def _compact_work(result):
     return {k: v for k, v in result.items()
-            if k not in ("packet", "manifest", "scaffold", "worker_guidance", "coordinator_guidance")}
+            if k not in ("packet", "manifest", "scaffold", "worker_guidance", "coordinator_guidance",
+                         "submission_envelope_template")}
+
+
+def _work_commands(db, audit_id):
+    flags = [str(db.path.resolve()), "--audit", audit_id]
+    return [[PROG, "work", "list", *flags], [PROG, "status", *flags]]
+
+
+def _preparation_diagnostic(db, result, audit_id):
+    """Explain an empty selection using existing assessment and selection diagnostics."""
+    if result.get("prepared"):
+        return
+    state = query_status(db, audit_id=audit_id)
+    codes = {row.get("code") for row in result.get("diagnostics", [])}
+    deferred = result.get("deferred_reasons", result.get("deferred", []))
+    reasons = {row.get("reason") for row in deferred if isinstance(row, dict)}
+    if state["process_complete"]:
+        reason = "recorded_scope_complete"
+    elif "OVERSIZED_CONTEXT" in codes or "packet_size_limit" in reasons:
+        reason = "packet_size_limit"
+    elif result.get("coordinator_actions") or "needs_coordinator" in reasons:
+        reason = "coordinator_work"
+    else:
+        reason = "prerequisites_or_remaining_work"
+    result["preparation"] = {"reason": reason, "revision": state["revision"],
+                             "process_complete": state["process_complete"],
+                             "next_commands": _work_commands(db, audit_id)}
+
+
+def _write_work_artifacts(db, result, directory):
+    from .controller import write_artifacts
+    try:
+        return write_artifacts(db, result, directory)
+    except CoreError as exc:
+        kind, identifier = ("--packet", result["packet_id"]) if "packet" in result else (
+            "--request", result["request_id"])
+        exc.records.append({"next_command": [PROG, "work", "inspect", str(db.path.resolve()),
+                                               kind, identifier, "--out", "<new-output-directory>"],
+                            "note": "Inspect the saved work; keep differing files and use a new output directory."})
+        raise
 
 
 def cmd_work_prepare(args):
-    from .controller import prepare_work, write_artifacts
+    from .controller import prepare_work
     with Database(args.db, write=True) as db:
         result = prepare_work(db, audit_id=args.audit, mode=args.mode,
                               focus=_parse_target(args.focus) if args.focus else None, task_ids=args.task,
                               exclude_task_ids=args.exclude_task, max_units=args.max_units,
                               max_bytes=args.max_bytes, allow_provisional=args.allow_provisional, route_id=args.route)
         if result.get("prepared"):
-            try:
-                result["files"] = write_artifacts(db, result, args.out)
-            except CoreError as exc:
-                exc.records.append({"packet_id": result["packet_id"], "next_action": "work inspect --packet"})
-                raise
+            result["files"] = _write_work_artifacts(db, result, args.out)
+        else:
+            _preparation_diagnostic(db, result, args.audit)
     return {"command": "work prepare", **_compact_work(result)}
 
 
 def cmd_work_extend(args):
-    from .controller import extend_work, read_bounded, write_artifacts
+    from .controller import extend_work, read_bounded
     from .canonical import load_json_bytes
     try:
         request = load_json_bytes(read_bounded(args.request, 65536))
@@ -390,11 +428,7 @@ def cmd_work_extend(args):
     with Database(args.db, write=True) as db:
         result = extend_work(db, packet_id=args.packet, request=request)
         if result.get("prepared"):
-            try:
-                result["files"] = write_artifacts(db, result, args.out)
-            except CoreError as exc:
-                exc.records.append({"packet_id": result["packet_id"], "next_action": "work inspect --packet"})
-                raise
+            result["files"] = _write_work_artifacts(db, result, args.out)
     return {"command": "work extend", **_compact_work(result)}
 
 
@@ -411,14 +445,14 @@ def cmd_work_submit(args):
 
 
 def cmd_work_inspect(args):
-    from .controller import inspect_work, write_artifacts
+    from .controller import inspect_work
     if args.audit and args.out:
         raise InvalidRequest("history inspection has no payload output; choose a request or packet")
     with Database(args.db) as db:
         result = inspect_work(db, request_id=args.request, packet_id=args.packet, audit_id=args.audit,
                               limit=args.limit, cursor=args.cursor)
         if args.out:
-            result["files"] = write_artifacts(db, result, args.out)
+            result["files"] = _write_work_artifacts(db, result, args.out)
         if "manifest" in result:
             manifest = result["manifest"]
             result["assignment"] = {"audit_id": manifest["work"]["audit_id"], "mode": manifest["mode"],
@@ -442,7 +476,10 @@ def cmd_checkpoint(args):
         projection = build_projection(db, audit_id=audit_id)
         result = publish_report(db, projection=projection, output=args.out, release=False)
     result.update({"command": "checkpoint", "audit_id": audit_id,
-                   "process_complete": projection["summary"]["progress"]["process_complete"]})
+                   "process_complete": projection["summary"]["progress"]["process_complete"],
+                   "factual_summary": projection["summary"]["factual"]})
+    if audit_id is not None and not result["process_complete"]:
+        result["next_commands"] = _work_commands(db, audit_id)
     return result
 
 
@@ -472,19 +509,44 @@ def cmd_release(args):
             blockers += [{"kind": "source_limit", "detail": s} for s in state["source_limits"]]
             blockers += [{"kind": "independent_review", "target": k, "indicator": v}
                          for k, v in state["independent"].items() if v == "disputed"]
+            checkpoint = [PROG, "checkpoint", str(db.path.resolve()), "--audit", args.audit]
+            retry = {"next_commands": [_work_commands(db, args.audit)[0]]}
+            if args.checkpoint_out is not None:
+                retry["next_commands"].insert(0, checkpoint + ["--out", str(Path(args.checkpoint_out).resolve())])
+            else:
+                # Publication history does not bind output paths to individual audits.
+                # Leave destination selection explicit rather than guessing a path to replace.
+                retry["checkpoint"] = {
+                    "command": checkpoint, "required_options": ["--out"],
+                    "instruction": "Choose this audit's existing working-report path, or report.html in a new "
+                                   "proof-check work folder, and supply it with --out. Preserve other audits' reports."}
             raise InvalidRequest(f"release refused: audit {args.audit} is not process-complete at revision {revision}",
-                                 code="RELEASE_BLOCKED", records=blockers)
+                                 code="RELEASE_BLOCKED", records=blockers,
+                                 retry=retry)
         directory = _release_directory(args.out)
         projection = build_projection(db, revision=revision, audit_id=args.audit)
-        published = publish_report(db, projection=projection, output=directory / "report.html", release=True)
-        exported = write_export(db, output=directory / "export.json", revision=revision, history=True)
-        receipt = {"command": "release", "core_version": CORE_VERSION, "storage_format": STORAGE_FORMAT,
-                   "contract": CONTRACT_NAME, "projection_version": PROJECTION_VERSION, "revision": revision,
-                   "audit_id": args.audit, "paper_id": state["paper"]["id"], "process_complete": True,
-                   "publication": published, "export": exported, "validation": {"ok": True, "warnings": validation["warnings"]},
-                   "status": {"progress": state["progress"], "assessments": state["assessments"],
-                              "independent": state["independent"], "findings": state["findings"]}}
-        _write_json(directory / "receipt.json", receipt)
+        stage = "report"
+        try:
+            published = publish_report(db, projection=projection, output=directory / "report.html", release=True)
+            stage = "export"
+            exported = write_export(db, output=directory / "export.json", revision=revision, history=True)
+            receipt = {"command": "release", "core_version": CORE_VERSION, "storage_format": STORAGE_FORMAT,
+                       "contract": CONTRACT_NAME, "projection_version": PROJECTION_VERSION, "revision": revision,
+                       "audit_id": args.audit, "paper_id": state["paper"]["id"], "process_complete": True,
+                       "publication": published, "export": exported, "validation": {"ok": True, "warnings": validation["warnings"]},
+                       "status": {"progress": state["progress"], "assessments": state["assessments"],
+                                  "independent": state["independent"], "findings": state["findings"]}}
+            stage = "receipt"
+            _write_json(directory / "receipt.json", receipt)
+        except (CoreError, OSError) as exc:
+            failure = {"delivery_complete": False, "stage": stage, "directory": str(directory.resolve()),
+                       "available_files": [name for name in ("report.html", "export.json", "receipt.json")
+                                           if (directory / name).is_file()],
+                       "next_action": "Keep the partial artifacts; inspect status before choosing a new release directory."}
+            if isinstance(exc, CoreError):
+                exc.records.append(failure)
+                raise
+            raise PublicationError(f"release {stage} could not be written: {exc}", records=[failure]) from exc
         for name in ("report.html", "export.json", "receipt.json"):
             try:
                 os.chmod(directory / name, 0o444)
@@ -741,6 +803,8 @@ def build_parser() -> argparse.ArgumentParser:
     _db_arg(p)
     p.add_argument("--audit", required=True)
     p.add_argument("--out", required=True, metavar="DIRECTORY")
+    p.add_argument("--checkpoint-out", metavar="HTML",
+                   help="working-report path for recovery guidance if release is blocked; does not change release output")
     p.set_defaults(func=cmd_release)
 
     p = sub.add_parser("export", help="write the export JSON of a snapshot")

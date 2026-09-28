@@ -193,6 +193,9 @@ def status(db: Database, *, audit_id=None, revision=None) -> dict:
         "publications": publications,
         "context": result["context"],
         "problems": result["problems"],
+        "coverage_diagnostics": result["coverage_diagnostics"],
+        "coverage_diagnostic_count": result["coverage_diagnostic_count"],
+        "coverage_diagnostics_truncated": result["coverage_diagnostics_truncated"],
     }
 
 

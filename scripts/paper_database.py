@@ -199,7 +199,7 @@ def _read_snapshot(connection, snapshot_id=None):
     """Read a digest-verified native schema-3 snapshot."""
     storage_id = snapshot_id or _head(connection)
     data = records.validate_records(_load_snapshot(connection, storage_id))
-    _check_profile(connection, data)
+    _check_profile(connection, data, check_text_evidence=False)
     return storage_id, data
 
 
@@ -212,10 +212,10 @@ def _authoring_profile(connection):
     return row[0]
 
 
-def _check_profile(connection, data):
+def _check_profile(connection, data, *, check_text_evidence=True):
     profile = _authoring_profile(connection)
     if profile == "focused":
-        records.validate_focused_authoring(data)
+        records.validate_focused_authoring(data, check_text_evidence=check_text_evidence)
     return profile
 
 
@@ -328,11 +328,18 @@ def _common_dispatch(native, db_path, *args, **kwargs):
         if Path(output).resolve() == Path(db_path).resolve():
             raise DatabaseError("Choose an output path distinct from the authoritative database.")
     if name == "backup_database":
-        with Database(db_path) as db:
-            receipt = db.backup(args[0] if args else kwargs["output_path"])
-            data, _ = overview.project(db)
-            return {"backup": receipt.get("path", str(args[0] if args else kwargs["output_path"])),
-                    "snapshot_id": records.snapshot_digest(data), "recovery": "complete common SQLite authority"}
+        output = Path(args[0] if args else kwargs["output_path"]).resolve()
+        if output == Path(db_path).resolve() or output.exists():
+            raise DatabaseError("Choose a new backup path distinct from the existing database and other files.")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with Database(db_path) as db:
+                db.backup(output)
+                data, _ = overview.project(db)
+        except CoreError as exc:
+            raise DatabaseError(str(exc)) from exc
+        return {"backup": str(output), "snapshot_id": records.snapshot_digest(data),
+                "recovery": "complete common SQLite authority"}
     write = name in {"apply_edits", "compare_records", "refresh_database", "render_database"}
     history = name == "changes_database" or name == "compare_records" and bool((args[0] if args else kwargs["batch"]).get("reuse_from"))
     if name in {"export_snapshot", "get_packet", "list_records", "candidates_database", "validate_database", "render_database", "export_database"}:
@@ -447,6 +454,10 @@ def export_snapshot(db_path, snapshot_id=None):
 def _source_root(db_path, override=None):
     if override is not None:
         return Path(override).resolve()
+    if _common_format(db_path):
+        _, Database, _, paper_record = _common_core()
+        with Database(db_path) as db:
+            return Path(paper_record(db).body["source_root"])
     connection = _connect(db_path)
     try:
         row = connection.execute("SELECT value FROM metadata WHERE key='source_root'").fetchone()
@@ -1016,7 +1027,7 @@ def validate_database(db_path, snapshot_id=None):
     try:
         connection.execute("BEGIN")
         storage_id, data = _read_snapshot(connection, snapshot_id)
-        profile = _authoring_profile(connection)
+        profile = _check_profile(connection, data)
     finally:
         connection.close()
     fidelity = records.fidelity_by_row(data)
@@ -1039,7 +1050,7 @@ def render_database(db_path, output_path, snapshot_id=None):
     try:
         connection.execute("BEGIN")
         storage_id, data = _read_snapshot(connection, snapshot_id)
-        profile = _authoring_profile(connection)
+        profile = _check_profile(connection, data)
     finally:
         connection.close()
     receipt = _render_validated_dataset(data, _source_root(db_path), Path(output_path), protected_paths=(Path(db_path),))

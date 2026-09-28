@@ -2,7 +2,7 @@
 
 This folder describes the maintained Proof Graphify package and its shared-backend boundary. The [skill](../SKILL.md) and [database guide](../references/database.md) give operating instructions.
 
-The current skill release is `v3.1.4`, with shared `paper_core` version `2.3.1`.
+The current skill version is `3.1.9`, with shared `paper_core` version `2.3.4`.
 
 Read [architecture.md](architecture.md) for the data flow and ownership. Completed plans, audits, and release receipts are kept in the local ignored `archived/` folder, outside the installable skill package.
 

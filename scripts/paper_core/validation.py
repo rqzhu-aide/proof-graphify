@@ -13,7 +13,7 @@ from .contract import MAJOR_KINDS, extract_refs, validate_body
 from .ids import COLLECTIONS
 from .refs import RELATIONS, body_members, relation_members
 from .storage import Database, Record
-from .semantics import application, target_spec, related
+from .semantics import application, target_spec, related, has_evidence
 
 STRUCTURAL = ("items", "parts", "scopes", "arguments", "groups", "uses", "coverage",
               "target_specs", "application_details", "connection_refinements", "proof_boundaries", "overview_selections")
@@ -390,6 +390,14 @@ def _semantic(state: State, p: Planned, errors: list, command: str):
             if observation is not None and (observation.body["result"] != "matched" or
                     observation.body["target"] not in (body["target"], p.record.ref)):
                 err("fidelity reuse must identify a matched examination of this exact target")
+            if observation is not None and command != 'import' and p.index >= 0:
+                examined = live(observation.body['target']['collection'], observation.body['target']['id'])
+                examined_evidence = [] if examined is None else (
+                    [passage['anchor_id'] for passage in examined.body.get('passages', [])]
+                    if examined.collection in ('items', 'parts') else examined.body.get('evidence_refs', []))
+                if any(refs and not has_evidence(state, refs)
+                       for refs in (body['evidence_refs'], examined_evidence)):
+                    err('fidelity reuse needs supporting source evidence; blank text line ranges do not count')
             if observation is not None and observation.body["target"] == body["target"] and body["statement_ref"] is None:
                 err("an examination of shared text cannot certify a newly supplied exact statement")
             if observation is not None and observation.body['target'] == body['target'] and body['statement_ref']:
@@ -419,6 +427,9 @@ def _semantic(state: State, p: Planned, errors: list, command: str):
     elif c == "proof_boundaries":
         pin = body["source_review_ref"]
         review = state.version("source_reviews", pin["id"], pin["version"])
+        if body['state'] == 'complete' and command != 'import' and p.index >= 0 \
+                and not has_evidence(state, body['anchor_refs']):
+            err('a complete proof boundary needs supporting source evidence; blank text line ranges do not count')
         if body["state"] == "complete" and review is not None:
             if review.body['purpose'] != 'proof_boundary' or review.body['decision'] != 'accepted':
                 err("a complete proof boundary needs an accepted proof_boundary source review")
@@ -536,6 +547,27 @@ def _semantic(state: State, p: Planned, errors: list, command: str):
             target = live('target_specs', body['target']['id'])
             if target is not None and not target.body['evidence_refs']:
                 err('an exact target needs located source evidence before fidelity is confirmed')
+        if body['result'] == 'matched' and body['target']['collection'] in OBSERVATION_TARGETS:
+            # Imported history remains lossless. Once an overview selection
+            # exists, a new observation is a new claim and follows the same rule.
+            historical = command == 'import' or (
+                command == 'overview' and not state.db.heads('overview_selections')) or (
+                body.get('context_kind') == 'overview' and
+                (body.get('context_data') or {}).get('applicable_on_import') is False)
+            target = live(body['target']['collection'], body['target']['id'])
+            if target is not None and not historical:
+                if target.collection in ('items', 'parts'):
+                    evidence = ([passage['anchor_id'] for passage in target.body['passages']]
+                                if target.body['origin'] == 'source' else [])
+                else:
+                    evidence = target.body['evidence_refs']
+                if evidence and not has_evidence(state, evidence):
+                    err('source fidelity needs supporting source evidence; blank text line ranges do not count')
+    elif c == 'source_reviews':
+        if command != 'import' and body['decision'] == 'accepted' \
+                and body['purpose'] in ('proof_boundary', 'locator_confirmation') \
+                and body['anchor_refs'] and not has_evidence(state, body['anchor_refs']):
+            err('an accepted passage review needs supporting source evidence; blank text line ranges do not count')
     elif c == "responses":
         if not state.has_blob(body["original_blob"]):
             err("original response blob is not stored")

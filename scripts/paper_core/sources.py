@@ -394,6 +394,26 @@ def resolve_anchor(db: Database, source, locator: dict, prior=None) -> dict:
             "excerpt_sha256": sha256_bytes(excerpt.encode("utf-8")), "method": method, "limitation": limitation}
 
 
+def _accepted_source_receipt(db: Database, request: dict, command: str):
+    """Replay accepted native input before resolving current sources or testing live pins.
+
+    Keep the native digest unchanged, including for receipts written by older cores.
+    The acceptance kernel still checks request identity and database compatibility in
+    its writer transaction. An existing immutable commit makes the empty edit list
+    unreachable as a new write; absent requests follow the ordinary validation path.
+    """
+    if db.commit_by_request(request["request_id"]) is None:
+        return None
+    return accept(db, request_id=request["request_id"], request_digest=digest(request),
+                  packet_id=request["packet_id"], edits=[], command=command)
+
+
+def _anchor_listing(anchor_id, version, body):
+    return {"id": anchor_id, "version": version, "method": body["method"], "source_id": body["source_id"],
+            "source_version": body["source_version"], "locator": body["locator"],
+            "excerpt_sha256": body["excerpt_sha256"], "limitation": body["limitation"]}
+
+
 def anchor_sources(db: Database, *, request: dict) -> dict:
     """Create or rebind anchors from an anchor request (handoff 5 file conventions)."""
     errors = validate_shape(ANCHOR_REQUEST, request)
@@ -401,6 +421,18 @@ def anchor_sources(db: Database, *, request: dict) -> dict:
         raise InvalidRequest("invalid anchor request", records=errors)
     if not request["anchors"]:
         raise InvalidRequest("anchor request lists no anchors")
+    receipt = _accepted_source_receipt(db, request, "source_anchor")
+    if receipt is not None:
+        changed_ids = {entry["id"] for entry in receipt["changed"]}
+        listing, unchanged = [], []
+        for entry in request["anchors"]:
+            # These are historical command results, not a claim of current freshness.
+            anchor = db.latest_at("anchors", entry["id"], receipt["revision"])
+            if entry["id"] in changed_ids:
+                listing.append(_anchor_listing(anchor.id, anchor.version, anchor.body))
+            else:
+                unchanged.append({"id": anchor.id, "version": anchor.version})
+        return {"receipt": receipt, "anchors": listing, "unchanged": unchanged}
     edits, listing, unchanged = [], [], []
     for index, entry in enumerate(request["anchors"]):
         source = db.head("sources", entry["source_id"])
@@ -425,9 +457,7 @@ def anchor_sources(db: Database, *, request: dict) -> dict:
             edits.append({"op": "replace", "collection": "anchors", "id": entry["id"],
                           "expected_version": entry["expected_version"], "body": body})
             version = entry["expected_version"] + 1
-        listing.append({"id": entry["id"], "version": version, "method": body["method"], "source_id": source.id,
-                        "source_version": source.version, "locator": body["locator"],
-                        "excerpt_sha256": body["excerpt_sha256"], "limitation": body["limitation"]})
+        listing.append(_anchor_listing(entry["id"], version, body))
     receipt = None
     if edits:
         receipt = accept(db, request_id=request["request_id"], request_digest=digest(request),
@@ -445,6 +475,12 @@ def review_sources(db: Database, *, batch: dict) -> dict:
     for index, edit in enumerate(batch["edits"]):
         if edit["collection"] not in ("source_reviews", "source_issues"):
             errors.append(f"edits/{index}: source review batches carry source_reviews and source_issues only")
+    if errors:
+        raise InvalidRequest("source review rejected", records=errors)
+    receipt = _accepted_source_receipt(db, batch, "source_review")
+    if receipt is not None:
+        return receipt
+    for index, edit in enumerate(batch["edits"]):
         body = edit.get("body")
         if edit["collection"] == "source_reviews" and isinstance(body, dict):
             for field in ("source_refs", "anchor_refs"):

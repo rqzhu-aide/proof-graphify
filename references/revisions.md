@@ -1,15 +1,15 @@
 # Revise an existing overview efficiently
 
-Reuse the same database, statement identities, and output folder. Review source differences and affected selected statements and connections. This workflow updates the overview's source interpretation; it does not audit proof validity or automatically rescope existing detailed databases.
+Reuse the same database, statement identities, and output folder. Run the examples from that overview folder, using an absolute `<skill>` path and substituting established file paths if they differ. Relative database, batch, and output paths resolve from the current working directory. Review source differences and affected selected statements and connections. This workflow updates the overview's source interpretation; it does not audit proof validity or automatically rescope existing detailed databases.
 
 ## Capture the revision and inspect what changed
 
 First read the current database snapshot ID using `validate`. Record it as `OLD`. Then capture the revised manuscript and compare the two retained snapshots:
 
 ```text
-python <skill>/scripts/paper_database.py validate <overview-folder>/data/paper-records.sqlite
-python <skill>/scripts/paper_database.py refresh <overview-folder>/data/paper-records.sqlite --expected-snapshot OLD --relocate-exact
-python <skill>/scripts/paper_database.py changes <overview-folder>/data/paper-records.sqlite --since OLD --output <overview-folder>/work/changes.json
+python <skill>/scripts/paper_database.py validate data/paper-records.sqlite
+python <skill>/scripts/paper_database.py refresh data/paper-records.sqlite --expected-snapshot OLD --relocate-exact
+python <skill>/scripts/paper_database.py changes data/paper-records.sqlite --since OLD --output work/changes.json
 ```
 
 Use the returned current snapshot ID in subsequent batches. `changes` compares captured versions, so the diff and its candidate list refer to one exact input. With `--output`, stdout is a compact receipt and the saved JSON contains the complete source diff. Without it, the report is printed. Neither command marks a source comparison as complete.
@@ -40,7 +40,7 @@ To rename source files, use `refresh --file-map work/files.json`. The map uses r
 }
 ```
 
-Paths resolve from the source root. A `null` mapping removes a source from explicit registration; remove or rebind any remaining anchors that depend on it. Update the paper's actual input declarations as appropriate to its revision, not merely to satisfy the tool. The script does not guess file replacements. For a whole project move, `refresh --source-root <new-manuscript-folder>` resolves stored relative paths there. Older absolute paths or individually renamed files need explicit mappings.
+Mapped manuscript paths resolve from the source root. A `null` mapping removes a source from explicit registration; remove or rebind any remaining anchors that depend on it. Update the paper's actual input declarations as appropriate to its revision, not merely to satisfy the tool. The script does not guess file replacements. For a whole project move, `refresh --source-root <new-manuscript-folder>` resolves stored relative paths there. Older absolute paths or individually renamed files need explicit mappings.
 
 These options can be combined in one refresh. A failed capture or ambiguous re-anchoring preserves the existing database snapshot. Existing source comparisons become stale until new comparisons or reviewed reuse apply.
 
@@ -75,6 +75,6 @@ For changed records, use ordinary `apply` edits and fresh `compare` batches with
 
 ## Finish the revision
 
-Render to the same `<overview-folder>/overview.html`; rendering checks source freshness, comparisons, selected records, and integrity. Use standalone `validate` only when diagnosing a problem or not rendering. A failed candidate preserves the previous report. Keep stale or unreviewed selected records visible as unfinished work; reviewed unresolved interpretations remain explicit limitations. A successful overview has no proof-verification verdict.
+Render to the same `overview.html`; rendering checks source freshness, comparisons, selected records, and integrity. Use standalone `validate` only when diagnosing a problem or not rendering. A failed candidate preserves the previous report. Keep stale or unreviewed selected records visible as unfinished work; reviewed unresolved interpretations remain explicit limitations. A successful overview has no proof-verification verdict.
 
 For an editorial edit outside mathematical context, the work can be limited to inspecting a small diff, one reuse batch, and regeneration. A substantive assumption or proof change requires checking its actual consequences. No fixed token or cost reduction is promised. Keep full source snapshots and comparison history in the database; save only useful change/edit batches under `work/`, rather than dumping every retrieved packet.

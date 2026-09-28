@@ -147,6 +147,22 @@ class RendererRecordsTests(unittest.TestCase):
         self.assertNotIn('data-proof-main="bound"', html)
         self.assertNotIn("Intermediate steps (", html)
 
+    def test_missing_connections_are_disclosed_in_graph_and_index(self):
+        for mode in ("dag", "index"):
+            with self.subTest(mode=mode):
+                self.data["graph_mode"] = mode
+                _, connected_html, _ = self.render()
+                self.assertNotIn('class="proof-empty-connections"', connected_html)
+                connected_uses = self.data["uses"]
+                self.data["uses"] = []
+                _, html, rendered = self.render()
+                self.assertIn('class="proof-empty-connections" role="note"', html)
+                self.assertIn("No connections are recorded in this overview. "
+                              "This does not establish that the results are independent.", html)
+                self.assertEqual(rendered.records["uses"], [])
+                self.assertEqual(sorted(rendered.index_items), ["bound", "rate"])
+                self.data["uses"] = connected_uses
+
     def test_all_passages_are_available_in_selection_and_static_index(self):
         _, _, rendered = self.render()
         for region in ("proof-detail-bound", "proof-index-item-bound"):

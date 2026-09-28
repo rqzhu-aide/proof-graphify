@@ -21,6 +21,34 @@ def live(state, collection, identity, revision=None):
     return record if record is not None and not record.retired else None
 
 
+def anchor_has_evidence(state, anchor):
+    """Whether a captured passage can supply evidence, without judging its meaning.
+
+    Blank text line ranges supply no passage. A PDF page can have an empty text
+    layer and still be inspected visually, so extraction is not its evidence gate.
+    """
+    if anchor is None or anchor.retired:
+        return False
+    body = anchor.body
+    source = state.version('sources', body['source_id'], body['source_version'])
+    if source is None or source.retired:
+        return False
+    return not (source.body['media_type'] != 'pdf'
+                and body['locator'].get('start_line') is not None
+                and not body['excerpt'].strip())
+
+
+def has_evidence(state, anchor_refs):
+    """Accept live anchor IDs or pinned anchor refs; one usable passage suffices."""
+    for ref in anchor_refs:
+        anchor = (state.version('anchors', ref['id'], ref['version'])
+                  if isinstance(ref, dict) and ref.get('version') is not None
+                  else live(state, 'anchors', ref['id'] if isinstance(ref, dict) else ref))
+        if anchor_has_evidence(state, anchor):
+            return True
+    return False
+
+
 def related(state, collection, field, target, *, prefix=False, revision=None):
     # Prospective batches must include records created in that same batch.
     if hasattr(state, 'overlay'):

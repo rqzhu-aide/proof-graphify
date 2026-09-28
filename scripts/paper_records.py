@@ -9,6 +9,7 @@ import base64
 import copy
 import hashlib
 import json
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -291,6 +292,25 @@ def _capture(paths, base_dir):
         choices = [root for root in roots if path.is_relative_to(root)]
         return max(choices, key=lambda root: len(root.parts)) if choices else path.parent
 
+    def local(candidates, compilation_root):
+        """Return (first existing candidate under the manuscript or compilation root, escaped).
+
+        Explicitly supplied sources may live anywhere, including when an input names
+        one; other discovered inputs may not. Check lexically before touching the
+        filesystem, so an absolute or //host target is never probed, then again
+        after resolving links.
+        """
+        inside = lambda p: p.is_relative_to(base_dir) or p.is_relative_to(compilation_root) or p in seeds
+        allowed = [p for p in candidates if inside(Path(os.path.normpath(p)))]
+        found = next((p for p in allowed if p.is_file()), None)
+        if found is not None and not inside(found.resolve()):
+            return None, True
+        return found, found is None and len(allowed) < len(candidates)
+
+    def outside(display_path, name):
+        return (f"{display_path}: input {name!r} is outside the manuscript root and was not captured; "
+                "register it with --source if it is relevant.")
+
     queue = [(path, root_for(path)) for path in seeds]
     captured, unresolved = {}, []
     while queue:
@@ -330,9 +350,11 @@ def _capture(paths, base_dir):
                 continue
             candidates = [compilation_root / name, path.parent / name]
             candidates = [p if p.suffix else p.with_suffix('.tex') for p in candidates]
-            candidate = next((p for p in candidates if p.is_file()), None)
+            candidate, escaped = local(candidates, compilation_root)
             if candidate is not None:
                 queue.append((candidate, compilation_root))
+            elif escaped:
+                unresolved.append(outside(display_path, name))
             elif match.start() in optional_guards:
                 absent_optional.append(name)
             else:
@@ -349,9 +371,11 @@ def _capture(paths, base_dir):
             suffix = '.cls' if match.group(1) == 'documentclass' else '.sty'
             for name in match.group(2).split(','):
                 candidates = [compilation_root / (name.strip() + suffix), path.parent / (name.strip() + suffix)]
-                candidate = next((p for p in candidates if p.is_file()), None)
+                candidate, escaped = local(candidates, compilation_root)
                 if candidate is not None:
                     queue.append((candidate, compilation_root))
+                elif escaped:
+                    unresolved.append(outside(display_path, name.strip() + suffix))
     return list(captured.values()), list(dict.fromkeys(unresolved))
 
 
@@ -1265,7 +1289,8 @@ def _relocate_exact(anchor, file, sources=None):
         return
     sources = sources if sources is not None else _SourceContent()
     lines = sources.lines(file)
-    prior = anchor['excerpt'].splitlines()
+    # Inverse of the '\n'.join that built the excerpt; splitlines() would drop a trailing blank line.
+    prior = anchor['excerpt'].split('\n')
     start, end = locator['start_line'], locator['end_line']
     if lines[start - 1:end] == prior:
         return
@@ -1473,11 +1498,28 @@ def fidelity_by_row(data):
     return _comparison_state(data)[1]
 
 
-def validate_focused_authoring(data):
+def _uses_without_evidence(data, *, check_text_evidence=True):
+    """Find absent evidence, including blank captured text ranges.
+
+    A PDF page may have no extractable text and still be inspected visually.
+    This check cannot establish whether a nonempty passage supports a claim.
+    """
+    empty_ranges = set()
+    if check_text_evidence:
+        media = {row['id']: row['media_type'] for row in data['source_revision']['files']}
+        empty_ranges = {anchor['id'] for anchor in data['anchors']
+                        if media.get(anchor.get('file_id')) == 'text/plain'
+                        and 'start_line' in anchor['locator'] and not anchor['excerpt'].strip()}
+    return sorted(use['id'] for use in data['uses']
+                  if not any(ref not in empty_ranges for ref in use['evidence_refs']))
+
+
+def validate_focused_authoring(data, *, check_text_evidence=True):
     """Check the focused subset of already validated native records.
 
     This authoring policy is separate from the portable record contract and
-    its comparison digests. Older records remain losslessly readable.
+    its comparison digests. Reads can skip the newer blank-text check so older
+    matches remain inspectable and repairable without rewriting their history.
     """
     main = data.get('main_items')
     if not main:
@@ -1488,13 +1530,14 @@ def validate_focused_authoring(data):
     for use in data['uses']:
         if use.get('group') is not None:
             raise RecordError(f"Focused overview use {use['id']}: describe combined or alternative contributions in reason/regime, without a formal group.")
-    unlocated = {use['id'] for use in data['uses'] if not use['evidence_refs']}
+    unlocated = _uses_without_evidence(data, check_text_evidence=check_text_evidence)
     if unlocated:
         fidelity = fidelity_by_row(data)
         matched = sorted(identity for identity in unlocated if fidelity[('uses', identity)] == 'matched')
         if matched:
             raise RecordError('Focused overview connections without located evidence cannot be source matched: '
-                              + ', '.join(matched) + '. Locate the supporting passage or record needs_attention; imported observations are not changed.')
+                              + ', '.join(matched) + '. Blank text line ranges do not count as evidence. '
+                              'Locate the supporting passage or record needs_attention; imported observations are not changed.')
 
 
 def comparison_status(data, fidelity=None):
@@ -1610,10 +1653,10 @@ def record_report(data, base_dir, fidelity=None):
             f"PDF excerpts contain replacement characters on {len(damaged_pages)} captured page(s) "
             f"({sample}{'; ...' if len(damaged_pages) > 4 else ''}). Missing glyph meanings were not "
             "recovered; inspect the original pages. Page bounds and mathematical source comparison are separate checks.")
-    unlocated = sorted(row['id'] for row in data['uses'] if not row['evidence_refs'])
+    unlocated = _uses_without_evidence(data)
     report['uses_without_evidence'] = unlocated
     if unlocated:
-        report['warnings'].append(f"{len(unlocated)} uses have no located evidence passages. Locate the supporting passage in the captured source or disclose the gap; validation output lists their IDs.")
+        report['warnings'].append(f"{len(unlocated)} uses have no located evidence passages or only blank text line ranges. Locate the supporting passage in the captured source or disclose the gap; validation output lists their IDs.")
     unverified = sum(a['verification']['status'] != 'checked' for a in data['anchors'])
     if unverified:
         methods = [set(part.strip() for part in a['verification']['method'].split(','))

@@ -18,6 +18,7 @@ from .errors import ConflictError, InvalidRequest
 from .refs import RELATIONS, facet_digests
 from .storage import Database, Record
 from .support_semantics import SupportClosure
+from .semantics import has_evidence
 
 PROOF_KINDS = ("lemma", "proposition", "theorem", "corollary")
 PROOF_CHECK_KINDS = ("derivation", "application", "composition", "case_coverage", "scope_discharge",
@@ -36,6 +37,8 @@ COVERAGE_CAUSES = {
                        "Restore the source anchor and review the affected proof boundary."),
     "boundary_source_pin": ("The boundary review does not include the captured source version for this anchor.",
                             "Inspect that source, record the review with its source/version pin, and renew the boundary's review reference; then check remaining work."),
+    "empty_text_evidence": ("The proof boundary contains only blank text passages.",
+                            "Locate the written proof, rebind its anchors, and review the corrected boundary."),
     "missing_claims": ("A substantive coverage row has no claimed statements.",
                        "Record the item or part statements examined in this passage."),
     "missing_checks": ("A substantive coverage row has no responsible primary checks.",
@@ -902,6 +905,11 @@ class _Derivation(_AuditScope):
                 constituent.update({"state": "complete", "substantive": True,
                                     "outcome": "supported" if active.body["result"] == "matched" else "needs_attention",
                                     "freshness": info["freshness"], "check_refs": [pinned_of(active)]})
+                if active.body["result"] == "matched" and not (
+                        self._source_match_has_evidence(self.snap.get(obligation["target"]))
+                        and self._source_match_has_evidence(self.snap.get(active.body["target"]))):
+                    constituent.update(state="draft", substantive=False, outcome="needs_attention",
+                                       evidence_limitation="source match has no nonblank text or PDF page evidence; correct its anchors and compare again")
         else:
             candidates = [c for c in self._candidates(obligation) if c.id not in self.superseded]
             infos = [self.judgment_info(c) for c in candidates]
@@ -954,7 +962,23 @@ class _Derivation(_AuditScope):
             parts.append("only compromised independent evidence exists")
         if c["disputed"]:
             parts.append("unresolved conflicting assessments")
+        if c.get("evidence_limitation"):
+            parts.append(c["evidence_limitation"])
         return "; ".join(parts)
+
+    def _source_match_has_evidence(self, target):
+        if target is None:
+            return False
+        if target.collection in ("items", "parts"):
+            if target.body["origin"] != "source":
+                return True
+            refs = [passage["anchor_id"] for passage in target.body["passages"]]
+        else:
+            refs = target.body.get("evidence_refs", ())
+            if target.collection == "target_specs" and not refs and target.body.get("statement_ref"):
+                pin = target.body["statement_ref"]
+                return self._source_match_has_evidence(self.snap.version(pin["collection"], pin["id"], pin["version"]))
+        return has_evidence(self.snap, refs)
 
     def _independent_checks_for(self, statement_key: str) -> list:
         keys = set(self.route_records.get(statement_key, ())) | {statement_key}
@@ -1328,6 +1352,10 @@ class _Derivation(_AuditScope):
                                     "anchor_id": anchor.id, "boundary_ref": pinned_of(boundary),
                                     "source_review_ref": review_pin, "required_source_ref": pinned_of(source)})
             if current:
+                if not has_evidence(snap, anchor_pins):
+                    missing.append({"code": "empty_text_evidence", "argument_ids": [argument.id],
+                                    "boundary_ref": pinned_of(boundary), "source_review_ref": review_pin,
+                                    "anchor_ids": [pin["id"] for pin in anchor_pins]})
                 if not missing:
                     return [pin["id"] for pin in anchor_pins]
                 missing_sources.extend(missing)
@@ -1391,11 +1419,14 @@ class _Derivation(_AuditScope):
         if direct:
             latest = direct[-1]
             return latest.body.get("result") == "matched" \
+                and self._source_match_has_evidence(spec) \
                 and judgment_freshness(self.snap, latest, superseded=False)["freshness"] == "current"
         if fidelity is not None:
             observation = self.snap.get(fidelity)
             return observation is not None and observation.version == fidelity["version"] \
                 and observation.body.get("result") == "matched" \
+                and self._source_match_has_evidence(spec) \
+                and self._source_match_has_evidence(self.snap.get(observation.body["target"])) \
                 and judgment_freshness(self.snap, observation, superseded=False)["freshness"] == "current"
         record = self.snap.get(ref)
         # Reconstructions have no source statement to compare. A source target

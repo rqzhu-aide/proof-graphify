@@ -173,6 +173,13 @@ def _response_guidance(mode):
     raise InvalidRequest(f"unknown assistance mode {mode!r}", code="ASSISTANCE_MODE")
 
 
+def _opinion(record, pin):
+    """Reference material from the named version, never a new check or verdict."""
+    return {"ref": deepcopy(pin), **{field: deepcopy(record.body[field]) for field in (
+        "target", "kind", "role", "reviewer", "state", "outcome", "reasoning", "conditions",
+        "evidence_refs", "next_action", "supersedes")}}
+
+
 def coordinator_guidance(db, manifest, *, assessed=None):
     """Candidate identities from the authorized read set; never dispatch to a blind worker.
 
@@ -191,10 +198,7 @@ def coordinator_guidance(db, manifest, *, assessed=None):
             record = db.version(pin["collection"], pin["id"], pin["version"])
             if record is None or record.collection != "checks" or record.body["state"] != "draft":
                 continue
-            body = record.body
-            result["draft_candidates"].append({"task_id": task["id"], "ref": deepcopy(pin),
-                "reviewer": body["reviewer"], "target": deepcopy(body["target"]), "kind": body["kind"],
-                "next_action": body["next_action"], "supersedes": deepcopy(body["supersedes"])})
+            result["draft_candidates"].append({"task_id": task["id"], **_opinion(record, pin)})
     audit_id = manifest.get("work", {}).get("audit_id")
     renewal_checks = []
     if mode == "primary":
@@ -229,14 +233,21 @@ def coordinator_guidance(db, manifest, *, assessed=None):
             if info is None or info["ref"] != pin or info["freshness"] not in ("needs_review", "historical") \
                     or info["superseded"]:
                 continue
-            candidates.append({"task_id": task["id"], "ref": deepcopy(pin),
-                "reviewer": info["reviewer"], "target": deepcopy(info["target"]), "kind": info["kind"]})
+            record = db.version("checks", pin["id"], pin["version"])
+            candidate = {"task_id": task["id"], **_opinion(record, pin)}
+            from .work import _recovery
+            recovery = _recovery(derivation, [pin], [])
+            if recovery:
+                candidate["recovery"] = recovery
+            candidates.append(candidate)
         if candidates:
             result["renewal_candidates"] = candidates
             result["renewal_note"] = (
-                "These completed checks consumed changed inputs. Pass only the needed predecessor pins "
-                "to the assigned primary checker, who re-examines the affected work and authors explicit "
-                "supersedes before saving. Submit the response unchanged; keep this inventory private.")
+                "These completed checks consumed changed inputs. Their pinned opinions are reference material, "
+                "not renewed proof credit. Pass only the needed predecessor context to the assigned primary "
+                "checker, who re-examines the affected work and authors explicit supersedes before saving. "
+                "Preserve negative outcomes, conditions and reasoning unless the examiner explicitly revises "
+                "them. Submit the response unchanged; keep this inventory out of independent delivery.")
     if mode != "reconcile":
         return result
     rows = {}
@@ -244,6 +255,7 @@ def coordinator_guidance(db, manifest, *, assessed=None):
     def candidate(target):
         key = (target["collection"], target["id"])
         return rows.setdefault(key, {"target": deepcopy(target), "primary_checks": [], "independent_checks": [],
+                                     "primary_opinions": [], "independent_opinions": [],
                                      "required_other_opinions": []})
 
     for info in assessment["judgments"].values():
@@ -256,6 +268,8 @@ def coordinator_guidance(db, manifest, *, assessed=None):
             continue
         row = candidate(info["target"])
         row[f"{info['role']}_checks"].append(deepcopy(pin))
+        record = db.version("checks", pin["id"], pin["version"])
+        row[f"{info['role']}_opinions"].append(_opinion(record, pin))
     # Reconciliation validation requires every accepted opinion on the exact
     # target, including an explicitly superseded predecessor. Inclusion records
     # the history; it does not make that opinion current or qualifying support.
@@ -278,7 +292,8 @@ def coordinator_guidance(db, manifest, *, assessed=None):
             row["missing_required_opinion_count"] = row.get("missing_required_opinion_count", 0) + 1
             row["next_action"] = "This read set omits required accepted opinions; obtain a complete reconciliation packet or report a packet-selection limitation."
             continue
-        row["required_other_opinions"].append({"ref": deepcopy(pin), "state": info["state"],
+        record = db.version("checks", pin["id"], pin["version"])
+        row["required_other_opinions"].append({**_opinion(record, pin),
             "freshness": info["freshness"], "superseded": info["superseded"], "exposure": info["exposure"]})
     result["reconciliation_candidates"] = []
     # One template for the role, rather than repeating its fields per target.
@@ -289,12 +304,16 @@ def coordinator_guidance(db, manifest, *, assessed=None):
         row = rows[key]
         for field in ("primary_checks", "independent_checks"):
             row[field].sort(key=lambda pin: (pin["id"], pin["version"]))
+        for field in ("primary_opinions", "independent_opinions"):
+            row[field].sort(key=lambda entry: (entry["ref"]["id"], entry["ref"]["version"]))
         row["required_other_opinions"].sort(key=lambda entry: (entry["ref"]["id"], entry["ref"]["version"]))
         row["has_both_roles"] = bool(row["primary_checks"] and row["independent_checks"])
         result["reconciliation_candidates"].append(row)
     result["note"] = "primary_checks and independent_checks are current eligible evidence on the exact target. " \
         "required_other_opinions are accepted historical or otherwise nonqualifying opinions that validation " \
         "also requires in the authored independent_checks list; their inclusion does not restore current support. " \
+        "has_both_roles records role presence only. Even matching outcome labels require an authored comparison " \
+        "of reasoning and conditions; they never establish an agree decision. " \
         "Keep disagreement and explicit succession; author the decision, rationale and any successor_checks. " \
         "Parent, group and use checks are not interchangeable. Acceptance still validates the submitted row."
     return result

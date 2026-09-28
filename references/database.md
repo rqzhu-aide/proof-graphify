@@ -1,30 +1,32 @@
 # Focused overview database
 
-SQLite is authoritative after initialization. It retains immutable record versions, captured source bytes, append-only source comparisons, and build receipts. JSON seeds, edit batches, and exports are inputs or snapshots, not independently editable masters. New databases use common storage format 4, shared with proofcheck. The overview commands retain schema-3 seed, edit, and export shapes and their broad source-comparison semantics.
+SQLite is authoritative after initialization. It retains immutable record versions, captured source bytes, append-only source comparisons, and build receipts. JSON seeds, edit batches, and exports are inputs or snapshots, not independently editable masters. New databases use common storage format 4, also supported by proofcheck; new work for the two skills uses separate folders and databases. The overview commands retain schema-3 seed, edit, and export shapes and their broad source-comparison semantics.
 
 The common backend always uses the skill's bundled runtime, and `init` reports its backend and version; an incomplete or incompatible bundle requires reinstalling the complete skill, without a fallback to a different backend.
 
 ## Start and continue
 
-Use the shared Python interpreter. Paths below are abbreviated; the normal database lives at `<overview-folder>/data/paper-records.sqlite`. The database CLI forces UTF-8. For supporting extraction scripts use `python -X utf8` or `PYTHONIOENCODING=utf-8`, and read JSON/text files and redirected output explicitly as UTF-8. Check decoded characters before treating console mojibake as source damage.
+Use the shared Python interpreter. Run these examples from `<overview-folder>`, using absolute paths for `<skill>` and `<manuscript-folder>`. Database, batch, and output paths resolve from the current working directory; when running elsewhere, supply their absolute paths. The database CLI forces UTF-8. For supporting extraction scripts use `python -X utf8` or `PYTHONIOENCODING=utf-8`, and read JSON/text files and redirected output explicitly as UTF-8. Check decoded characters before treating console mojibake as source damage.
 
 ```text
-python <skill>/scripts/paper_database.py init paper-records.sqlite work/seed.json --focused --source-root <manuscript-folder>
-python <skill>/scripts/paper_database.py list paper-records.sqlite
-python <skill>/scripts/paper_database.py list paper-records.sqlite --collection anchors
-python <skill>/scripts/paper_database.py get paper-records.sqlite representer
-python <skill>/scripts/paper_database.py apply paper-records.sqlite work/edits.json
-python <skill>/scripts/paper_database.py compare paper-records.sqlite work/comparisons.json
-python <skill>/scripts/paper_database.py render paper-records.sqlite overview.html
+python <skill>/scripts/paper_database.py init data/paper-records.sqlite work/seed.json --focused --source-root <manuscript-folder>
+python <skill>/scripts/paper_database.py list data/paper-records.sqlite
+python <skill>/scripts/paper_database.py list data/paper-records.sqlite --collection anchors
+python <skill>/scripts/paper_database.py get data/paper-records.sqlite representer
+python <skill>/scripts/paper_database.py apply data/paper-records.sqlite work/edits.json
+python <skill>/scripts/paper_database.py compare data/paper-records.sqlite work/comparisons.json
+python <skill>/scripts/paper_database.py render data/paper-records.sqlite overview.html
 ```
 
 Initialize from a [focused seed](authoring.md) or compatible captured export. A seed may contain one main result and no connections. `init` never replaces an existing database or fabricates comparisons. New seed records start unreviewed; imported comparisons remain bound to their recorded context.
 
 `--focused` persists the focused authoring profile in the overview selection. Every later edit checks the complete proposed selected view, including metadata-only changes: major kinds, explicit nonempty main-result selection, major-to-major uses, and no non-null owner/group fields. Null optional fields behave as omission. An applicable matched comparison on a connection without located evidence is rejected during focused import, comparison, validation, and reviewed reuse. These are structural authoring checks, not mathematical verification.
 
+A captured text line range containing only whitespace does not supply located evidence. PDF page anchors can still support a visual comparison when extraction is empty. Older blank-text matches remain readable for repair: correct their anchors through `apply` and compare again, or record `needs_attention`. Validation and rendering require resolving those matches; existing observations are retained.
+
 Profile metadata is outside the mathematical payload and target digests. Portable exports retain the native schema without a profile field; use `init --focused` when importing one for focused work. Incompatible rich content is rejected without trimming records or observations. Existing rich databases and lossless unflagged import remain supported through the [compatibility path](audit-database.md#existing-detailed-overviews), not the new-work tutorial.
 
-Seed source references resolve from the JSON directory. `--source-root` identifies the actual manuscript directory for stored paths, extra sources, and refreshes. Literal local TeX inputs and packages are captured. Register additional relevant files using repeatable `--source appendix.tex`; register a PDF used for numbering, formulas, or evidence before comparisons. Adding a source later changes the source revision and initially stales earlier comparisons. Captured exports retain source bindings, so provide the root where their relative paths resolve.
+Seed source references resolve from the JSON directory. `--source-root` identifies the actual manuscript directory for stored paths, extra sources, and refreshes. Literal local TeX inputs and packages are captured when they resolve inside the manuscript root or the folder of the registered file that includes them; any other input is reported as outside the manuscript root and is not captured. Register additional relevant files using repeatable `--source appendix.tex`; register a PDF used for numbering, formulas, or evidence before comparisons. Adding a source later changes the source revision and initially stales earlier comparisons. Captured exports retain source bindings, so provide the root where their relative paths resolve.
 
 ## Read one argument
 
@@ -95,9 +97,9 @@ Use the current `expected_snapshot` from `list` or a packet. **An `upsert` repla
 }
 ```
 
-This example follows the minimal seed's `projection-lemma` and `representer` identities. Copy the lemma's existing passage anchor IDs and the existing use ID from `get` or `list`; use the registered `proof.md` file ID for the new anchor. The sample lines are specific to that example. For another paper, use its actual locations and wording. `set` is a top-level sibling of `edits`, never an edit operation. It changes `title`, `scope`, or `main_items`; a focused database cannot clear its main-result selection. A metadata-only batch can use an empty `edits` list. Do not write per-declaration exclusions merely because statements are outside the selected scope.
+This example follows the minimal seed's `projection-lemma` and `representer` identities. Copy the lemma's existing passage anchor IDs and the existing use ID from `get` or `list`; use the registered `proof.md` file ID for the new anchor. The sample lines are specific to that example. For another paper, use its actual locations and wording. `set` is a top-level sibling of `edits`, never an edit operation. It changes `title`, `scope`, `main_items`, or `inventory` (only `{"excluded": [...]}`, a list of scope explanations; declaration matches are generated); a focused database cannot clear its main-result selection. A metadata-only batch can use an empty `edits` list. Do not write per-declaration exclusions merely because statements are outside the selected scope.
 
-For item upserts supply `kind`, `label`, `caption`, structured `statement`, and `passages`, plus any intended optional fields. Optional `proof_idea` is a nonempty source-backed explanation, returned by `get` and included in the item's existing comparison context. Retain it explicitly on upsert; omitting it removes it. Changing it can stale the item and relevant connected comparisons, just as other explanatory content can. No separate review object is needed. Renumbering changes `label`, not identity. On a common store, upserts preserve proofcheck extensions and unselected records. `remove` deselects an existing item or use without deleting its common identity; revise selected references atomically. The whole batch is checked before committing. An endpoint change that contradicts a registered proof application is refused until proofcheck updates or withdraws that structure. A stale snapshot rejects the batch: retrieve and review intervening changes before submitting a revised expectation.
+For item upserts supply `kind`, `label`, `caption`, structured `statement`, and `passages`, plus any intended optional fields. Optional `proof_idea` is a nonempty source-backed explanation, returned by `get` and included in the item's existing comparison context. Retain it explicitly on upsert; omitting it removes it. Changing it can stale the item and relevant connected comparisons, just as other explanatory content can. No separate review object is needed. Renumbering changes `label`, not identity. On a common store, upserts preserve any existing proofcheck extensions and unselected records. `remove` deselects an existing item or use without deleting its common identity; revise selected references atomically. The whole batch is checked before committing. For existing audit records, an endpoint change that contradicts a registered proof application is refused until proofcheck updates or withdraws that structure. A stale snapshot rejects the batch: retrieve and review intervening changes before submitting a revised expectation.
 
 Write JSON batches as files with a file-writing tool, not inline shell strings that may corrupt backslash mathematics. Do not hand-write generated hashes, timestamps, comparison IDs, or duplicated excerpts.
 
@@ -125,16 +127,16 @@ The four displayed states are `unreviewed`, `matched`, `needs_attention`, and `s
 
 Comparisons bind to the selected source manifest and relevant statement/connection context. A substantive change can stale connected comparisons even when the displayed target is unchanged. A scope- or title-only edit changes the content snapshot needed for subsequent edits but leaves unchanged record comparisons valid. Unselected audit additions and audit-only sources do not silently expand that context. Appending observations does not change the mathematical snapshot ID, so comparison batches may share `expected_snapshot` while content is unchanged. A newer `needs_attention` for identical context supersedes an earlier match. The [revision workflow](revisions.md) covers explicit reviewed reuse; unchanged text alone does not perform that review.
 
-If proofcheck captures revised bytes for a selected source before the overview anchors are refreshed, an overview read can report that the stored excerpts need rebinding. Run the `refresh` command and current `--expected-snapshot` shown in that message; supply revised anchors if their locations changed. Refresh checks the resulting source bindings and leaves earlier comparisons stale for review.
+For compatibility with existing stores containing both overview and audit records, if proofcheck captured revised bytes for a selected source before the overview anchors were refreshed, an overview read can report that the stored excerpts need rebinding. Run the `refresh` command and current `--expected-snapshot` shown in that message; supply revised anchors if their locations changed. Refresh checks the resulting source bindings and leaves earlier comparisons stale for review.
 
 A page supplied beside a text line or label locator is retained as overview navigation metadata. The shared source evidence remains tied to the captured text location; a page alone requires a captured PDF. Correcting a supplemental page still requires review of the overview comparison context.
 
 ## Optional discovery and delivery
 
 ```text
-python <skill>/scripts/paper_database.py candidates paper-records.sqlite --output work/candidates.json
-python <skill>/scripts/paper_database.py export paper-records.sqlite exports/paper-records.json
-python <skill>/scripts/paper_database.py backup paper-records.sqlite paper-records-backup.sqlite
+python <skill>/scripts/paper_database.py candidates data/paper-records.sqlite --output work/candidates.json
+python <skill>/scripts/paper_database.py export data/paper-records.sqlite exports/paper-records.json
+python <skill>/scripts/paper_database.py backup data/paper-records.sqlite work/paper-records-backup.sqlite
 ```
 
 Use citation candidates when connections are uncertain. They concern captured source, not live files, and propose reading without writing records. Inspect selected endpoints and actionable evidence gaps. A missing citation is not a false arrow; unselected declarations are listed separately under `outside_selected_scope`, not treated as missing overview content. Shared scan limitations need one explanation. PDF-only input has no TeX citation scan and requires direct reading. Exhaustive `scaffold`/`reconcile` utilities are retained for compatibility and refuse focused stores; they are not focused authoring or completion steps.

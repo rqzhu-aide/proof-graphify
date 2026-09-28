@@ -24,15 +24,28 @@ class Drawing(HTMLParser):
     def __init__(self, html):
         super().__init__()
         self.nodes, self.uses, self.routes = [], [], {}
+        self.rectangles, self.points = {}, {}
+        self.current_node, self.viewbox = None, None
         self.feed(html)
 
     def handle_starttag(self, tag, pairs):
         attrs = dict(pairs)
+        if tag == "svg" and attrs.get("role") == "img":
+            self.viewbox = tuple(map(float, attrs["viewbox"].split()))
         if tag == "g" and "data-node-id" in attrs:
             self.nodes.append(attrs["data-node-id"])
+            self.current_node = attrs["data-node-id"]
+        if tag == "rect" and "proof-node" in attrs.get("class", "").split():
+            self.rectangles[self.current_node] = tuple(float(attrs[key]) for key in ("x", "y", "width", "height"))
         if tag == "path" and "data-edge-id" in attrs:
             self.uses.append((attrs["data-edge-id"], attrs["data-edge-from"], attrs["data-edge-to"]))
             self.routes[attrs["data-edge-id"]] = attrs["d"]
+            self.points[attrs["data-edge-id"]] = [tuple(map(float, point.split(",")))
+                                                 for point in attrs["data-composition-points"].split(";")]
+
+    def handle_endtag(self, tag):
+        if tag == "g":
+            self.current_node = None
 
 
 @unittest.skipUnless(NODE, "A shared Node installation is required.")
@@ -107,6 +120,60 @@ class CycleGraphTests(unittest.TestCase):
         self.assertEqual(receipt["graph_mode"], "dag")
         payload = json.loads(re.search(r'<script id="proof-overview-data" type="application/json">(.*?)</script>', html).group(1))
         self.assertEqual(payload["items"], [{"id": "a", "x": 121, "y": 68}, {"id": "b", "x": 396, "y": 68}])
+
+    def assert_separate_component_geometry(self, drawing, components):
+        """Check the emitted drawing, including routes beyond node boundaries."""
+        _, _, width, height = drawing.viewbox
+        occupied = []
+        for component in components:
+            members = set(component)
+            points = []
+            for identity in members:
+                x, y, w, h = drawing.rectangles[identity]
+                points.extend([(x, y), (x + w, y + h)])
+            for use_id, source, target in drawing.uses:
+                if source in members:
+                    self.assertIn(target, members)
+                    points.extend(drawing.points[use_id])
+            for x, y in points:
+                self.assertGreaterEqual(x, 0)
+                self.assertLessEqual(x, width)
+                self.assertGreaterEqual(y, 0)
+                self.assertLessEqual(y, height)
+            occupied.append((min(x for x, _ in points), min(y for _, y in points),
+                             max(x for x, _ in points), max(y for _, y in points)))
+        for index, (left, top, right, bottom) in enumerate(occupied):
+            for other_left, other_top, other_right, other_bottom in occupied[index + 1:]:
+                self.assertTrue(right < other_left or other_right < left or
+                                bottom < other_top or other_bottom < top,
+                                "Disconnected components overlap or their routes leave the clear separation.")
+        rectangles = list(drawing.rectangles.values())
+        for index, (x, y, w, h) in enumerate(rectangles):
+            for other_x, other_y, other_w, other_h in rectangles[index + 1:]:
+                self.assertTrue(x + w < other_x or other_x + other_w < x or
+                                y + h < other_y or other_y + other_h < y,
+                                "Two statement boxes overlap.")
+
+    def test_many_isolated_statements_use_a_balanced_drawing(self):
+        names = [f"isolated-{index}" for index in range(18)]
+        _, _, _, drawing = self.render(names, [])
+        _, _, width, height = drawing.viewbox
+        self.assertLess(max(width, height) / min(width, height), 2.5,
+                        "An isolated-node overview should not collapse into a long narrow strip.")
+        self.assertGreater(len({rect[0] for rect in drawing.rectangles.values()}), 1)
+        self.assertGreater(len({rect[1] for rect in drawing.rectangles.values()}), 1)
+        self.assert_separate_component_geometry(drawing, [[name] for name in names])
+
+    def test_unequal_components_keep_skipped_and_return_routes_separate(self):
+        components = [["a", "b", "c", "d", "e", "f"], ["x", "y", "z"],
+                      ["p", "q"], ["single-1"], ["single-2"], ["single-3"]]
+        pairs = [("a", "b"), ("a", "c"), ("b", "d"), ("c", "e"),
+                 ("d", "f"), ("e", "f"), ("a", "f"), ("b", "f"),
+                 ("x", "y"), ("y", "x"), ("y", "y"), ("y", "z"),
+                 ("p", "q")]
+        names = [name for component in components for name in component]
+        _, _, _, drawing = self.render(names, pairs)
+        self.assert_separate_component_geometry(drawing, components)
 
     def test_actual_viewer_reachability_terminates_and_keeps_cycle_edges(self):
         # Execute the bundled implementation, rather than a reimplementation.

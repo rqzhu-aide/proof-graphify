@@ -308,6 +308,37 @@ class CitationCandidateTests(CandidateFixture):
         saved = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(saved["pairs"], report["pairs"])
 
+    def test_cli_changes_output_saves_the_diff_and_protects_sources(self):
+        self.assertTrue(database._common_format(self.db))
+        head = database.export_snapshot(self.db)["snapshot_id"]
+        script = str(SKILL / "scripts/paper_database.py")
+        output = self.base / "work" / "changes.json"
+        run = subprocess.run([sys.executable, "-B", script, "changes", str(self.db), "--since", head,
+                              "--output", str(output)], capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        receipt = json.loads(run.stdout)
+        self.assertEqual(receipt["from_snapshot"], head)
+        self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["to_snapshot"], receipt["to_snapshot"])
+        original = self.main.read_bytes()
+        run = subprocess.run([sys.executable, "-B", script, "changes", str(self.db), "--since", head,
+                              "--output", str(self.main)], capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(run.returncode, 2)
+        self.assertIn("distinct from captured manuscript files", run.stderr)
+        self.assertEqual(self.main.read_bytes(), original)
+
+    def test_cli_backup_on_common_store_creates_folders_and_refuses_overwrite(self):
+        script = str(SKILL / "scripts/paper_database.py")
+        backup = self.base / "backup folder" / "records.sqlite"
+        run = subprocess.run([sys.executable, "-B", script, "backup", str(self.db), str(backup)],
+                             capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(Path(json.loads(run.stdout)["backup"]), backup.resolve())
+        self.assertEqual(database.export_snapshot(backup), database.export_snapshot(self.db))
+        run = subprocess.run([sys.executable, "-B", script, "backup", str(self.db), str(backup)],
+                             capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(run.returncode, 2)
+        self.assertIn("new backup path", json.loads(run.stderr)["error"])
+
 
 class EdgeAuditSweepTests(CandidateFixture):
     def test_scaffold_writes_one_complete_empty_audit_per_major_row(self):

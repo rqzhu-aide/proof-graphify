@@ -152,10 +152,25 @@ class ConverterAdaptationTests(unittest.TestCase):
                     self.assertIn("likely decoded LaTeX escape", diagnostics[0]["reason"])
                     self.assertIn("\\" + command, diagnostics[0]["reason"])
 
+    def test_decoded_common_commands_do_not_silently_render_as_letters(self):
+        for command in ("theta", "tau", "times", "to", "tfrac{1}{2}", "rho", "right)", "rightarrow",
+                        "rangle", "rfloor", "nabla", "notin"):
+            with self.subTest(command=command):
+                # Valid JSON: the single backslash decodes \t, \r or \n.
+                tex = json.loads('"(x\\' + command + ' y"')
+                diagnostics = []
+                markup = math_display.render_text("$" + tex + "$", diagnostics)
+                self.assertIn('class="math-fallback"', markup)
+                self.assertEqual(len(diagnostics), 1)
+                self.assertIn("likely decoded LaTeX escape", diagnostics[0]["reason"])
+
     def test_legitimate_math_whitespace_and_commands_are_not_escape_warnings(self):
         for tex in (r"\lVert x\rVert_2", r"\lvert x\rvert",
                     "x +\n y", "x +\r y", "x +\t y", "x +\r\nVert",
-                    "x +\rVertex", "x +\rvertical", "x +\n" + "eq", "x +\t" + "ext{y}"):
+                    "x +\rVertex", "x +\rvertical", "x +\n" + "eq", "x +\t" + "ext{y}",
+                    "x =\t" + "o(1)", "x =\t" + "o (1)", "x =\t" + "o\n(1)",
+                    "x =\t" + "o\t(1)", "x +\t" + "hetas", r"\theta\to\rho\nabla", "x +\n" + "u",
+                    "x +\r\n" + "ho"):
             with self.subTest(tex=tex):
                 diagnostics = []
                 markup = math_display.render_text("$" + tex + "$", diagnostics)

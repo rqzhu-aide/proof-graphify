@@ -1159,6 +1159,9 @@ class _Projector:
 
     @staticmethod
     def layout(node_ids: list, edges: list) -> dict:
+        if not node_ids:
+            # There is nothing to place; the renderer's index mode draws no graph geometry.
+            return {"mode": "index", "reasons": ["No statements are recorded yet, so no dependency graph is drawn."]}
         indegree = {n: 0 for n in node_ids}
         outgoing = defaultdict(list)
         for source, target in edges:

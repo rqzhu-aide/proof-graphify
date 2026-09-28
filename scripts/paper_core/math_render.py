@@ -40,6 +40,16 @@ _ATTRIBUTES = frozenset((
     "separators equalrows equalcolumns columnlines rowlines frame framespacing "
     "side minlabelspacing rowspan columnspan"
 ).split())
+# JSON accepts \t, \n and \r, so an under-escaped \theta arrives as a tab followed
+# by "heta" and would otherwise render as letters. Only distinctive remnants are
+# flagged; ordinary whitespace, CRLF, longer identifiers and little-o do not match.
+# Kept in step with proof-graphify scripts/overview_math.py.
+_DECODED_ESCAPE = re.compile(
+    r"\t(?:heta|au|imes|ilde|riangle|frac|o(?!\s*\())(?![A-Za-z])"
+    r"|\n(?:abla|otin)(?![A-Za-z])"
+    r"|\r(?:Vert|vert|ho|ight(?:arrow)?|angle|floor|ceil|brace)(?![A-Za-z])")
+_CONTROL_NAMES = {"\t": "tab", "\n": "newline", "\r": "carriage return"}
+_CONTROL_LETTERS = {"\t": "t", "\n": "n", "\r": "r"}
 
 
 def _escaped(text: str, index: int) -> bool:
@@ -174,6 +184,11 @@ def _group_scripted_binomials(tex: str) -> str:
 def _convert(tex: str, display: str) -> tuple[str | None, str]:
     if not tex.strip() or len(tex) > CONFIGURATION["maximum_formula_characters"]:
         return None, "The expression is empty or exceeds the display limit."
+    damaged = _DECODED_ESCAPE.search(tex)
+    if damaged:
+        control, remnant = damaged[0][0], damaged[0][1:]
+        return None, (f"Likely decoded LaTeX escape ({_CONTROL_NAMES[control]} + {remnant}); "
+                      f"check JSON escaping for \\{_CONTROL_LETTERS[control]}{remnant}.")
     try:
         from latex2mathml.converter import convert
     except ImportError:

@@ -196,7 +196,7 @@ function layoutGraph(data) {
     return { item_ids: group.members, item_labels: group.members.map((id) => nodes.get(id).label),
       use_ids: data.uses.filter((use) => members.has(use.from) && members.has(use.to)).map((use) => use.id) };
   }).sort((a, b) => nodes.get(a.item_ids[0]).order - nodes.get(b.item_ids[0]).order);
-  // Independent connected arguments occupy separate bands. Within a band,
+  // Disconnected groups occupy separate regions. Within a group,
   // integral rows leave shared clear corridors for skipped-layer connections.
   const components = [], assigned = new Set();
   nodes.forEach((start) => {
@@ -227,24 +227,40 @@ function layoutGraph(data) {
     components.push({ members, ranks, returns, rowCount: Math.max(...ranks.map((rank) => rank.length)) });
   });
   const longUses = data.uses.filter((use) => nodes.get(use.to).rank > nodes.get(use.from).rank + 1);
-  let top = box.margin;
+  const headingHeight = components.length > 1 ? 32 : 0, gapX = 24, gapY = 68;
+  components.forEach((component) => {
+    component.width = box.margin * 2 + (component.ranks.length - 1) * box.column + box.w;
+    component.height = headingHeight + (component.returns.length ? 24 + component.returns.length * 10 : 0)
+      + (component.rowCount - 1) * box.row + box.h;
+  });
+  // Pack whole groups in stable rows, preserving their internal ranks and routes.
+  const widest = Math.max(...components.map((component) => component.width));
+  const area = components.reduce((sum, component) => sum + component.width * (component.height + gapY), 0);
+  const rowWidth = components.length > 1 ? Math.max(widest, Math.sqrt(area * 1.5)) : widest;
+  let left = 0, top = box.margin, rowBottom = top, width = 0;
   components.forEach((component, componentIndex) => {
+    if (left && left + component.width > rowWidth) {
+      left = 0;
+      top = rowBottom + gapY;
+    }
+    component.left = left;
     component.top = top;
-    component.laneTop = top + (components.length > 1 ? 32 : 0);
+    component.laneTop = top + headingHeight;
     component.nodeTop = component.laneTop + (component.returns.length ? 24 + component.returns.length * 10 : 0);
     component.ranks.forEach((rank, r) => rank.forEach((node, index) => {
-      node.x = box.margin + r * box.column;
+      node.x = left + box.margin + r * box.column;
       node.y = component.nodeTop + index * box.row;
       node.width = box.w; node.height = box.h; node.component = componentIndex;
     }));
     component.bottom = component.nodeTop + (component.rowCount - 1) * box.row + box.h;
-    top = component.bottom + 68;
+    rowBottom = Math.max(rowBottom, component.bottom);
+    width = Math.max(width, left + component.width);
+    left += component.width + gapX;
   });
-  const rankCount = Math.max(...components.map((component) => component.ranks.length));
   return {
     nodes, components, incoming, outgoing, longUses, cycles, ...detailIndex(data),
-    width: box.margin * 2 + (rankCount - 1) * box.column + box.w,
-    height: top - 68 + box.margin,
+    width,
+    height: rowBottom + box.margin,
   };
 }
 
@@ -305,6 +321,8 @@ function captionLines(text, limit = 25) {
 
 function renderQualifiers(qualifiers, graph) {
   const occupied = [...graph.nodes.values()].map((node) => ({ x: node.x - 6, y: node.y - 6, w: box.w + 12, h: box.h + 12 }));
+  if (graph.components.length > 1) graph.components.forEach((component) =>
+    occupied.push({ x: component.left + 22, y: component.top - 3, w: component.width - 44, h: 26 }));
   const intersects = (a, b) => a.x < b.x + b.w + 3 && a.x + a.w + 3 > b.x && a.y < b.y + b.h + 3 && a.y + a.h + 3 > b.y;
   return qualifiers.map(({ use, description, labels, points }) => {
     const w = Math.max(...labels.map((label) => textUnits(label))) * 5.7 + 12, h = labels.length * 14 + 6;
@@ -385,7 +403,14 @@ function renderSvg(data, graph) {
     ${graph.components.length > 1 ? graph.components.map((component) => {
       const terminal = component.members.filter((node) => !graph.outgoing.get(node.id).length);
       const ends = (terminal.length ? terminal : component.members.filter((node) => cycleItems.has(node.id))).map((node) => node.label);
-      return `<g class="proof-component" aria-hidden="true"><path d="M 22 ${component.top + 16} H ${graph.width - 22}"/><text x="${box.margin}" y="${component.top + 9}">Linked argument: ${esc(ends.join(', '))}</text></g>`;
+      const title = component.members.length === 1 && !component.returns.length ? 'Unconnected result' : `Linked argument: ${ends.join(', ')}`;
+      const limit = Math.floor((component.width - 2 * box.margin) / (12 * 0.61));
+      let label = title;
+      if (textUnits(label) > limit) {
+        while (textUnits(label) > limit - 1) label = [...label].slice(0, -1).join('');
+        label += '…';
+      }
+      return `<g class="proof-component" aria-hidden="true"><title>${esc(title)}</title><path d="M ${component.left + 22} ${component.top + 16} H ${component.left + component.width - 22}"/><text x="${component.left + box.margin}" y="${component.top + 9}">${esc(label)}</text></g>`;
     }).join('') : ''}${edges}${qualifierSvg}${nodes}
   </svg>`;
 }
@@ -680,12 +705,16 @@ function cycleContextHtml(graph) {
   }).join('')}</ul></li>`).join('')}</ul></details>`;
 }
 
+function emptyConnectionsHtml(data) {
+  return data.uses.length ? '' : '<p class="proof-empty-connections" role="note">No connections are recorded in this overview. This does not establish that the results are independent.</p>';
+}
+
 function renderIndex(data) {
   const graph = indexGraph(data);
   const warnings = (data.warnings || []).map((warning) => `<li>${esc(warning)}</li>`).join('');
   const html = `<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(data.title)} | Proof overview index</title>${proofCss(data)}<style>
     :root{--text:#172033;--text-muted:#526075;--text-dim:#637086;--panel:#f8fafc;--panel-border:#d7dee8;--mask:#fff;--arrow:#64748b;color-scheme:light}html[data-theme="dark"]{--text:#e5eaf3;--text-muted:#adb8cb;--text-dim:#9caac0;--panel:#101827;--panel-border:#344155;--mask:#172132;color-scheme:dark}body{margin:0;background:var(--panel);color:var(--text);font:14px/1.6 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:28px 24px}h1{font-size:22px;line-height:1.3}.proof-index article{scroll-margin-top:18px}.proof-passages details{margin:8px 0}.proof-passages summary{cursor:pointer;font-size:12px;overflow-wrap:anywhere}.proof-index h4{font-size:13px}.proof-index-controls{display:flex;flex-wrap:wrap;gap:8px}.proof-index-controls a,.proof-index-controls button{font:inherit;color:var(--text);border:1px solid var(--panel-border);border-radius:5px;background:var(--mask);padding:5px 9px;text-decoration:none}@media print{main{max-width:none;padding:0}}
-    </style></head><body><main><h1>${esc(data.title)}</h1><p class="proof-caption">${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Index view.</strong> All selected statements and connections are displayed below. Cyclic mappings alone do not establish a circular proof.</p>${scopeHtml(data.scope, data.scope_display)}${buildContextHtml(data)}${warnings ? `<div class="proof-render-warnings"><ul>${warnings}</ul></div>` : ''}${mathDiagnosticsHtml(data)}<nav class="proof-index-controls" aria-label="Index controls"><button type="button" id="proof-index-theme">Switch theme</button><a href="#proof-full-index">Selected statements and connections</a></nav>${fullIndexHtml(data, graph, true)}</main>${recordsHtml(data, 'index')}<script>(function(){document.getElementById('proof-index-theme').addEventListener('click',function(){document.documentElement.setAttribute('data-theme',document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');});document.addEventListener('click',function(event){var button=event.target.closest('[data-proof-focus]');if(!button)return;var article=document.getElementById('proof-index-item-'+button.getAttribute('data-proof-focus'));if(article){document.getElementById('proof-full-index').open=true;article.scrollIntoView({block:'start'});article.setAttribute('tabindex','-1');article.focus({preventScroll:true});}});})();</script></body></html>`;
+    </style></head><body><main><h1>${esc(data.title)}</h1><p class="proof-caption">${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Index view.</strong> All selected statements and connections are displayed below. Cyclic mappings alone do not establish a circular proof.</p>${emptyConnectionsHtml(data)}${scopeHtml(data.scope, data.scope_display)}${buildContextHtml(data)}${warnings ? `<div class="proof-render-warnings"><ul>${warnings}</ul></div>` : ''}${mathDiagnosticsHtml(data)}<nav class="proof-index-controls" aria-label="Index controls"><button type="button" id="proof-index-theme">Switch theme</button><a href="#proof-full-index">Selected statements and connections</a></nav>${fullIndexHtml(data, graph, true)}</main>${recordsHtml(data, 'index')}<script>(function(){document.getElementById('proof-index-theme').addEventListener('click',function(){document.documentElement.setAttribute('data-theme',document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');});document.addEventListener('click',function(event){var button=event.target.closest('[data-proof-focus]');if(!button)return;var article=document.getElementById('proof-index-item-'+button.getAttribute('data-proof-focus'));if(article){document.getElementById('proof-full-index').open=true;article.scrollIntoView({block:'start'});article.setAttribute('tabindex','-1');article.focus({preventScroll:true});}});})();</script></body></html>`;
   const graph_preservation = representationReceipt(data, html, 'index');
   if (graph_preservation.status !== 'pass') throw new Error('Rendered index does not preserve the supplied item and use identities.');
   return { html, items: data.items.length, uses: data.uses.length, viewBox: null, graph_mode: 'index', graph_preservation, geometry: { status: 'not_applicable', checks: [], diagnostics: [], reason: 'The complete records are shown as an index; no dependency geometry is drawn.' } };
@@ -832,7 +861,6 @@ function proofRuntime(payload) {
       cancelPreview();Archify.focus.clear();if(Archify.semanticLens)Archify.semanticLens.clear({preserveView:true});if(Archify.routeProbe)Archify.routeProbe.clear({restoreFocus:false});Archify.view.reset();sync();status.textContent='Complete structure fitted to the viewer. Choose Readable view or a result for larger text.';
     });
     document.getElementById('proof-readable-view').addEventListener('click',function(){var active=Archify.focus.active();readableView(typeof active==='string'?active:data.main_items[0]);});
-    requestAnimationFrame(function(){if(!Archify.focus.active()&&!Archify.focus.relationship())readableView(data.main_items[0]);});
     sync();
   })();
   </script>`;
@@ -899,7 +927,7 @@ function render(input) {
     const node = graph.nodes.get(id);
     return `<button type="button" data-proof-main="${esc(id)}" class="c-${esc(node.kind)}" aria-pressed="false" title="${esc(`${node.label}: ${node.caption}. Open statement and supporting dependencies.`)}"><strong>${esc(node.label)}</strong><span>${esc(node.caption)}</span></button>`;
   }).join('')}</div><div class="proof-view-controls"><button type="button" id="proof-full-structure">Fit selected graph (${data.items.length} statements)</button><button type="button" id="proof-readable-view">Readable view</button><p id="proof-view-status" aria-live="polite">Select a result to read its statement and explore its prerequisites.</p></div>${hasRegimes ? '<p class="proof-trace-note" role="note">Some connections apply only in a named regime. Dependency tracing follows all recorded arrows, including alternative routes. Regime labels still apply; a trace is not one required or verified proof route.</p>' : ''}</section>`;
-  html = html.replace('<div class="diagram-container"', () => `<div class="proof-caption"><p>${esc(data.source?.title || data.title)} · ${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Selected main results and important prerequisites.</strong> Select a result for its statement, source, and connections. This map explains the written argument; it does not verify the proofs.</p>${buildContextHtml(data)}</div>${scopeHtml(data.scope, data.scope_display)}${warnings}${mathDiagnosticsHtml(data)}${cycleContextHtml(graph)}${navigation}\n<div class="diagram-container"`);
+  html = html.replace('<div class="diagram-container"', () => `<div class="proof-caption"><p>${esc(data.source?.title || data.title)} · ${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Selected main results and important prerequisites.</strong> Select a result for its statement, source, and connections. This map explains the written argument; it does not verify the proofs.</p>${buildContextHtml(data)}</div>${emptyConnectionsHtml(data)}${scopeHtml(data.scope, data.scope_display)}${warnings}${mathDiagnosticsHtml(data)}${cycleContextHtml(graph)}${navigation}\n<div class="diagram-container"`);
   const fragments = data.items.map((node) => `<template id="proof-detail-${esc(node.id)}">${fullItemHtml(node, graph)}</template><template id="proof-hover-${esc(node.id)}">${fullItemHtml(node, graph, { hover: true })}</template>`).join('');
   const useFragments = data.uses.map((use) => `<template id="proof-use-${esc(use.id)}">${fullUseHtml(use, graph)}</template>`).join('');
   const index = `${fullIndexHtml(data, graph)}<p class="proof-attribution">Viewer adapted from Archify 2.17 by tt-a1i and Cocoon AI, MIT licensed. Proof-specific dataset and rendering by proof-graphify.</p>`;

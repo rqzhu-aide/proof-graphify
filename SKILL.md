@@ -1,13 +1,13 @@
 ---
 name: proof-graphify
-description: Build a selective, source-backed interactive map of a paper's main results, important prerequisites, and their connections. Use to understand argument structure and navigate results, not to reconstruct detailed proof steps or verify proofs.
+description: Build a selective, source-backed interactive map of a paper's main results, important prerequisites, and their connections, from TeX or PDF sources to a standalone HTML page. Use for a theorem or lemma dependency graph, to understand argument structure, and to navigate results, not to reconstruct detailed proof steps or verify proofs.
 metadata:
-  version: "3.1.4"
+  version: "3.1.9"
 ---
 
 # Proof Graphify
 
-Deliver a standalone HTML graph explaining the structure of the paper's written argument. Select its main results, the important assumptions, definitions, and supporting results that explain them, and sourced connections between those statements. Preserve essential qualifications in concise summaries. Detailed derivations and mathematical validity checks belong to proofcheck.
+Deliver a standalone HTML graph explaining the structure of the paper's written argument. Select its main results, the important assumptions, definitions, and supporting results that explain them, and sourced connections between those statements. Preserve essential qualifications in concise summaries. Detailed derivations and mathematical validity checks belong to the separate `stat-proof-check` skill (called proofcheck in the references), which runs only when the user invokes it.
 
 ## Select and build
 
@@ -25,14 +25,23 @@ For a new overview, default to this folder beside the manuscript, unless the use
 proof-graphify-<short-paper-name>/
   overview.html
   data/paper-records.sqlite
-  work/                       optional seed and edit batches
+  work/                       batches, extraction, images and helpers
   exports/                    optional portable snapshots
 ```
 
-Register the actual manuscript directory with `--source-root`. Scripts and viewer assets stay in the shared skill installation. After initialization the database is authoritative; seeds and exports are not parallel masters. Reuse the database, stable identities, and output folder for revisions, following [revisions.md](references/revisions.md).
+Keep supporting files and useful query snapshots in this same `work/`; relative `work/` examples mean `<overview-folder>/work/`. Link `overview.html` and the database when delivering; retain working data for continuation. Do not delete durable records or relocate registered sources to tidy the folder. The database and exports hold complete source copies; name the output folder so the user can exclude it from manuscript version control or cloud sync.
+
+Register the actual manuscript directory with `--source-root`. Scripts and viewer assets stay in the shared skill installation. After initialization the database is authoritative; seeds and exports are not parallel masters. Reuse the database, stable identities, and output folder for revisions, following [revisions.md](references/revisions.md). For a separate new overview, use the first unused suffix such as `proof-graphify-<short-paper-name>-2/` if the proposed folder is occupied.
+
+The usual command sequence, where `<db>` is `<overview-folder>/data/paper-records.sqlite`; [database.md](references/database.md) gives each command's input:
 
 ```text
-python <skill>/scripts/paper_database.py render <overview-folder>/data/paper-records.sqlite <overview-folder>/overview.html
+python <skill>/scripts/paper_database.py init <db> <overview-folder>/work/seed.json --focused --source-root <manuscript-dir>
+python <skill>/scripts/paper_database.py list <db>
+python <skill>/scripts/paper_database.py get <db> <item-id>
+python <skill>/scripts/paper_database.py apply <db> <overview-folder>/work/edits.json
+python <skill>/scripts/paper_database.py compare <db> <overview-folder>/work/comparisons.json
+python <skill>/scripts/paper_database.py render <db> <overview-folder>/overview.html
 ```
 
 Rendering checks integrity, source status, comparisons, record preservation, and geometry. An unchanged successful render needs no extra `validate`. Regenerate a retained JSON export after final comparisons, because observations can change without changing the mathematical snapshot ID.
@@ -41,6 +50,6 @@ Completion means the selected statements and connections are represented, source
 
 When a browser is available, inspect a long statement, several prerequisites, search/selection, and any cycle explanation using [browser-check.md](references/browser-check.md). With no browser tool, use the render receipt, disclose interactions as untested, and stop that check. Do not build a driver or install a framework for a paper. Static checks and screenshots alone do not establish interaction correctness.
 
-Existing detailed databases remain readable and retain their records and history. Do not auto-convert or prune them. Read [audit-database.md](references/audit-database.md) only for rich-record compatibility or a requested proofcheck handoff. A selective overview is a starting inventory for an audit, not an exhaustive proof inventory.
+Existing detailed databases remain readable and retain their records and history. Do not auto-convert or prune them. Read [audit-database.md](references/audit-database.md) only for existing-store compatibility and maintenance. A new `stat-proof-check` audit starts independently from the manuscript in `proof-check-<paper-name>/`, with its own database and report; it does not continue, convert, or expand this overview's database or reuse its output folder. A selective overview does not establish exhaustive audit coverage.
 
 Use shared Python, `latex2mathml`, Node.js, and `pypdf` when PDF input needs text extraction; page images need an available viewing tool or renderer as described in the PDF recipe. Identify missing shared dependencies rather than creating a project-local environment. Keep paper reasoning in records and JSON batches; an optional serializer can safely write those batches without becoming a custom bookkeeping system. The bundled representer-theorem example illustrates the format, never evidence about the user's paper.

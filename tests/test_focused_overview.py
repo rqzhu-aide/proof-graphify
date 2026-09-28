@@ -102,6 +102,15 @@ class FocusedOverviewTests(unittest.TestCase):
         seed["uses"][0]["issue"] = "The intended dependency needs a located source passage."
         return seed
 
+    def blank_evidence_seed(self, whitespace=""):
+        text = self.source.read_text(encoding="utf-8")
+        line = len(text.splitlines()) + 1
+        self.source.write_text(text + whitespace + "\n", encoding="utf-8")
+        seed = deepcopy(self.seed)
+        seed["uses"][0]["source"] = {"start_line": line, "end_line": line}
+        seed["uses"][0]["issue"] = "The recorded line range contains no supporting text."
+        return seed
+
     def counts(self, db_path):
         connection = sqlite3.connect(db_path)
         try:
@@ -327,6 +336,125 @@ class FocusedOverviewTests(unittest.TestCase):
         self.assertTrue(status["valid"])
         self.assertEqual(status["uses_without_evidence"], ["independence-variance"])
         self.assertEqual(status["source_comparison"]["needs_attention"], 1)
+
+    def test_blank_line_evidence_remains_readable_and_can_be_repaired_before_matching(self):
+        target = [{"collection": "uses", "id": "independence-variance"}]
+        for name, whitespace in (("empty", ""), ("whitespace", " \t ")):
+            with self.subTest(excerpt=name):
+                db_path, _ = self.initialize(self.blank_evidence_seed(whitespace), name=name)
+                before = database.export_snapshot(db_path)
+                original_counts = self.counts(db_path)
+                packet = database.get_packet(db_path, "variance")
+                use = next(row for row in packet["incoming_uses"] if row["id"] == target[0]["id"])
+                anchor = next(row for row in packet["anchors"] if row["id"] == use["evidence_refs"][0])
+                self.assertEqual(anchor["excerpt"], whitespace)
+                self.assertEqual(database.validate_database(db_path)["uses_without_evidence"],
+                                 ["independence-variance"])
+                with self.assertRaises(ValueError):
+                    self.compare(db_path)
+                self.assertEqual(database.export_snapshot(db_path), before)
+                self.assertEqual(self.counts(db_path), original_counts)
+                self.compare(db_path, target, result="needs_attention",
+                             note="The line range is blank; locate the supporting proof passage.")
+                self.assertEqual(database.get_packet(db_path, "variance")["incoming_uses"],
+                                 packet["incoming_uses"])
+                self.assertEqual(database.validate_database(db_path)["source_comparison"]["needs_attention"], 1)
+                database.apply_edits(db_path, {"expected_snapshot": before["snapshot_id"], "edits": [
+                    {"collection": "anchors", "op": "upsert", "id": anchor["id"],
+                     "record": {"file_id": anchor["file_id"], "locator": {"start_line": 7, "end_line": 7}}}]})
+                self.compare(db_path, target)
+                status = database.validate_database(db_path)
+                self.assertEqual(status["uses_without_evidence"], [])
+                self.assertEqual(status["source_comparison"]["matched"], 1)
+
+    def test_blank_evidence_match_is_rejected_on_focused_import_validation_and_reuse(self):
+        db_path, _ = self.initialize(self.blank_evidence_seed(" \t "), name="blank-legacy", focused=False)
+        target = [{"collection": "uses", "id": "independence-variance"}]
+        self.compare(db_path, target)
+        baseline = database.export_snapshot(db_path)
+        with self.assertRaises(ValueError):
+            self.initialize(baseline, name="blank-import")
+        self.assertFalse((self.base / "blank-import.sqlite").exists())
+        self.assertEqual(database.export_snapshot(db_path), baseline)
+
+        invalid = self.base / "blank-invalid.sqlite"
+        database.backup_database(db_path, invalid)
+        self.install_profile_for_corruption_test(invalid)
+        invalid_bytes = invalid.read_bytes()
+        self.assertEqual(database.export_snapshot(invalid), baseline)
+        packet = database.get_packet(invalid, "variance")
+        use = next(row for row in packet["incoming_uses"] if row["id"] == target[0]["id"])
+        self.assertEqual(database.list_records(invalid, "uses")["uses"][0]["comparison"], "matched")
+        with self.assertRaises(ValueError):
+            database.validate_database(invalid)
+        with self.assertRaises(ValueError):
+            self.compare(invalid, target)
+        output = self.base / "invalid.html"
+        output.write_text("Earlier delivered overview", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            database.render_database(invalid, output)
+        self.assertEqual(output.read_text(encoding="utf-8"), "Earlier delivered overview")
+        self.assertEqual(invalid.read_bytes(), invalid_bytes)
+        anchor = next(row for row in packet["anchors"] if row["id"] == use["evidence_refs"][0])
+        database.apply_edits(invalid, {"expected_snapshot": baseline["snapshot_id"], "edits": [
+            {"collection": "anchors", "op": "upsert", "id": anchor["id"],
+             "record": {"file_id": anchor["file_id"], "locator": {"start_line": 7, "end_line": 7}}}]})
+        self.compare(invalid, target)
+        self.assertEqual(database.validate_database(invalid)["source_comparison"]["matched"], 1)
+
+        self.source.write_text(self.source.read_text(encoding="utf-8") + "% Editorial comment.\n", encoding="utf-8")
+        database.refresh_database(db_path, baseline["snapshot_id"])
+        self.install_profile_for_corruption_test(db_path)
+        before = database.export_snapshot(db_path)
+        self.assertEqual(database.validate_database(db_path)["source_comparison"]["stale"], 1)
+        self.assertEqual(database.get_packet(db_path, "variance")["incoming_uses"][0]["id"], target[0]["id"])
+        with self.assertRaises(ValueError):
+            self.compare(db_path, target, reuse_from=baseline["snapshot_id"], changes_reviewed=True,
+                         note="Reviewed the editorial comment; the recorded evidence is still blank.")
+        self.assertEqual(database.export_snapshot(db_path), before)
+
+    def test_nonempty_secondary_evidence_suffices_when_first_anchor_is_blank(self):
+        db_path, _ = self.initialize(self.blank_evidence_seed())
+        data = database.export_snapshot(db_path)
+        use = deepcopy(next(row for row in data["uses"] if row["id"] == "independence-variance"))
+        blank = next(row for row in data["anchors"] if row["id"] == use["evidence_refs"][0])
+        self.assertFalse(blank["excerpt"].strip())
+        use["evidence_refs"].append("supporting-proof")
+        use.pop("issue")
+        database.apply_edits(db_path, {"expected_snapshot": data["snapshot_id"], "edits": [
+            {"collection": "anchors", "op": "upsert", "id": "supporting-proof",
+             "record": {"file_id": blank["file_id"], "locator": {"start_line": 7, "end_line": 7}}},
+            {"collection": "uses", "op": "upsert", "id": use["id"], "record": use}]})
+        self.compare(db_path, [{"collection": "uses", "id": use["id"]}])
+        status = database.validate_database(db_path)
+        self.assertEqual(status["uses_without_evidence"], [])
+        self.assertEqual(status["source_comparison"]["matched"], 1)
+
+    def test_pdf_page_evidence_allows_visual_match_when_extracted_text_is_empty(self):
+        try:
+            from pypdf import PdfWriter
+        except ImportError:
+            self.skipTest("Shared pypdf is needed for physical PDF page checks.")
+        # An empty text layer also occurs on scanned pages. Matching records an
+        # author's visual comparison, so text extraction is not its evidence gate.
+        pdf = self.base / "page-only.pdf"
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        with pdf.open("wb") as stream:
+            writer.write(stream)
+        seed = deepcopy(self.seed)
+        seed["source"]["file"] = pdf.name
+        for row in seed["items"] + seed["uses"]:
+            row["source"] = {"page": 1}
+        db_path, _ = self.initialize(seed, name="page-only")
+        data = database.export_snapshot(db_path)
+        self.assertTrue(all(anchor["excerpt"] == "" for anchor in data["anchors"]))
+        self.assertTrue(all(anchor["verification"]["method"] == "pdf_page_bounds"
+                            for anchor in data["anchors"]))
+        self.compare(db_path, note="Compared the recorded statements and contributions with the page images.")
+        status = database.validate_database(db_path)
+        self.assertEqual(status["uses_without_evidence"], [])
+        self.assertEqual(status["source_comparison"]["matched"], 6)
 
     def test_focused_import_refuses_current_unsourced_match_without_rewriting_history(self):
         db_path, _ = self.initialize(self.unsourced_seed(), name="legacy", focused=False)

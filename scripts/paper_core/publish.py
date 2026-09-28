@@ -225,9 +225,21 @@ def _visible_failures(scan, projection):
     scope = projection["summary"]["scope"]
     mode = [e for e in scan.elements if "data-proof-scope-mode" in e["attrs"]]
     targets = [e for e in scan.elements if "data-proof-scope-targets" in e["attrs"]]
-    expected_targets = ", ".join(f"{r['collection']}:{r['id']}" for r in scope["target_refs"]) or (
+    records = {}
+    for row in projection["records"]:
+        ref = row["ref"]
+        key = (ref["collection"], ref["id"])
+        if key not in records or records[key]["ref"]["version"] < ref["version"]:
+            records[key] = row
+    expected_labels = [records.get((r["collection"], r["id"]), {}).get("body", {}).get("label")
+                       or r["collection"].replace("_", " ").removesuffix("s") for r in scope["target_refs"]]
+    expected_targets = ", ".join(expected_labels) or (
         "Recorded items; no audit selected" if projection["audit_id"] is None else "No explicit audit targets recorded")
-    if len(mode) != 1 or text(mode[0]) != scope["mode"] or len(targets) != 1 or text(targets[0]) != expected_targets:
+    target_rows = [e for e in descendants(targets[0]) if "data-proof-scope-target" in e["attrs"]] if len(targets) == 1 else []
+    target_ids = [e["attrs"]["data-proof-scope-target"] for e in target_rows]
+    expected_ids = [f"{r['collection']}:{r['id']}" for r in scope["target_refs"]]
+    if len(mode) != 1 or text(mode[0]) != scope["mode"] or len(targets) != 1 or text(targets[0]) != expected_targets \
+            or target_ids != expected_ids or [text(e) for e in target_rows] != expected_labels:
         failures.append("visible audit scope differs from the canonical scope")
     factual = projection["summary"].get("factual")
     if factual is not None:
