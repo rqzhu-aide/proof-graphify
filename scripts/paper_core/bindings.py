@@ -238,7 +238,8 @@ RELATION_FACETS = {"uses_in_group": "application", "incoming_uses": "application
                    "groups_in_argument": "inference", "scopes_in_argument": "scope",
                    "coverage_in_argument": "coverage", "parts_of_item": "statement",
                    "arguments_for_target": "proof", "checks_or_findings_for_target": "full",
-                   "target_specs_for_target": "statement", "refinements_for_use": "full",
+                   "target_specs_for_target": "statement", "proof_boundaries_for_target": "coverage",
+                   "refinements_for_use": "full",
                    "audit_scope": "statement"}
 
 
@@ -278,7 +279,8 @@ def binding_changes(state, binding: dict) -> dict:
         expected = entry.get("setup_digest", entry["digest"])
         if live is not None:
             facets = facet_digests(live.collection, live.body)
-            actual = (setup_digest(live.collection, live.body) if "setup_digest" in entry
+            actual = (setup_digest(live.collection, live.body,
+                                  include_evidence=entry.get("source_passage_selection") == 1) if "setup_digest" in entry
                       else facets.get(entry["facet"]) or facets["full"])
         if actual != expected:
             records.append({"ref": ref, "facet": entry["facet"], "expected": expected, "actual": actual,

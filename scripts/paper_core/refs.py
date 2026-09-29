@@ -5,7 +5,7 @@ Implements record-contract 1.1 and the guard relations of implementation-handoff
 from __future__ import annotations
 
 from .canonical import digest
-from .contract import extract_refs
+from .contract import INTERMEDIATE_KINDS, extract_refs
 
 FACETS = ("statement", "proof", "application", "inference", "scope", "coverage", "source", "full")
 
@@ -20,6 +20,7 @@ RELATIONS = {
     "scopes_in_argument": (("scopes",), "/argument_id", ("arguments",)),
     "checks_or_findings_for_target": (("checks", "findings"), "/target", None),
     "target_specs_for_target": (("target_specs",), "/target", ("items", "parts")),
+    "proof_boundaries_for_target": (("proof_boundaries",), "/target", ("items", "parts")),
     "refinements_for_use": (("connection_refinements",), "/summary_use_id", ("uses",)),
     "audit_scope": (("items", "parts"), None, ("audits",)),
 }
@@ -29,19 +30,24 @@ def _pick(body, *names):
     return {name: body[name] for name in names}
 
 
-def setup_digest(collection: str, body: dict):
+def setup_digest(collection: str, body: dict, *, include_evidence=False):
     """Private source-selection projection, not a stored record facet.
 
     Keep ordinary facet digests alongside this projection in bindings so older
     readers can conservatively compare the recognized, broader facet.
     """
+    if collection == "items" and body.get("kind") in INTERMEDIATE_KINDS:
+        return digest(_pick(body, "kind", "owner_id", "origin", "scope_id", "passages"))
     fields = {
         "arguments": ("target", "scope_id"),
         "groups": ("argument_id", "scope_id", "case_scope_ids", "discharges"),
         "uses": ("from", "to", "type", "group_id"),
         "application_details": ("use_id", "group_id", "scope_id"),
         "target_specs": ("target", "scope_id", "evidence_refs"),
+        "proof_boundaries": ("target", "anchor_refs"),
     }.get(collection)
+    if include_evidence and collection in ("arguments", "groups", "uses"):
+        fields += ("evidence_refs",)
     return None if fields is None else digest({key: body.get(key) for key in fields})
 
 

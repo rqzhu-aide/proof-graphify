@@ -113,9 +113,13 @@ def authoring_template(collection, *, packet_id, record_id=None):
     entry.update(collection=collection, id=identifier, body=body)
     batch = skeleton(c.BATCH)
     batch.update(request_id=new_id("request"), packet_id=packet_id, edits=[entry])
-    return {"template": batch, "body_shape": describe(c.BODY_SCHEMAS[collection]),
-            "note": "Uncommitted template. Fill blank scientific fields and references before submission. "
-                    "All displayed fields are required unless listed as optional; nullable does not mean optional."}
+    note = ("Uncommitted template. Fill blank scientific fields and references before submission. "
+            "All displayed fields are required unless listed as optional; nullable does not mean optional.")
+    if collection == "audits":
+        note += (" Excluding an item removes that result and its parts from required work. "
+                 "Keep an unavailable proof of a requested result in scope as a source limitation "
+                 "or unresolved examination; missing material alone does not authorize narrowing the request.")
+    return {"template": batch, "body_shape": describe(c.BODY_SCHEMAS[collection]), "note": note}
 
 
 ROLE_REFERENCES = {
@@ -155,16 +159,18 @@ def _response_guidance(mode):
                     "kind": "composition",
                     "target": {"source_anchor_id": "<supplied proof anchor ID>",
                                "description": "The complete written route establishing the requested conclusion."}},
-                "note": "Use the supplied response scaffold. Fields are required even when nullable. "
-                        "For an inference without a supplied canonical ID, use a source target; "
-                        "a composition checks an argument, not its conclusion item. The example shows "
-                        "only kind and target, not a completed judgment; replace its anchor placeholder. "
-                        "The coordinator maps it after preserving your unchanged response. "
-                        "Choose every kind, state, outcome, condition and evidence reference yourself."}
+                "note": "Use the scaffold; required nullable fields stay present. "
+                        "Use a source target for a hidden inference; composition checks its argument. "
+                        "Replace the example's anchor placeholder and author all scientific fields. "
+                        "The coordinator maps your unchanged response. Preserve extra prerequisite concerns "
+                        "in coverage_note; concerns undermining the assigned conclusion belong in its reasoning "
+                        "and outcome. Do not silently add hypotheses. Context extension keeps the same obligation; "
+                        "a new target outside scope needs another assignment."}
     if mode == "primary":
         return {"mode": mode, "response_shape": describe(c.WORK_PRIMARY_RESPONSE),
-                "note": "Use assigned task IDs in the response scaffold. Required nullable fields stay present. "
-                        "Scientific fields are authored by the checker; a template is not an examination."}
+                "note": "Use assigned task IDs; required nullable fields stay present. "
+                        "Author the judgments. Finding rows create new issues; cite unchanged existing findings "
+                        "during renewal instead of recreating them. A renewed check alone does not resolve a finding."}
     if mode == "reconcile":
         return {"mode": mode, "row_shape": describe(c.BODY_SCHEMAS["reconciliations"]),
                 "note": "Choose exact-target pins from coordinator guidance; author the decision and rationale. "

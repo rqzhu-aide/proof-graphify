@@ -453,8 +453,12 @@ def reduce(constituents: list, *, independent: str = "not_required") -> dict:
                    or (c["state"] == "draft" and c.get("substantive"))]
     if not substantive:
         return {"state": "gray", "label": "unassessed",
-                "explanation": "no completed or substantive draft assessment exists for the represented work"
-                if constituents else "no work is represented", **base}
+                "explanation": _explain([
+                    "no completed or substantive draft assessment exists for the represented work"
+                    if constituents else "no work is represented",
+                    *dict.fromkeys(c["evidence_limitation"] for c in constituents
+                        if c.get("role") in ("independent", "coordinator")
+                        and c.get("evidence_limitation"))]), **base}
     # 4. every required constituent current, supported, with available dependency support
     reasons = []
     for c in color:
@@ -916,7 +920,9 @@ class _Derivation(_AuditScope):
             if obligation["role"] == "independent":
                 usable = [i for i in infos if self.independent_usable(i)]
                 if infos and not usable:
-                    constituent["compromised"] = True
+                    constituent["compromised"] = any(i["exposure"] == "compromised" for i in infos)
+                    constituent["evidence_limitation"] = "; ".join(dict.fromkeys(
+                        self._independent_limitation(i) for i in infos))
                 infos = usable
             complete = [i for i in infos if i["state"] == "complete"]
             current = [i for i in complete if i["freshness"] == "current"]
@@ -950,8 +956,11 @@ class _Derivation(_AuditScope):
     @staticmethod
     def _explain_obligation(obligation, c) -> str:
         if c["state"] == "missing":
-            return f"no {obligation['role']} {obligation['kind']} work recorded"
-        parts = [f"{obligation['role']} {obligation['kind']} {c['state']}"]
+            parts = [f"no usable {obligation['role']} {obligation['kind']} work recorded"
+                     if c.get("evidence_limitation") else
+                     f"no {obligation['role']} {obligation['kind']} work recorded"]
+        else:
+            parts = [f"{obligation['role']} {obligation['kind']} {c['state']}"]
         if c["outcome"]:
             parts.append(f"outcome {c['outcome']}")
         if c["freshness"] and c["freshness"] != "current":
@@ -959,12 +968,24 @@ class _Derivation(_AuditScope):
         if c["reused"]:
             parts.append("carried by an accepted reuse decision")
         if c["compromised"]:
-            parts.append("only compromised independent evidence exists")
+            parts.append("independent exposure is declared compromised")
         if c["disputed"]:
             parts.append("unresolved conflicting assessments")
         if c.get("evidence_limitation"):
             parts.append(c["evidence_limitation"])
         return "; ".join(parts)
+
+    def _independent_limitation(self, info):
+        """Explain unusable evidence without treating unfinished work as exposure."""
+        if info["exposure"] == "compromised":
+            return "the response declares possible exposure to coordinator work; obtain an independent review"
+        if info["response_state"] != "accepted":
+            if info["response_state"] == "needs_revision":
+                return "independent response mapping is unfinished; map its remaining source-based judgments"
+            return "the independent response is not accepted; inspect its intake diagnostics and qualification"
+        if info["exposure"] == "route_provided":
+            return "supplied-route review lacks a current valid initial source-only review basis"
+        return "the independent response has no usable source-only or supplied-route review basis"
 
     def _source_match_has_evidence(self, target):
         if target is None:
@@ -1065,7 +1086,7 @@ class _Derivation(_AuditScope):
             if rec.body["decision"] == "unresolved":
                 return "disputed"
         if independent and not usable and not reconciliations:
-            return "compromised"
+            return "compromised" if any(i["exposure"] == "compromised" for i in independent) else "pending"
         if not usable:
             return "pending"
         current_ind = {(i["ref"]["id"], i["ref"]["version"]) for i in usable if i["freshness"] == "current"}
@@ -1123,13 +1144,21 @@ class _Derivation(_AuditScope):
         elif indicator == "complete":
             constituent.update({"state": "complete", "outcome": "supported", "freshness": "current"})
         elif indicator == "compromised":
-            constituent.update({"state": "missing", "compromised": True})
+            constituent.update({"state": "missing", "compromised": True,
+                "evidence_limitation": "the response declares possible exposure to coordinator work; obtain an independent review"})
         elif reconciliations:
             info = judgment_freshness(self.snap, reconciliations[-1], superseded=False)
             constituent.update({"state": "complete", "outcome": "inconclusive", "freshness": info["freshness"]})
             if info["freshness"] == "current":
                 # a reconciliation exists but does not cover every current independent check
                 constituent["freshness"] = "needs_review"
+        elif indicator == "pending":
+            independent = self._independent_checks_for(statement_key)
+            reasons = [self._independent_limitation(i) for i in independent if not self.independent_usable(i)]
+            if not reasons and any(i["freshness"] != "current" for i in independent):
+                reasons = ["independent evidence requires review of changed inputs"]
+            if reasons:
+                constituent["evidence_limitation"] = "; ".join(dict.fromkeys(reasons))
 
     def coverage_problems(self) -> list:
         """Account for declared written passages without interpreting their mathematics.

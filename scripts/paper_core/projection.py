@@ -11,7 +11,7 @@ import hashlib
 from collections import Counter, OrderedDict, defaultdict, deque
 
 from . import PROJECTION_VERSION
-from .assessment import PROOF_CHECK_KINDS, ROLES, _triage_assessment, derive_full, key_of, pinned_of, reduce, ref_of
+from .assessment import PROOF_CHECK_KINDS, PROOF_KINDS, ROLES, _triage_assessment, derive_full, key_of, pinned_of, reduce, ref_of
 from .canonical import compact_json
 from .contract import INTERMEDIATE_KINDS, MAJOR_KINDS
 from .storage import Database, Record
@@ -147,6 +147,14 @@ def factual_summary(derivation, result):
     required = bool(audit and audit.body["independent_required"])
     state = max(indicators, key=lambda value: INDICATOR_RANK[value]) if indicators else \
         "pending" if required else "not_required"
+    review_explanation = "Independent review: " + state.replace("_", " ") + "."
+    if required and not any(row["kind"] in PROOF_KINDS for row in statements):
+        review_explanation = "Independent review is configured, but no eligible result targets are currently in scope."
+    else:
+        limitations = dict.fromkeys(c["evidence_limitation"] for c in result["constituents"].values()
+            if c["role"] in ("independent", "coordinator") and c.get("evidence_limitation"))
+        if limitations:
+            review_explanation += " " + "; ".join(limitations) + "."
     qualification = snap.live("qualifications", audit.body["qualification_id"]) \
         if audit and audit.body["qualification_id"] else None
     exposures = Counter(r.body["exposure"] for r in derivation.responses.values()
@@ -159,7 +167,9 @@ def factual_summary(derivation, result):
     return {"revision": result["revision"], "audit_id": result["audit_id"],
             "process_complete": result["progress"]["process_complete"],
             "scope": {"mode": result["mode"], "requested": [named(ref) for ref in result["scope"]["target_refs"]],
-                      "exclusions": exclusions, "closure_statement_count": len(statements)},
+                      "exclusions": exclusions, "closure_statement_count": len(statements),
+                      **({"explanation": "Full audit of the declared scope after the recorded exclusions."}
+                         if result["mode"] == "full" and exclusions else {})},
             "work": {**result["progress"], "checks": checks, "obligation_groups": obligation_groups,
                      "current_primary_outcomes": {outcome: outcomes[outcome] for outcome in
                                                   ("supported", "gap", "refuted", "inconclusive")}},
@@ -168,6 +178,7 @@ def factual_summary(derivation, result):
                                   "unresolved": [row for row in statements if row["availability"] != "available"]},
             "source_limits": source_limits, "unresolved_external_sources": unresolved_external,
             "independent_review": {"required": required, "state": state, "statement_counts": dict(indicators),
+                                   "explanation": review_explanation,
                                    "response_exposures": dict(exposures),
                                    "qualification_limitations": [] if qualification is None else qualification.body["limitations"]}}
 
@@ -1072,14 +1083,24 @@ class _Projector:
                 application["support_explanation"] = self.reader_support_explanation(
                     detail, ("use", application["use_id"]), application["assessment"])
             details[connection["detail_key"]] = detail.build()
-        if self.d.audit is not None and any(o["required"] and o["target"] == ref_of(self.d.audit)
-                                           for o in A["obligations"]):
+        audit_keys = {key_of(ref_of(self.d.audit))} if self.d.audit is not None else set()
+        audit_findings = self.findings_for(audit_keys)
+        if self.d.audit is not None and (audit_findings or any(
+                o["required"] and o["target"] == ref_of(self.d.audit) for o in A["obligations"])):
             # Global examinations need a real reader destination, but never a
             # scientific graph node. Optional protocol rows need no new panel.
             detail = _Detail(self, f"audit:{self.d.audit.id}")
             detail.add("review", [self.d.audit])
             self.place_obligations(detail, ref_of(self.d.audit))
             self.place_checks(detail, ref_of(self.d.audit), independent_checks=[])
+            self.add_findings(detail, audit_keys, [])
+            cited = list(audit_findings)
+            for finding in audit_findings:
+                cited.extend(self.repairs_by_finding.get(finding.id, []))
+                checks = [self.pinned_record(ref) for ref in finding.body["check_refs"]]
+                detail.add("review", checks)
+                cited.extend(checks)
+            self.add_source_material(detail, self.anchors_of([r for r in cited if r is not None]), [])
             details[detail.key] = detail.build()
         obligations = []
         for obligation in A["obligations"]:

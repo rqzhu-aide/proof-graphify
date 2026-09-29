@@ -366,14 +366,16 @@ class _Closure:
                 self.scope_chain(record.body["scope_id"])
 
 
-def _neutral_bind(closure, record, facet):
+def _neutral_bind(closure, record, facet, *, include_evidence=False):
     """Retain private setup freshness without disclosing the coordinator's graph."""
     facets = facet_digests(record.collection, record.body)
     closure.neutral_inputs[(record.collection, record.id, facet)] = {
         "ref": record.pinned, "facet": facet, "digest": facets.get(facet, facets["full"])}
-    projection = setup_digest(record.collection, record.body)
+    projection = setup_digest(record.collection, record.body, include_evidence=include_evidence)
     if projection is not None:
         closure.neutral_inputs[(record.collection, record.id, facet)]["setup_digest"] = projection
+        if include_evidence and record.collection in ("arguments", "groups", "uses"):
+            closure.neutral_inputs[(record.collection, record.id, facet)]["source_passage_selection"] = 1
 
 
 def _neutral_members(closure, relation, ref):
@@ -392,7 +394,12 @@ def _neutral_scope(closure, scope_id):
         _neutral_bind(closure, scope, "scope")
         closure.anchors(scope.body["evidence_refs"])
         for assumption in scope.body["assumptions"]:
-            _neutral_statement(closure, assumption)
+            if _neutral_statement(closure, assumption) is None:
+                record = closure.record(assumption["collection"], assumption["id"])
+                if record is not None and not record.retired and record.collection == "items" \
+                        and record.body["kind"] not in MAJOR_KINDS:
+                    _source_target(closure, {"target": assumption})
+                    _neutral_task_context(closure, {"target": assumption})
         if (scope.body["conditions"] or scope.body["binders"]) and not scope.body["evidence_refs"]:
             warning = {"reason": "Applicable setup has no captured source passage; request its exact source if needed."}
             if warning not in closure.omitted:
@@ -432,7 +439,7 @@ def _neutral_statement(closure, ref, *, borrowed=False):
     return record
 
 
-def _neutral_dependencies(closure, target):
+def _neutral_dependencies(closure, target, *, include_evidence=False):
     """Use the graph only to locate source context, never to supply a proof outline."""
     if not closure.once("neutral_dependencies", target["collection"], target["id"]):
         return
@@ -441,13 +448,17 @@ def _neutral_dependencies(closure, target):
         argument = closure.record("arguments", argument_id)
         if argument is None or argument.retired:
             continue
-        _neutral_bind(closure, argument, "proof")
+        _neutral_bind(closure, argument, "proof", include_evidence=include_evidence)
         _neutral_scope(closure, argument.body["scope_id"])
+        if include_evidence:
+            closure.anchors(argument.body["evidence_refs"])
         for _, group_id, _ in _neutral_members(closure, "groups_in_argument", argument.ref):
             group = closure.record("groups", group_id)
             if group is None or group.retired:
                 continue
-            _neutral_bind(closure, group, "inference")
+            _neutral_bind(closure, group, "inference", include_evidence=include_evidence)
+            if include_evidence:
+                closure.anchors(group.body["evidence_refs"])
             _neutral_scope(closure, group.body["scope_id"])
             for scope_id in group.body["case_scope_ids"] + group.body["discharges"]:
                 _neutral_scope(closure, scope_id)
@@ -456,7 +467,9 @@ def _neutral_dependencies(closure, target):
         use = closure.record("uses", use_id)
         if use is None or use.retired:
             continue
-        _neutral_bind(closure, use, "application")
+        _neutral_bind(closure, use, "application", include_evidence=include_evidence)
+        if include_evidence:
+            closure.anchors(use.body["evidence_refs"])
         _neutral_statement(closure, use.body["from"], borrowed=use.body["type"] == "proof_argument")
         detail = closure.record("application_details", use_id)
         if detail is not None and not detail.retired:
@@ -1074,16 +1087,78 @@ class _LocalClosure(_Closure):
                                         records=[{"anchor_id": anchor.id, "source_id": anchor.body["source_id"]}])
 
 
-def _source_target(closure, task):
+def _source_statement(closure, task):
+    """Resolve the private local task without exposing its authored decomposition."""
     target = task["target"]
-    if target["collection"] in ("items", "parts"):
-        return target
     record = closure.record(target["collection"], target["id"])
-    if record is not None and target["collection"] == "arguments":
-        return record.body["target"]
-    if task.get("owner"):
-        return task["owner"]
-    raise InvalidRequest("independent work needs a source-origin item or part target")
+    if record is None or record.retired:
+        raise InvalidRequest("independent work needs a live source-backed target", records=[target])
+    if record.collection in ("arguments", "target_specs"):
+        target = record.body["target"]
+    elif record.collection == "groups":
+        target = record.body["conclusion"]
+    elif record.collection == "uses":
+        target = record.body["to"]
+    if target["collection"] not in ("items", "parts"):
+        raise InvalidRequest("independent work needs a source-origin item or part target", records=[target])
+    statement = closure.record(target["collection"], target["id"])
+    if statement is None or statement.retired:
+        raise InvalidRequest("independent work target has no live statement", records=[target])
+    return statement
+
+
+def _source_target(closure, task):
+    statement = _source_statement(closure, task)
+    if statement.collection == "items" and statement.body["kind"] not in MAJOR_KINDS:
+        owner = closure.record("items", statement.body["owner_id"]) if statement.body["owner_id"] else None
+        if owner is None or owner.retired or owner.body["kind"] not in MAJOR_KINDS:
+            raise InvalidRequest("independent intermediate work needs a live major source owner",
+                                 records=[statement.ref])
+        statement = owner
+    if statement.body["origin"] != "source":
+        raise InvalidRequest("independent work needs a source-origin owning result", records=[statement.ref])
+    return statement.ref
+
+
+def _neutral_task_context(closure, task):
+    """Deliver captured local passages/setup, keeping intermediate records private."""
+    statement = _source_statement(closure, task)
+    if statement.collection != "items" or statement.body["kind"] in MAJOR_KINDS \
+            or not closure.once("neutral_intermediate", statement.id):
+        return
+    # Only the source-selection projection is consumed. Captions, proposed claims,
+    # proof ideas and the exact local task remain coordinator material.
+    _neutral_bind(closure, statement, "proof")
+    _neutral_scope(closure, statement.body.get("scope_id"))
+    passages = [p["anchor_id"] for p in statement.body["passages"]]
+    closure.anchors(passages)
+    for _, spec_id, _ in _neutral_members(closure, "target_specs_for_target", statement.ref):
+        spec = closure.record("target_specs", spec_id)
+        if spec is not None and not spec.retired:
+            _neutral_bind(closure, spec, "statement")
+            closure.anchors(spec.body["evidence_refs"])
+            passages.extend(spec.body["evidence_refs"])
+            _neutral_scope(closure, spec.body["scope_id"])
+    _neutral_dependencies(closure, statement.ref, include_evidence=True)
+    for _, boundary_id, _ in _neutral_members(closure, "proof_boundaries_for_target", statement.ref):
+        boundary = closure.record("proof_boundaries", boundary_id)
+        if boundary is None or boundary.retired:
+            continue
+        _neutral_bind(closure, boundary, "coverage")
+        closure.anchors(pin["id"] for pin in boundary.body["anchor_refs"])
+        passages.extend(pin["id"] for pin in boundary.body["anchor_refs"])
+    for _, argument_id, _ in closure.members("arguments_for_target", "items", statement.id):
+        argument = closure.record("arguments", argument_id)
+        if argument is not None and not argument.retired:
+            passages.extend(argument.body["evidence_refs"])
+            for _, group_id, _ in closure.members("groups_in_argument", "arguments", argument_id):
+                group = closure.record("groups", group_id)
+                if group is not None and not group.retired:
+                    passages.extend(group.body["evidence_refs"])
+    if not passages:
+        raise InvalidRequest("independent intermediate work has no captured local source passage; "
+                             "capture its written statement or argument before preparing review",
+                             records=[statement.ref])
 
 
 def _source_comparisons(closure, tasks):
@@ -1235,6 +1310,7 @@ def prepare_assignment(db: Database, *, audit_id: str, mode: str, selection: dic
                 source_targets = []
                 for task in assigned + unit_tasks:
                     target = _source_target(closure, task)
+                    _neutral_task_context(closure, task)
                     if target not in source_targets:
                         source_targets.append(target)
                 closure, declared_scope, _ = _independent(db, source_targets, closure=closure, audit_id=audit_id)
@@ -1395,6 +1471,7 @@ def neutral_relation_covered(state, relation, records, *, checked_targets=None):
         if checked_targets is not None and selection_key in checked_targets:
             return True
         _neutral_statement(closure, target)
+        _neutral_task_context(closure, {"target": target})
         if relation["relation"] != "target_specs_for_target":
             _neutral_dependencies(closure, target)
         expected = {(row["ref"]["collection"], row["ref"]["id"], row["facet"]): row["digest"] for row in records}
@@ -1411,7 +1488,7 @@ def neutral_relation_covered(state, relation, records, *, checked_targets=None):
         if checked_targets is not None:
             checked_targets.add(selection_key)
         return True
-    except _ContextLimit:
+    except (_ContextLimit, InvalidRequest):
         return False
 
 
@@ -1434,15 +1511,17 @@ def independent_context_binding(state, manifest):
     for row in inputs:
         pin = row["ref"]
         if pin["collection"] not in ("items", "parts", "scopes", "arguments", "groups", "uses",
-                                    "application_details", "target_specs"):
+                                    "application_details", "target_specs", "proof_boundaries"):
             continue
         original = state.version(pin["collection"], pin["id"], pin["version"])
         if original is None or original.retired:
             raise InvalidRequest("original independent context is unavailable", code="SOURCE_CONTEXT_UNAVAILABLE", records=[pin])
-        if pin["collection"] in ("items", "parts") and original.body["origin"] != "source":
+        if pin["collection"] in ("items", "parts") and original.body["origin"] != "source" \
+                and not (pin["collection"] == "items" and original.body["kind"] not in MAJOR_KINDS):
             continue
         consumed = copy.deepcopy(row)
-        projection = setup_digest(original.collection, original.body)
+        projection = setup_digest(original.collection, original.body,
+                                  include_evidence=row.get("source_passage_selection") == 1)
         if projection is not None:
             consumed["setup_digest"] = projection
         records[(pin["collection"], pin["id"], row["facet"])] = consumed

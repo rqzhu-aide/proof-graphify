@@ -20,6 +20,6 @@ The SQLite database is authoritative. JSON seeds and edit batches are inputs; ex
 
 ## Shared core and repository ownership
 
-The maintained common source lives in the separate [stat-paper-skills repository](https://github.com/rqzhu-aide/stat-paper-skills), under `shared/paper_core/`. Its builder copies a byte-identical bundle into this repository and `stat-proof-check`. Proof Graphify is self-contained when installed: it imports only its shipped runtime. The current checkout bundles core `2.3.4`, storage format `4`, and record contract `4`.
+The maintained common source lives in the separate [stat-paper-skills repository](https://github.com/rqzhu-aide/stat-paper-skills), under `shared/paper_core/`. Its builder copies a byte-identical bundle into this repository and `stat-proof-check`. Proof Graphify is self-contained when installed: it imports only its shipped runtime. The current checkout bundles core `2.3.5`, storage format `4`, and record contract `4`.
 
 This repository owns the Proof Graphify skill, its overview-specific code, tests, examples, and this architecture. It has its own Git remote. Shared-core changes are made at the maintained source, built into both packages, and validated in both repositories before publication. The `v3.1.4` tag records the release with shared core `2.3.1`.

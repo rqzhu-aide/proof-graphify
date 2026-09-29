@@ -402,19 +402,28 @@ def _freshness(original, active, plan):
     return check
 
 
-def _failure(exc, *, request_id=None, stored=False):
+def _failure(exc, *, request_id=None, stored=False, prior_submission=False, other_command=False):
+    if prior_submission:
+        actions = ["inspect the earlier work submission for this request ID; use a new request ID for changed input"]
+    elif other_command:
+        actions = ["use a new request ID; this ID belongs to another command and has no work submission to inspect"]
+    elif stored:
+        actions = ["inspect the retained work submission",
+                   "identical input with the same request ID returns this saved receipt; use a new request ID for corrected input or a rebase"]
+    else:
+        actions = ["correct setup or bounded input; this call did not reserve a new request ID"]
     return {"request_id": request_id, "stored": stored,
             "state": "conflict" if isinstance(exc, ConflictError) else "needs_revision",
             "committed_revision": None, "receipt": None, "record_map": {}, "remaining_task_ids": [],
             "diagnostics": exc.records[:DIAGNOSTIC_LIMIT] or [exc.message],
-            "next_actions": ["inspect retained input and prepare a corrected/new request" if stored
-                             else "correct setup or bounded input"],
+            "next_actions": actions,
             "exit_code": exc.exit_code, **exc.to_json()}
 
 
 def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
     """Retain input, then atomically register this explicit subset. Never dispatch or retry."""
     envelope = None
+    prior_submission = other_command = False
     try:
         if not db.write:
             raise InvalidRequest("work submission needs a writable database")
@@ -433,6 +442,7 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
         try:
             previous = db.work_submission(request_id)
             if previous:
+                prior_submission = True
                 if previous["request_digest"] != request_digest:
                     raise InvalidRequest("request ID was already used for different input", code="REQUEST_ID_REUSED")
                 if previous["state"] != "received":
@@ -441,6 +451,7 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                     return result
             else:
                 if db.commit_by_request(request_id) is not None:
+                    other_command = True
                     raise InvalidRequest("request ID belongs to another command", code="REQUEST_ID_REUSED")
                 original = _packet(db, envelope["packet_id"])["manifest"]
                 _provenance(db, envelope, original)
@@ -456,7 +467,8 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
             db.rollback()
             raise
     except CoreError as exc:
-        return _failure(exc, request_id=envelope.get("request_id") if isinstance(envelope, dict) else None)
+        return _failure(exc, request_id=envelope.get("request_id") if isinstance(envelope, dict) else None,
+                        prior_submission=prior_submission, other_command=other_command)
 
     try:
         worker = _parse(response_bytes, "worker response")
@@ -533,7 +545,7 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                 "receipt": None, "exit_code": 2,
                 "error": {"code": "PROCESSING_INTERRUPTED", "message": f"{type(exc).__name__}: {exc}",
                           "records": []},
-                "next_actions": ["inspect the request, then explicitly replay the unchanged input"]}
+                "next_actions": ["inspect this received work submission, then replay the unchanged input with the same request ID"]}
 
 
 def initial_request_id(manifest):
@@ -718,14 +730,19 @@ def _write_artifacts(db, result, directory):
     protected.update((source_root / s.body["path"]).resolve() for s in db.heads("sources"))
     files = {}
     if "packet" in result:
-        files = {"worker-packet.json": canonical_bytes(result["packet"]),
-                 "coordinator-manifest.json": canonical_bytes(result["manifest"]),
-                 "response-scaffold.json": canonical_bytes(result["scaffold"])}
+        # Readable generated files retain the payload's canonical identity in storage.
+        def generated_bytes(value):
+            return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2,
+                               allow_nan=False) + "\n").encode("utf-8")
+
+        files = {"worker-packet.json": generated_bytes(result["packet"]),
+                 "coordinator-manifest.json": generated_bytes(result["manifest"]),
+                 "response-scaffold.json": generated_bytes(result["scaffold"])}
         for key in ("worker_guidance", "coordinator_guidance"):
             if key in result:
-                files[key.replace("_", "-") + ".json"] = canonical_bytes(result[key])
+                files[key.replace("_", "-") + ".json"] = generated_bytes(result[key])
         if "submission_envelope_template" in result:
-            files["submission-envelope-template.json"] = canonical_bytes(result["submission_envelope_template"])
+            files["submission-envelope-template.json"] = generated_bytes(result["submission_envelope_template"])
     elif result.get("request_id"):
         files = {"submission-envelope.json": db.get_blob(result["envelope_sha256"]),
                  "worker-response.json": db.get_blob(result["response_sha256"])}

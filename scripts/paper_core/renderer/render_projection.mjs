@@ -503,6 +503,9 @@ export function validateInput(input) {
         if (!Array.isArray(rows) || rows.some(row => !isObject(row) || !isString(row.label)))
           bad('projection.summary.factual lists must contain labeled rows');
       if (!REVIEWS.includes(factual.independent_review.state)) bad('projection.summary.factual independent review state is invalid');
+      for (const key of ['scope', 'independent_review'])
+        if (factual[key].explanation !== undefined && !isString(factual[key].explanation))
+          bad(`projection.summary.factual.${key}.explanation must be text`);
       if (!Array.isArray(factual.independent_review.qualification_limitations) ||
           !factual.independent_review.qualification_limitations.every(isString))
         bad('projection.summary.factual qualification limitations must be text');
@@ -1012,7 +1015,7 @@ ${completion}
 <p data-proof-fact="primary_outcomes">Saved check counts include nonqualifying independent work. Current primary mathematical outcomes: ${outcomes}.</p>
 <p data-proof-fact="statement_support">Statement support at each statement's recorded scope: available ${support.counts.available}; conditional ${support.counts.conditional}; unavailable ${support.counts.unavailable}.</p>
 ${unresolved.length ? `<details><summary>Conditional or unavailable statements (${unresolved.length})</summary><ul>${unresolved.join('')}</ul><p>Declared assumptions and definitions can be available as premises in an explicitly authorizing scope. Their status here does not by itself indicate a proof gap; availability must be checked at each use.</p></details>` : ''}
-<p data-proof-fact="independent_review">Independent review: ${esc(REVIEW_LABELS[independent.state])}.</p>
+<p data-proof-fact="independent_review">${esc(independent.explanation ?? `Independent review: ${REVIEW_LABELS[independent.state]}.`)}</p>
 ${independent.qualification_limitations.length ? `<ul>${independent.qualification_limitations.map((note, index) => `<li>${fact(`qualification.${index}`, note)}</li>`).join('')}</ul>` : ''}
 ${sourceLimits.length ? `<h4>Recorded source limitations</h4><ul>${sourceLimits.join('')}</ul>` : ''}
 ${external.length ? `<h4>Unresolved external suppliers</h4><ul>${external.join('')}</ul>` : ''}
@@ -1086,6 +1089,7 @@ ${limitItems.length ? `<ul class="proof-finding-list">${limitItems.join('')}</ul
 </div>
 <div class="proof-card">
 <h3>Scope</h3>
+${summary.factual?.scope.explanation ? `<p data-proof-fact="scope_explanation">${esc(summary.factual.scope.explanation)}</p>` : ''}
 <dl class="proof-kv">
 <dt>Mode</dt><dd data-proof-scope-mode>${esc(scope.mode)}</dd>
 <dt>Audit targets</dt><dd data-proof-scope-targets>${scope.target_refs.length ? scope.target_refs.map((ref) => `<span data-proof-scope-target="${esc(looseKey(ref))}">${this.humanLink(ref, this.humanLabel(ref))}</span>`).join(', ') : `<span class="proof-muted">${projection.audit_id === null ? 'Recorded items; no audit selected' : 'No explicit audit targets recorded'}</span>`}</dd>

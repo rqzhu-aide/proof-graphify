@@ -251,7 +251,8 @@ def _visible_failures(scan, projection):
             "primary_outcomes": "Saved check counts include nonqualifying independent work. Current primary mathematical outcomes: " + outcomes + ".",
             "statement_support": "Statement support at each statement's recorded scope: " + "; ".join(
                 f"{state} {support['counts'][state]}" for state in ("available", "conditional", "unavailable")) + ".",
-            "independent_review": "Independent review: " + review["state"].replace("_", " ") + ".",
+            "independent_review": review.get("explanation", "Independent review: " + review["state"].replace("_", " ") + "."),
+            **({"scope_explanation": factual["scope"]["explanation"]} if factual["scope"].get("explanation") else {}),
             **{f"checks.{key}": str(value) for key, value in factual["work"]["checks"].items()},
             **{f"unresolved.{index}": f"{row['label']}: {row['availability']}" +
                (f" (declared {row['kind']}; scope-dependent premise)" if row.get("kind") in ("assumption", "definition") else "")

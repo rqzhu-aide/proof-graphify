@@ -520,9 +520,16 @@ class Database:
     def backup(self, destination) -> dict:
         dest = Path(destination)
         try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
+            if not dest.parent.is_dir():
+                raise InvalidRequest(f"backup parent is not a directory: {dest.parent}",
+                                     code="BACKUP_PATH_INVALID") from None
             raise InvalidRequest(f"refusing to overwrite existing file {dest}") from None
+        except OSError as exc:
+            raise InvalidRequest(f"cannot create backup {dest}; check the destination path and permissions: {exc}",
+                                 code="BACKUP_PATH_INVALID") from exc
         os.close(fd)
         try:
             target = sqlite3.connect(str(dest))
