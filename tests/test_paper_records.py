@@ -210,6 +210,50 @@ class PaperRecordsTests(unittest.TestCase):
         self.assertTrue(use["id"])
         self.assertEqual(records.normalize(migrated, self.base), migrated)
 
+    def test_single_use_sources_preserves_legacy_capture_and_identity(self):
+        seed = deepcopy(self.seed)
+        use = seed["uses"][0]
+        use["sources"] = [use.pop("source")]
+        with patch("paper_records._now", return_value="2026-09-30T00:00:00Z"):
+            legacy = self.migrate()
+            plural = records.normalize(seed, self.base)
+        self.assertEqual(plural, legacy)
+
+    def test_use_sources_captures_additional_file_and_keeps_source_first(self):
+        before = self.migrate()
+        supplement = self.base / "evidence.md"
+        supplement.write_text("Additional restriction: the center is deterministic.\n", encoding="utf-8")
+        self.seed["uses"][0]["sources"] = [
+            {"file": supplement.name, "start_line": 1, "end_line": 1},
+        ]
+        original = deepcopy(self.seed)
+        data = self.migrate()
+        self.assertEqual(self.seed, original)
+        use = data["uses"][0]
+        self.assertEqual(use["id"], before["uses"][0]["id"])
+        self.assertEqual(use["evidence_refs"][0], before["uses"][0]["evidence_refs"][0])
+        self.assertEqual(len(use["evidence_refs"]), 2)
+        self.assertEqual(use["reason"], original["uses"][0]["reason"])
+        self.assertNotIn("source", use)
+        self.assertNotIn("sources", use)
+        files = {row["id"]: row for row in data["source_revision"]["files"]}
+        anchors = {row["id"]: row for row in data["anchors"]}
+        evidence = [anchors[identity] for identity in use["evidence_refs"]]
+        self.assertEqual([files[row["file_id"]]["path"] for row in evidence],
+                         ["appendix.tex", "evidence.md"])
+        self.assertIn("Additional restriction", evidence[1]["excerpt"])
+        self.assertEqual(base64.b64decode(files[evidence[1]["file_id"]]["content_base64"]),
+                         supplement.read_bytes())
+        self.assertEqual(data["observations"], [])
+
+    def test_use_sources_reuses_locator_validation(self):
+        for value in ({"page": 1}, ["not a locator"], [{"start_line": 1}]):
+            with self.subTest(sources=value):
+                seed = deepcopy(self.seed)
+                seed["uses"][0]["sources"] = value
+                with self.assertRaises(records.RecordError):
+                    records.normalize(seed, self.base)
+
     def test_capture_does_not_invent_a_completed_source_review(self):
         migrated = self.migrate()
         state = records.comparison_status(migrated)

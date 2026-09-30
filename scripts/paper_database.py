@@ -520,12 +520,40 @@ def get_packet(db_path, item_id, snapshot_id=None):
             "source_status": records.source_status(data, _source_root(db_path)), "comparison_status": records.comparison_status(data, fidelity)}
 
 
+def compact_evidence_packet(packet):
+    """Share repeated captured excerpts in a read-only retrieval view."""
+    result, first = copy.deepcopy(packet), {}
+    for anchor in result["anchors"]:
+        excerpt = anchor["excerpt"]
+        if not excerpt:
+            continue
+        key = (anchor.get("file_id"), anchor["source_revision"],
+               json.dumps(anchor["locator"], sort_keys=True), anchor["excerpt_hash"], excerpt)
+        if key not in first:
+            first[key] = anchor["id"]
+            continue
+        reference = {"excerpt_ref": first[key]}
+        # Keep short passages inline when a reference would increase the output.
+        if len(json.dumps(reference, ensure_ascii=False)) < len(json.dumps({"excerpt": excerpt}, ensure_ascii=False)):
+            del anchor["excerpt"]
+            anchor.update(reference)
+    return result
+
+
 def list_records(db_path, collection=None, snapshot_id=None):
     """List selected identities and comparison states without source blobs or prose."""
     if collection not in (None, "items", "uses", "anchors"):
         raise DatabaseError("Choose collection items, uses, or anchors.")
     data = export_snapshot(db_path, snapshot_id)
     labels = {item["id"]: item["label"] for item in data["items"]}
+    anchors = {anchor["id"]: anchor for anchor in data["anchors"]}
+    files = {source["id"]: source["path"] for source in data["source_revision"]["files"]}
+
+    def location(anchor_id):
+        anchor = anchors[anchor_id]
+        return {"anchor_id": anchor_id, "file_id": anchor.get("file_id"),
+                "file": files.get(anchor.get("file_id")), "locator": anchor["locator"]}
+
     fidelity = records.fidelity_by_row(data) if collection != "anchors" else {}
     result = {"expected_snapshot": data["snapshot_id"],
               "counts": {kind: len(data[kind]) for kind in ("items", "uses", "anchors")}}
@@ -534,15 +562,17 @@ def list_records(db_path, collection=None, snapshot_id=None):
         result["items"] = [{"id": item["id"], "label": item["label"], "kind": item["kind"],
                             "main_result": item["id"] in main,
                             "comparison": fidelity[("items", item["id"])],
-                            "anchor_ids": list(dict.fromkeys(p["anchor_id"] for p in item["passages"]))}
+                            "anchor_ids": list(dict.fromkeys(p["anchor_id"] for p in item["passages"])),
+                            "passages": [{"role": p["role"], **location(p["anchor_id"])} for p in item["passages"]]}
                            for item in data["items"]]
     if collection in (None, "uses"):
         result["uses"] = [{"id": use["id"], "from": use["from"], "to": use["to"],
                            "from_label": labels[use["from"]], "to_label": labels[use["to"]],
                            "type": use["type"], "comparison": fidelity[("uses", use["id"])],
-                           "evidence_refs": use["evidence_refs"]} for use in data["uses"]]
+                           "evidence_refs": use["evidence_refs"],
+                           "evidence_locations": [location(anchor_id) for anchor_id in use["evidence_refs"]]}
+                          for use in data["uses"]]
     if collection == "anchors":
-        files = {source["id"]: source["path"] for source in data["source_revision"]["files"]}
         result["anchors"] = [{"id": anchor["id"], "file_id": anchor.get("file_id"),
                               "file": files.get(anchor.get("file_id")), "locator": anchor["locator"]}
                              for anchor in data["anchors"]]
@@ -1145,7 +1175,7 @@ def main():
             stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    help_text = {"list": "List stored item/use IDs and comparison states without full source or history",
+    help_text = {"list": "List stored item/use IDs, evidence locations, and comparison states without excerpts or history",
                  "apply": 'Apply full-record upserts/removals with expected_snapshot; metadata belongs in top-level set',
                  "compare": "Record one result and note for explicitly named item/use targets"}
     for name in ("init", "get", "list", "apply", "compare", "refresh", "changes", "export", "validate", "render", "backup", "candidates", "scaffold", "reconcile"):
@@ -1159,6 +1189,7 @@ def main():
             command.add_argument("--source-root", type=Path, help="Manuscript root for stored paths and refresh; seed paths still resolve from the JSON directory")
         if name == "get":
             command.add_argument("item", help="Stored item ID from list; returns the item and its incoming uses")
+            command.add_argument("--compact-evidence", action="store_true", help="Share identical captured excerpts through excerpt_ref anchor IDs; all evidence links remain")
         if name == "list":
             command.add_argument("--collection", choices=("items", "uses", "anchors"), help="Default: items and uses; anchors lists locators without excerpts")
         if name == "reconcile":
@@ -1189,6 +1220,8 @@ def main():
             result = init_database(args.database, args.dataset, extra_files=args.source, source_root=args.source_root, focused=args.focused)
         elif args.command == "get":
             result = get_packet(args.database, args.item, args.snapshot)
+            if args.compact_evidence:
+                result = compact_evidence_packet(result)
         elif args.command == "list":
             result = list_records(args.database, args.collection, args.snapshot)
         elif args.command == "apply":

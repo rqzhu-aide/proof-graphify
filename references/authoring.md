@@ -13,7 +13,7 @@ Use the [minimal seed](../examples/representer-theorem/seed.json) and [database 
 | Dataset | `schema_version`, `title`, `scope`, `source`, `items`, `uses`, nonempty `main_items` |
 | Source | `title`; `file` when the root manuscript is a file |
 | Item | `id`, `kind`, `label`, `caption`, `statement: {form, text}`, and `source`, nonempty `passages`, or both (`source` becomes the first `statement` passage); optional `proof_idea` |
-| Use | `from`, `to`, `reason`; optional `id`, `type`, `source`, `regime`, `issue` |
+| Use | `from`, `to`, `reason`; optional `id`, `type`, `source`, `sources`, `regime`, `issue` |
 
 Choose stable IDs independent of printed numbering. `main_items` contains unique IDs from the selected major statements; it identifies main-result roles, not a separate record type or a filter. A main theorem may support another main theorem while retaining one identity.
 
@@ -27,16 +27,18 @@ Store this explanation as a nonempty string on the item, separate from its preci
 
 Use ordinary Unicode prose with explicitly delimited LaTeX in statements, proof ideas, reasons, issues, regimes, and scope. JSON encodes a single LaTeX backslash as `\\`, for example `"\\(X_n\\xrightarrow{p}X\\)"`; after JSON parsing the text has single backslashes. Read private macro definitions and write their meaning with standard LaTeX commands in authored summaries. Preserve captured passages literally. Check representative notation in the current draft before bulk comparisons when needed, using `math_diagnostics` to locate repairs; do not replace the database to repair display text.
 
-Invalid JSON escapes fail immediately; valid escapes such as `\r`, `\n`, and `\t` can silently consume the beginning of a LaTeX command. For math-heavy seeds or batches, an optional Python serializer avoids manual escaping. Run this example from the chosen overview folder, or give its absolute `work/seed.json` path. Given an existing `seed` object:
+Invalid JSON escapes fail immediately; valid escapes such as `\r`, `\n`, and `\t` can silently consume the beginning of a LaTeX command. For math-heavy seeds or batches, an optional Python serializer avoids manual escaping. To repair an existing JSON file, parse it, change the decoded field using a raw string, and serialize it again; do not match or replace backslashes in serialized JSON. Before initialization, this example reads the existing seed from the chosen overview folder; replace the sample statement with the source-supported repair:
 
 ```python
 import json
+from pathlib import Path
+path = Path("work/seed.json")
+seed = json.loads(path.read_text(encoding="utf-8"))
 seed["items"][0]["statement"]["text"] = r"Under Assumption 1, \(\lVert f\rVert \leq M\)."
-with open("work/seed.json", "w", encoding="utf-8") as output:
-    json.dump(seed, output, ensure_ascii=False, indent=2)
+path.write_text(json.dumps(seed, ensure_ascii=False, indent=2), encoding="utf-8")
 ```
 
-This only writes ordinary JSON; direct file-tool authoring remains valid. Diagnostics catch specific corruption patterns, not every escaping mistake. Correct reported errors from the source, without guessing the missing command.
+After initialization, retrieve the current item and incoming uses with `get`, correct the decoded field in the affected full record, serialize an edit batch, and use `apply` as described in [database.md](database.md#apply-a-bounded-batch). Retain the current packet's `expected_snapshot` and all intended record fields; do not rebuild the database from an older seed to repair display text. This only writes ordinary JSON; direct file-tool authoring remains valid. Diagnostics catch specific corruption patterns, not every escaping mistake. Correct reported errors from the source, without guessing the missing command.
 
 Read the statement with its applicable section setup, preceding definitions, and referenced assumptions. For conditional results, use “Under [essential setup and conditions], [conclusion]” as a writing aid. Include relations that define the formula's objects, such as what a remainder is the difference of. Follow relevant references without widening every passage by a fixed number of lines. Preserve domains, quantifiers, conditioning, quantitative caps, conjunctions, normalization, and convergence modes whose omission changes the claim. For example, \(\sup_t\|f_t\|\leq M\) must not become merely “uniformly bounded” when the specified \(M\) matters. Shorten exposition around these restrictions, not the restrictions themselves.
 
@@ -53,7 +55,24 @@ An item's `source` locates its statement. For several passages use, for example:
 ]
 ```
 
-The other passage roles are `definition` and `evidence`. A use's `source` locates the passage supporting that contribution. These example lines are placeholders, not evidence. Scripts generate anchors, excerpts, hashes, and observations; seed authors do not invent those fields.
+The other passage roles are `definition` and `evidence`. A use's `source` locates one passage supporting that contribution; `sources` lists several passages using the same locator fields. If both are supplied, `source` comes first, followed by `sources` in their given order. Include the passages needed to support the connection's explanation, without routinely duplicating every passage already attached to its endpoints.
+
+For a connection supported by two PDF pages:
+
+```json
+"sources": [{"page": 12}, {"page": 13}]
+```
+
+For two passages in a Markdown or other UTF-8 text manuscript:
+
+```json
+"sources": [
+  {"start_line": 40, "end_line": 55},
+  {"start_line": 120, "end_line": 135}
+]
+```
+
+Each locator inherits the root manuscript's `source.file` unless it supplies its own `file`. These example locations are placeholders, not evidence. Scripts generate anchors, excerpts, hashes, and observations; seed authors do not invent those fields. After initialization, connection edits use the resulting `evidence_refs`, as described in [database.md](database.md#apply-a-bounded-batch).
 
 Locators support `file`, `label`, `page`, and paired `start_line`/`end_line`. Lines are inclusive and one-based; PDF pages are physical, one-based pages. Use actual TeX keys in source labels and verified printed names in item labels. A descriptive locator is allowed when exact numbering is unavailable. Never infer printed numbers by counting environments, or PDF pages from TeX lines. A current `.aux` may help map numbering when checked against its PDF; it is not mathematical evidence.
 
@@ -115,7 +134,7 @@ Read necessary proof passages without auditing individual deductions. Correct af
 
 When a comparison relies on PDF-extracted mathematics, visually check the formulas actually transcribed or relied on by the saved statement or connection before marking it matched. Reuse a page inspection across supported records; unrelated formulas on that page need no check. A rate whose denominator, exponent, sign, or normalization cannot be confirmed is formula-sensitive. A prose citation relationship may be checked independently when it asserts none of that uncertain content; absence of LaTeX alone does not make a reason formula-independent. If usable images are unavailable, retain specific `needs_attention` notes for affected records and continue. Do not propagate uncertainty to every neighbor. Agreeing extractors or mathematical plausibility cannot settle damaged formulas, and no extra extraction round is required.
 
-For external attribution, a numbered lemma restated from another work remains a lemma. “Apply the external fixed-point theorem to obtain existence” can justify an external-result node; “see this survey for background” cannot. Preserve the supplied citation when details are unavailable; do not invent bibliographic expansions or claim an external theorem was checked without reading it. Disclose unavailable material and interpretation limits. Selection need not produce identical node counts across authors.
+For external attribution, a numbered lemma restated from another work remains a lemma. “Apply the external fixed-point theorem to obtain existence” can justify an external-result node; “see this survey for background” cannot. The node and its connection may be anchored to the supplied manuscript's description of the cited result and its use; the overview does not require reading or validating the original external work. Keep that summary within what the manuscript supports and disclose when the original work was not inspected. Preserve the supplied citation when details are unavailable; do not invent bibliographic expansions or claim an external theorem was checked without reading it. Disclose unavailable material and interpretation limits. Selection need not produce identical node counts across authors.
 
 The renderer derives MathML without changing the recorded mathematics. Resolve authoring and escaping errors through normal edits. Faithful unsupported notation can remain visibly labeled with a display limitation; unresolved meaning requires `needs_attention`.
 

@@ -145,6 +145,114 @@ class PaperDatabaseTests(unittest.TestCase):
         self.assertEqual(packet["observations"], [])
         self.assertEqual(packet["comparison_notes"], {})
 
+    @staticmethod
+    def expand_evidence(packet):
+        result = deepcopy(packet)
+        anchors = {row["id"]: row for row in result["anchors"]}
+        for anchor in result["anchors"]:
+            if "excerpt_ref" in anchor:
+                anchor["excerpt"] = anchors[anchor.pop("excerpt_ref")]["excerpt"]
+        return result
+
+    def test_listing_keeps_passage_roles_and_locations_for_current_and_historical_records(self):
+        original = database.export_snapshot(self.db)
+        item, use = deepcopy(original["items"][1]), deepcopy(original["uses"][0])
+        proof_anchor = use["evidence_refs"][0]
+        item["passages"].extend([{"role": role, "anchor_id": proof_anchor} for role in ("proof", "evidence")])
+        use["evidence_refs"].append(item["passages"][0]["anchor_id"])
+        database.apply_edits(self.db, {"expected_snapshot": original["snapshot_id"], "edits": [
+            {"collection": "items", "op": "upsert", "id": item["id"], "record": item},
+            {"collection": "uses", "op": "upsert", "id": use["id"], "record": use}]})
+        self.compare_everything()
+        current = database.export_snapshot(self.db)
+        before = self.counts()
+        for data in (original, current):
+            with self.subTest(snapshot=data["snapshot_id"]):
+                summary = database.list_records(self.db, snapshot_id=data["snapshot_id"])
+                anchors = {row["id"]: row for row in data["anchors"]}
+                files = {row["id"]: row["path"] for row in data["source_revision"]["files"]}
+                self.assertEqual(summary["expected_snapshot"], data["snapshot_id"])
+                for stored, listed in zip(data["items"], summary["items"]):
+                    self.assertEqual(listed["anchor_ids"], list(dict.fromkeys(p["anchor_id"] for p in stored["passages"])))
+                    self.assertEqual([{key: row[key] for key in ("role", "anchor_id")} for row in listed["passages"]], stored["passages"])
+                    for passage in listed["passages"]:
+                        anchor = anchors[passage["anchor_id"]]
+                        self.assertEqual(passage["locator"], anchor["locator"])
+                        self.assertEqual(passage["file"], files[anchor["file_id"]])
+                for stored, listed in zip(data["uses"], summary["uses"]):
+                    self.assertEqual(listed["evidence_refs"], stored["evidence_refs"])
+                    self.assertEqual([row["anchor_id"] for row in listed["evidence_locations"]], stored["evidence_refs"])
+                    for location in listed["evidence_locations"]:
+                        anchor = anchors[location["anchor_id"]]
+                        self.assertEqual(location["locator"], anchor["locator"])
+                        self.assertEqual(location["file_id"], anchor["file_id"])
+                        self.assertEqual(location["file"], files[anchor["file_id"]])
+                self.assertNotIn("excerpt", json.dumps(summary))
+                self.assertNotIn("statement", summary["items"][0])
+                self.assertEqual(database.list_records(self.db, "items", data["snapshot_id"])["items"], summary["items"])
+                self.assertEqual(database.list_records(self.db, "uses", data["snapshot_id"])["uses"], summary["uses"])
+        self.assertTrue(all(row["comparison"] == "matched" for row in summary["items"] + summary["uses"]))
+        self.assertEqual(self.counts(), before)
+        self.assertEqual(database.export_snapshot(self.db), current)
+
+    def test_compact_evidence_is_lossless_and_keeps_distinct_capture_contexts(self):
+        first = {"id": "anchor-first", "file_id": "paper", "source_revision": "revision-1",
+                 "locator": {"start_line": 1, "end_line": 3}, "excerpt_hash": "captured-hash",
+                 "excerpt": "A shared source passage with qualifications. " * 20,
+                 "verification": {"status": "located", "method": "line_range"}}
+        duplicate = {**deepcopy(first), "id": "anchor-second", "verification": {"status": "unverified", "note": "Retained historical limitation."}}
+        third = {**deepcopy(first), "id": "anchor-third"}
+        anchors = [first, duplicate, third]
+        for field, value in (("file_id", "supplement"), ("source_revision", "revision-2"),
+                             ("locator", {"page": 2}), ("excerpt_hash", "different-hash"),
+                             ("excerpt", "A different captured passage.")):
+            anchors.append({**deepcopy(first), "id": "anchor-" + field, field: value})
+        for excerpt in ("", "x"):
+            anchors.extend([{**deepcopy(first), "id": "short-" + str(index) + excerpt, "excerpt": excerpt}
+                            for index in (1, 2)])
+        packet = {"anchors": anchors, "expected_snapshot": "snapshot", "target_digests": [{"digest": "unchanged"}]}
+        before = deepcopy(packet)
+        compact = database.compact_evidence_packet(packet)
+        self.assertEqual(packet, before)
+        self.assertEqual(self.expand_evidence(compact), before)
+        self.assertEqual([row["excerpt_ref"] for row in compact["anchors"] if "excerpt_ref" in row], [first["id"], first["id"]])
+        self.assertEqual(compact["anchors"][1]["verification"], duplicate["verification"])
+        self.assertLess(len(json.dumps(compact)), len(json.dumps(packet)))
+
+    def test_cli_compact_evidence_preserves_default_packets_snapshots_and_comparisons(self):
+        data = database.export_snapshot(self.db)
+        use = deepcopy(data["uses"][0])
+        anchor = next(row for row in data["anchors"] if row["id"] == use["evidence_refs"][0])
+        use["evidence_refs"].append("anchor-second-proof")
+        database.apply_edits(self.db, {"expected_snapshot": data["snapshot_id"], "edits": [
+            {"collection": "anchors", "op": "upsert", "id": "anchor-second-proof",
+             "record": {"file_id": anchor["file_id"], "locator": anchor["locator"]}},
+            {"collection": "uses", "op": "upsert", "id": use["id"], "record": use}]})
+        self.compare_everything()
+        historical = database.export_snapshot(self.db)["snapshot_id"]
+        database.apply_edits(self.db, self.update_caption())
+        before, counts = database.export_snapshot(self.db), self.counts()
+        db_bytes = self.db.read_bytes()
+        for snapshot in (None, historical):
+            expected = database.get_packet(self.db, "variance", snapshot)
+            outputs = []
+            for compact in (False, True):
+                command = [sys.executable, "-B", str(SKILL / "scripts/paper_database.py"), "get", str(self.db), "variance"]
+                if snapshot:
+                    command.extend(["--snapshot", snapshot])
+                if compact:
+                    command.append("--compact-evidence")
+                run = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=20)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                outputs.append(json.loads(run.stdout))
+            self.assertEqual(outputs[0], expected)
+            self.assertEqual(self.expand_evidence(outputs[1]), expected)
+            self.assertTrue(any("excerpt_ref" in row for row in outputs[1]["anchors"]))
+            self.assertEqual(expected["target_fidelity"], "matched" if snapshot else "stale")
+        self.assertEqual(database.export_snapshot(self.db), before)
+        self.assertEqual(self.counts(), counts)
+        self.assertEqual(self.db.read_bytes(), db_bytes)
+
     def test_packet_shares_complete_notes_without_changing_observations_or_export(self):
         note = "Compared the hypotheses and conclusion: α ≤ β.\n" * 100
         self.compare_everything(note=note)

@@ -49,7 +49,7 @@ class MaintenanceWorkflowTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         return json.loads(run.stdout)
 
-    def test_list_supplies_exact_generated_and_parallel_use_ids_without_sources(self):
+    def test_list_supplies_exact_generated_and_parallel_use_ids_without_source_bodies(self):
         initialized = self.init()
         before = self.db.read_bytes()
         listing = self.cli("list", self.db)
@@ -60,7 +60,10 @@ class MaintenanceWorkflowTests(unittest.TestCase):
         self.assertTrue(any(row["id"].startswith("use-") for row in listing["uses"]))
         self.assertTrue(next(row for row in listing["items"] if row["id"] == "t")["main_result"])
         self.assertNotIn("content_base64", json.dumps(listing))
-        self.assertNotIn("statement", json.dumps(listing))
+        self.assertTrue(all("statement" not in row for row in listing["items"]))
+        self.assertNotIn("excerpt", json.dumps(listing))
+        for item in self.seed["items"]:
+            self.assertNotIn(item["statement"]["text"], json.dumps(listing))
         self.assertNotIn("anchors", listing)
         targets = [{"collection": "uses", "id": row["id"]} for row in listing["uses"]]
         database.compare_records(self.db, {"expected_snapshot": listing["expected_snapshot"], "targets": targets,

@@ -227,6 +227,106 @@ class FocusedOverviewTests(unittest.TestCase):
         self.assertEqual(database.export_snapshot(db_path), before)
 
     @unittest.skipUnless(shutil.which("node"), "Standalone rendering requires shared Node.js.")
+    def test_markdown_external_connection_sources_survive_export_and_render(self):
+        manuscript = self.base / "paper.md"
+        manuscript.write_text(
+            "# Cited input\n"
+            "The paper invokes a covariance identity from Cited Author (2025).\n"
+            "# Main result\n"
+            "The variance of a sum is the sum of variances under independence.\n"
+            "# Argument\n"
+            "The cited identity expands the variance into variances and cross-covariances.\n"
+            "Independence sets every cross-covariance to zero.\n"
+            "This argument requires finite variances.\n",
+            encoding="utf-8",
+        )
+        seed = {
+            "schema_version": 3, "title": "Cited input in a Markdown manuscript",
+            "scope": "The cited input is presented as used by this manuscript; its original work was not inspected.",
+            "source": {"title": "Synthetic manuscript", "file": manuscript.name},
+            "main_items": ["variance"],
+            "items": [
+                {"id": "cited-identity", "kind": "external_result", "label": "Cited Author (2025)",
+                 "caption": "Covariance identity as cited",
+                 "statement": {"form": "synopsis", "text": "The manuscript invokes an identity expanding the variance of a sum into variances and cross-covariances."},
+                 "issue": "Original external work not inspected.",
+                 "source": {"start_line": 1, "end_line": 2}},
+                {"id": "variance", "kind": "theorem", "label": "Main result",
+                 "caption": "Variance under independence",
+                 "statement": {"form": "synopsis", "text": "For independent variables with finite variances, the variance of their sum equals the sum of variances."},
+                 "source": {"start_line": 3, "end_line": 4}},
+            ],
+            "uses": [{"id": "cited-identity-variance", "from": "cited-identity", "to": "variance",
+                      "reason": "The manuscript applies the cited covariance identity and independence to remove cross terms, assuming finite variances.",
+                      "sources": [{"start_line": 6, "end_line": 6},
+                                  {"start_line": 7, "end_line": 8}]}],
+        }
+        db_path, _ = self.initialize(seed, name="markdown-evidence")
+        data = database.export_snapshot(db_path)
+        use = data["uses"][0]
+        anchors = {row["id"]: row for row in data["anchors"]}
+        excerpts = [anchors[identity]["excerpt"] for identity in use["evidence_refs"]]
+        self.assertEqual(excerpts, [
+            "The cited identity expands the variance into variances and cross-covariances.",
+            "Independence sets every cross-covariance to zero.\nThis argument requires finite variances.",
+        ])
+        self.assertEqual([row["path"] for row in data["source_revision"]["files"]], [manuscript.name])
+        self.assertEqual(data["observations"], [])
+        self.compare(db_path, note="Compared the recorded descriptions and contribution with this manuscript; the cited external work was not inspected.")
+        export = self.base / "markdown-export.json"
+        database.export_database(db_path, export)
+        restored = self.base / "markdown-restored.sqlite"
+        database.init_database(restored, export, focused=True)
+        self.assertEqual(database.export_snapshot(restored), database.export_snapshot(db_path))
+        status = database.validate_database(restored)
+        self.assertEqual(status["source_comparison"]["matched"], 3)
+        output = self.base / "markdown-overview.html"
+        receipt = database.render_database(restored, output)
+        self.assertEqual(receipt["graph_preservation"]["status"], "pass")
+        rendered = self.embedded(output)["uses"][0]
+        self.assertEqual([row["source_excerpt"] for row in rendered["source_passages"]], excerpts)
+        html = output.read_text(encoding="utf-8")
+        for excerpt in excerpts:
+            for line in excerpt.splitlines():
+                self.assertIn(line, html)
+
+    @unittest.skipUnless(shutil.which("node"), "Standalone rendering requires shared Node.js.")
+    def test_pdf_connection_sources_survive_focused_export_and_render(self):
+        try:
+            from pypdf import PdfWriter
+        except ImportError:
+            self.skipTest("Shared pypdf is needed for physical PDF page checks.")
+        pdf = self.base / "two-pages.pdf"
+        writer = PdfWriter()
+        for _ in range(2):
+            writer.add_blank_page(width=200, height=200)
+        with pdf.open("wb") as stream:
+            writer.write(stream)
+        seed = deepcopy(self.seed)
+        seed["source"]["file"] = pdf.name
+        for row in seed["items"] + seed["uses"]:
+            row["source"] = {"page": 1}
+        seed["uses"][0]["sources"] = [{"page": 2}]
+        db_path, _ = self.initialize(seed, name="two-page-evidence")
+        data = database.export_snapshot(db_path)
+        refs = data["uses"][0]["evidence_refs"]
+        anchors = {row["id"]: row for row in data["anchors"]}
+        self.assertEqual([anchors[identity]["locator"]["page"] for identity in refs], [1, 2])
+        self.assertTrue(all(anchors[identity]["verification"]["status"] == "checked" for identity in refs))
+        export = self.base / "two-pages-export.json"
+        database.export_database(db_path, export)
+        restored = self.base / "two-pages-restored.sqlite"
+        database.init_database(restored, export, focused=True)
+        self.assertEqual(database.export_snapshot(restored), data)
+        output = self.base / "two-pages-overview.html"
+        receipt = database.render_database(restored, output)
+        self.assertEqual(receipt["graph_preservation"]["status"], "pass")
+        passages = self.embedded(output)["uses"][0]["source_passages"]
+        self.assertEqual([row["anchor_id"] for row in passages], refs)
+        self.assertIn("PDF p. 1", passages[0]["source_display"])
+        self.assertIn("PDF p. 2", passages[1]["source_display"])
+
+    @unittest.skipUnless(shutil.which("node"), "Standalone rendering requires shared Node.js.")
     def test_render_includes_every_selected_statement_not_only_main_results(self):
         self.source.write_text(self.source.read_text(encoding="utf-8") +
                                "See \\ref{lem:unselected} and \\ref{not:resolved}.\n", encoding="utf-8")
@@ -636,6 +736,41 @@ class FocusedOverviewTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["authoring_profile"], "focused")
         self.assertEqual(database.validate_database(self.db)["authoring_profile"], "focused")
+
+    def test_common_cli_evidence_views_preserve_captured_records_and_history(self):
+        seed = deepcopy(self.seed)
+        seed["uses"][0]["source"] = deepcopy(seed["items"][1]["source"])
+        db, receipt = self.initialize(seed)
+        self.compare(db)
+        database.apply_edits(db, {"expected_snapshot": receipt["snapshot_id"], "edits": [],
+                                  "set": {"title": "Clarified variance overview"}})
+        before, db_bytes = database.export_snapshot(db), db.read_bytes()
+        for snapshot in (None, receipt["snapshot_id"]):
+            with self.subTest(snapshot=snapshot):
+                expected = database.get_packet(db, "variance", snapshot)
+                command = [sys.executable, "-B", str(SKILL / "scripts/paper_database.py"),
+                           "get", str(db), "variance", "--compact-evidence"]
+                if snapshot:
+                    command.extend(["--snapshot", snapshot])
+                run = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", timeout=20)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                packet = json.loads(run.stdout)
+                anchors = {row["id"]: row for row in packet["anchors"]}
+                self.assertTrue(any("excerpt_ref" in row for row in packet["anchors"]))
+                for anchor in packet["anchors"]:
+                    if "excerpt_ref" in anchor:
+                        anchor["excerpt"] = anchors[anchor.pop("excerpt_ref")]["excerpt"]
+                self.assertEqual(packet, expected)
+                self.assertEqual(packet["target_fidelity"], "matched")
+                listing = database.list_records(db, snapshot_id=snapshot)
+                theorem = next(row for row in listing["items"] if row["id"] == "variance")
+                evidence = next(row for row in listing["uses"] if row["id"] == "independence-variance")["evidence_locations"]
+                self.assertEqual(theorem["passages"][0]["role"], "statement")
+                self.assertEqual(theorem["passages"][0]["file"], "paper.tex")
+                self.assertEqual(evidence[0]["locator"], theorem["passages"][0]["locator"])
+                self.assertNotEqual(evidence[0]["anchor_id"], theorem["passages"][0]["anchor_id"])
+        self.assertEqual(database.export_snapshot(db), before)
+        self.assertEqual(db.read_bytes(), db_bytes)
 
 
 if __name__ == "__main__":

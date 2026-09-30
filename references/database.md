@@ -30,9 +30,11 @@ Seed source references resolve from the JSON directory. `--source-root` identifi
 
 ## Read one argument
 
-`list <db>` gives compact IDs, labels, roles, connection endpoints, anchor references, comparison states, and `expected_snapshot`, without statement bodies or source excerpts. Use `--collection items`, `uses`, or `anchors` to narrow it. Copy generated IDs from this listing or a packet; do not infer their hash suffixes or inspect raw SQL merely to find them.
+`list <db>` gives compact IDs, labels, kinds, connection endpoints, anchor references, comparison states, and `expected_snapshot`, without statement bodies or source excerpts. Item `passages` include each passage's role, `anchor_id`, `file_id`, file path, and locator; use `evidence_locations` provide the same location fields for each `evidence_refs` entry. Existing `anchor_ids` and `evidence_refs` remain available. Use `--collection items`, `uses`, or `anchors` to narrow it. Copy generated IDs from this listing or a packet; do not infer their hash suffixes or inspect raw SQL merely to find them.
 
 `get <db> <item-id>` returns the selected statement, incoming connections, directly relevant prerequisites, required source passages, current comparisons, freshness, and `expected_snapshot`. To inspect a connection, get its target item; passing an existing use ID returns a message with that command. Join item `passages[].anchor_id` and use `evidence_refs` to the packet's `anchors`. Comparison `note_ref` values resolve through `comparison_notes`, so repeated notes appear once. Full source blobs and accumulated review history are omitted; exports retain them. Empty compatibility fields can remain.
+
+Use `get <db> <item-id> --compact-evidence` when several anchors repeat a captured passage. The first excerpt stays inline; later identical captures can use `excerpt_ref`, the ID of that first anchor in the packet's `anchors`. Short excerpts stay inline when a reference would be longer. Resolve the reference when reading the excerpt; every anchor keeps its own ID, file binding, source revision, locator, hash, and verification metadata. Default `get` output is unchanged. This optional retrieval view changes no stored records, comparisons, exports, or HTML; `excerpt_ref` is not a field for canonical edit batches.
 
 Retrieve the argument being edited, not the whole export. Reuse recently read context at the same source revision and read additional source only when needed. A packet is not a claim that its prerequisites suffice. See [revisions.md](revisions.md) when the manuscript changes.
 
@@ -44,7 +46,7 @@ For standing setup, seed passages may repeat the same source locator. In canonic
 
 ## Apply a bounded batch
 
-Use the current `expected_snapshot` from `list` or a packet. **An `upsert` replaces the entire record; it does not merge omitted fields.** Re-supply every intended field. A seed's inline `source` becomes an anchor at initialization: canonical item edits use `passages[].anchor_id`, and use edits use `evidence_refs`. Do not paste a seed-style `source` into a canonical item edit. Public overview use endpoints `from` and `to` are string item IDs, as below; raw common-store references use a different internal shape. Author through the public commands. An anchor upsert needs an existing file ID and a verified locator; the script extracts and hashes its passage.
+Use the current `expected_snapshot` from `list` or a packet. **An `upsert` replaces the entire record; it does not merge omitted fields.** Re-supply every intended field. An item's inline `source` and a connection's `source` or `sources` become anchors at initialization: canonical item edits use `passages[].anchor_id`, and use edits use `evidence_refs`. Do not paste seed-style `source` or `sources` fields into canonical edits. Public overview use endpoints `from` and `to` are string item IDs, as below; raw common-store references use a different internal shape. Author through the public commands. An anchor upsert needs an existing file ID and a verified locator; the script extracts and hashes its passage.
 
 ```json
 {
@@ -144,5 +146,15 @@ Use citation candidates when connections are uncertain. They concern captured so
 Final rendering checks exact record preservation, input/output hashes, actual graph identities and endpoints, source/comparison status, and selected geometry before replacing the HTML. Failure preserves the prior report. Cycles and parallel connections remain visible; layout order is not proof order. Mechanical checks do not establish readability or interaction correctness.
 
 Large math diagnostic sets are grouped by cause and record field, with totals and a short sample in the render receipt. Use `render <db> <html> --full-diagnostics` or the HTML's Math display notes when individual occurrences are needed. This avoids reading the same macro warning repeatedly; it does not suppress unresolved display limitations in the report.
+
+The CLI render receipt uses these fields:
+
+| Field | Meaning |
+|---|---|
+| `math_diagnostic_count` | Total number of emitted math diagnostics, including entries omitted from the CLI sample. |
+| `math_diagnostics` | Diagnostic entries; when the total exceeds five, the default receipt shows the first five. `--full-diagnostics` shows all entries. |
+| `math_diagnostics_truncated`, `math_diagnostic_groups` | Present when the default receipt shortens a large diagnostic list; the groups summarize all entries. |
+| `geometry.status` | Result of the computed layout checks; readability and interaction still need the browser checks. |
+| `graph_preservation.status` | Whether the rendered graph preserves the stored identities and endpoints. |
 
 Exports are optional portable snapshots with base64-encoded source bytes; a large PDF can produce a large export. Use bounded `list` and `get` for routine inspection. Regenerate a retained export after final comparisons and check its observation receipt as well as its snapshot. Use `backup` for a consistent database copy. The database includes captured source files; share it only when those sources should be shared. The HTML alone is standalone and contains selected excerpts. Historical snapshots remain renderable with their source limitations disclosed.

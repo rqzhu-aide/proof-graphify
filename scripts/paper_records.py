@@ -987,7 +987,7 @@ def normalize(data, base_dir, extra_files=(), source_root=None):
     _text(root['title'], 'Seed source.title')
     if 'file' in root:
         _text(root['file'], 'Seed source.file')
-    source_objects, item_passages = [root], []
+    source_objects, item_passages, use_sources = [root], [], []
 
     def located(source, context):
         _fields(source, (), ('file', 'label', 'page', 'start_line', 'end_line'), context)
@@ -1013,7 +1013,7 @@ def normalize(data, base_dir, extra_files=(), source_root=None):
         item_passages.append(passages)
     reserved_ids = set()
     for use in _rows(data['uses'], 'Seed uses'):
-        _fields(use, ('from', 'to', 'reason'), ('id', 'type', 'regime', 'group', 'issue', 'source'), 'Seed use')
+        _fields(use, ('from', 'to', 'reason'), ('id', 'type', 'regime', 'group', 'issue', 'source', 'sources'), 'Seed use')
         for endpoint in ('from', 'to'):
             _id(use[endpoint], 'Seed use.' + endpoint)
         if 'id' in use:
@@ -1021,8 +1021,12 @@ def normalize(data, base_dir, extra_files=(), source_root=None):
             if use['id'] in reserved_ids:
                 raise RecordError(f"Use {use['id']}: duplicate identity. Distinct uses need distinct IDs.")
             reserved_ids.add(use['id'])
+        locations = []
         if 'source' in use:
-            located(use['source'], 'Use source')
+            locations.append(located(use['source'], 'Use source'))
+        locations.extend(located(source, 'Use sources locator')
+                         for source in _rows(use.get('sources', []), 'Use sources'))
+        use_sources.append(locations)
     capture_base = Path(source_root or base_dir).resolve()
     # Seed references are relative to the seed. Captured paths are relative to
     # the manuscript root, which can differ from the output/work directory.
@@ -1057,8 +1061,8 @@ def normalize(data, base_dir, extra_files=(), source_root=None):
         row['passages'] = [{'role': role, 'anchor_id': anchor(source, 'anchor-item-' + item['id'] + (f'-{index}' if index else ''))}
                            for index, (role, source) in enumerate(passages)]
         items.append(row)
-    for use in data['uses']:
-        row = {k: copy.deepcopy(v) for k, v in use.items() if k != 'source'}
+    for use, locations in zip(data['uses'], use_sources):
+        row = {k: copy.deepcopy(v) for k, v in use.items() if k not in {'source', 'sources'}}
         if 'id' not in row:
             stem = 'use-' + _sha((row['from'] + '\0' + row['to']).encode())[:16]
             identity, suffix = stem, 1
@@ -1068,7 +1072,8 @@ def normalize(data, base_dir, extra_files=(), source_root=None):
             row['id'] = identity
             reserved_ids.add(identity)
         row.setdefault('type', 'dependency')
-        row['evidence_refs'] = [anchor(use['source'], 'anchor-' + row['id'])] if 'source' in use else []
+        row['evidence_refs'] = [anchor(source, 'anchor-' + row['id'] + (f'-{index}' if index else ''))
+                                for index, source in enumerate(locations)]
         uses.append(row)
     result = {'schema_version': 3, 'title': data['title'], 'scope': data['scope'],
               'source_revision': revision, 'anchors': anchors, 'items': items, 'uses': uses,
