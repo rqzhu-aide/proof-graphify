@@ -1,7 +1,8 @@
 """Math display adaptation and diagnostics.
 
-Synthetic fixtures only: sized named bar delimiters, unbraced binomial
-arguments, and private macros are the demonstrated converter failure classes.
+Synthetic fixtures only: independence notation, negative spacing, sized named
+bar delimiters, unbraced binomial arguments, and private macros are the
+demonstrated converter failure classes.
 The tests assert converter-input adaptation and located diagnostics, never
 mathematical content.
 """
@@ -30,6 +31,58 @@ RENDERER = SKILL / "scripts" / "render.mjs"
 
 
 class ConverterAdaptationTests(unittest.TestCase):
+    def test_independence_renders_one_relation_and_retains_conditioning_and_scripts(self):
+        namespace = {"m": math_display.MATHML_NS}
+        for tex in (r"R\perp\!\perp S\mid X",
+                    r"R\perp\!\!\perp S'\mid X",
+                    r"R\perp\!\!\!\perp S\mid X",
+                    r"R\perp \! \! \perp_{Z} S\mid X"):
+            with self.subTest(tex=tex):
+                markup, reason = math_display._convert(tex, "inline")
+                self.assertIsNotNone(markup, reason)
+                root = ET.fromstring(markup)
+                operators = [node.text for node in root.findall(".//m:mo", namespace)]
+                self.assertEqual(operators.count("⫫"), 1)
+                self.assertIn("∣", operators)
+                self.assertEqual(root.findall(".//m:mspace", namespace), [])
+                self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
+                self.assertEqual(root.attrib["aria-label"], "LaTeX: " + tex)
+                if "_{Z}" in tex:
+                    self.assertEqual(root.find(".//m:msub/m:mo", namespace).text, "⫫")
+
+    def test_independence_adaptation_does_not_join_other_perpendicular_uses(self):
+        for tex in (r"R\perp S", r"\perp\perp", r"\perp\,\perp",
+                    r"\\perp\!\!\perp", r"\perp\!\!\perpendicular",
+                    r"\perp\!\!\!\!\perp"):
+            with self.subTest(tex=tex):
+                self.assertEqual(math_display._independence_symbol(tex), tex)
+        markup, reason = math_display._convert(r"R\perp S", "inline")
+        self.assertIsNotNone(markup, reason)
+        self.assertNotIn("⫫", markup)
+
+    def test_remaining_negative_spacing_is_visible_and_diagnosed(self):
+        for tex in (r"x\!y", r"x\negthinspace y", r"x\negmedspace y",
+                    r"x\negthickspace y", r"x\hspace{-0.2em}y",
+                    r"R\perp\!\!\!\!\perp S"):
+            with self.subTest(tex=tex):
+                literal = "$" + tex + "$"
+                diagnostics = []
+                markup = math_display.render_text(literal, diagnostics)
+                self.assertIn('class="math-fallback"', markup)
+                self.assertIn(literal, markup)
+                self.assertNotIn("<math", markup)
+                self.assertEqual(len(diagnostics), 1)
+                self.assertEqual(diagnostics[0]["excerpt"], literal)
+                self.assertIn("unsupported negative spacing", diagnostics[0]["reason"])
+
+    def test_positive_math_spacing_still_renders(self):
+        namespace = {"m": math_display.MATHML_NS}
+        for tex in (r"x\,y", r"x\;y", r"x\quad y", r"x\hspace{0.2em}y"):
+            with self.subTest(tex=tex):
+                markup, reason = math_display._convert(tex, "inline")
+                self.assertIsNotNone(markup, reason)
+                self.assertTrue(ET.fromstring(markup).findall(".//m:mspace", namespace))
+
     def test_arg_operator_keeps_argument_and_minimum_forms_distinct(self):
         namespace = {"m": math_display.MATHML_NS}
         for tex, expected in ((r"\arg\min_x f(x)", ["arg", "min"]),
@@ -397,6 +450,33 @@ class PrepareDiagnosticsTests(unittest.TestCase):
         self.assertTrue(all(row["fidelity"] == "matched"
                             for row in prepared["items"] + prepared["uses"]))
 
+    def test_independence_and_spacing_fallback_leave_records_and_comparisons_unchanged(self):
+        independence = r"The variables satisfy \(R\perp\!\!\perp S'\mid X\)."
+        spacing = r"The product is $x\!y$."
+        self.seed["items"][0]["statement"]["text"] = independence
+        self.seed["items"][1]["statement"]["text"] = spacing
+        self.seed["uses"][0]["reason"] = "The target uses the stated condition."
+        data = records.normalize(deepcopy(self.seed), self.base)
+        targets = [{"collection": group, "id": row["id"]}
+                   for group in ("items", "uses") for row in data[group]]
+        data["observations"].extend(records.make_observations(
+            data, targets, reviewer="Synthetic reviewer", note="Compared the synthetic passages."))
+        data = records.validate_records(data)
+        original = deepcopy(data)
+        digests = [records.target_digest(data, row["collection"], row["id"]) for row in targets]
+        prepared = records.prepare_records(data, self.base)
+        lemma, theorem = prepared["items"]
+        self.assertEqual(lemma["statement"], independence)
+        self.assertIn("<mo>⫫</mo>", lemma["statement_html"])
+        self.assertEqual(theorem["statement"], spacing)
+        self.assertIn('class="math-fallback"', theorem["statement_html"])
+        self.assertEqual([(row["id"], row["field"]) for row in prepared["math_diagnostics"]],
+                         [("main-bound", "statement")])
+        self.assertEqual(prepared["build_context"]["input_snapshot"], original["snapshot_id"])
+        self.assertTrue(all(row["fidelity"] == "matched" for row in prepared["items"] + prepared["uses"]))
+        self.assertEqual(data, original)
+        self.assertEqual([records.target_digest(data, row["collection"], row["id"]) for row in targets], digests)
+
     def test_corrupted_escaping_is_located_but_never_rewrites_canonical_text(self):
         literal = r"The map is $\\mathbf{U}$ with \\(x_n\\to0\\)."
         self.seed["items"][0]["statement"]["text"] = literal
@@ -510,6 +590,29 @@ class RendererDiagnosticsTests(unittest.TestCase):
         self.assertEqual(diagnostic["excerpt"], literal[len("The bound is "):-1])
         self.assertIn("key-bound (statement)", receipt["warnings"][-1])
         self.assertIn("Math display notes", output.read_text(encoding="utf-8"))
+
+    def test_render_receipt_distinguishes_independence_from_unsupported_spacing(self):
+        fixture = SKILL / "tests" / "fixtures" / "schema3-intermediates.json"
+        data = records.validate_records(json.loads(fixture.read_text(encoding="utf-8")))
+        row = next(item for item in data["items"] if item["id"] == "key-bound")
+        literal = r"Under \(R\perp\!\!\perp S'\mid X\), the product is $x\!y$."
+        row["statement"]["text"] = literal
+        data.pop("snapshot_id", None)
+        data = records.validate_records(data)
+        original = deepcopy(data)
+        output = self.base / "negative-spacing.html"
+        receipt = overview.render_dataset(data, fixture.parent, output)
+        self.assertEqual(overview.compact_render_receipt(receipt)["math_diagnostic_count"], 1)
+        diagnostic, = receipt["math_diagnostics"]
+        self.assertEqual((diagnostic["collection"], diagnostic["id"], diagnostic["field"]),
+                         ("items", "key-bound", "statement"))
+        self.assertEqual(diagnostic["excerpt"], r"$x\!y$")
+        self.assertIn("unsupported negative spacing", diagnostic["reason"])
+        html = output.read_text(encoding="utf-8")
+        self.assertIn("<mo>⫫</mo>", html)
+        self.assertNotIn('width="negativethinmathspace"', html)
+        self.assertIn("Math display notes", html)
+        self.assertEqual(data, original)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Proof Graphify
 
-[![Version v3.1.11](https://img.shields.io/badge/version-v3.1.11-6366f1)](SKILL.md)
+[![Version v3.1.12](https://img.shields.io/badge/version-v3.1.12-6366f1)](SKILL.md)
 
 **Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
 
@@ -32,6 +32,6 @@ proof-graphify-<paper-name>/
 
 **Share the HTML alone. Keep the database for future revisions.** See the [database guide](references/database.md) for focused initialization, editing, and export, and [SKILL.md](SKILL.md) for the current skill version.
 
-Version 3.1.11 includes shared paper core 2.3.5. The [architecture notes](architecture/README.md) describe that code and its relationship to the separate stat paper skills repository.
+Version 3.1.12 includes shared paper core 2.3.5. The [architecture notes](architecture/README.md) describe that code and its relationship to the separate stat paper skills repository.
 
 [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

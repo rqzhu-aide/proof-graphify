@@ -12,12 +12,12 @@ Use the [minimal seed](../examples/representer-theorem/seed.json) and [database 
 |---|---|
 | Dataset | `schema_version`, `title`, `scope`, `source`, `items`, `uses`, nonempty `main_items` |
 | Source | `title`; `file` when the root manuscript is a file |
-| Item | `id`, `kind`, `label`, `caption`, `statement: {form, text}`, and `source`, nonempty `passages`, or both (`source` becomes the first `statement` passage); optional `proof_idea` |
+| Item | `id`, `kind`, `label`, `caption`, `statement: {form, text}`, and `source`, nonempty `passages`, or both (`source` becomes the first `statement` passage); optional `proof_idea`, `issue`, `aliases` |
 | Use | `from`, `to`, `reason`; optional `id`, `type`, `source`, `sources`, `regime`, `issue` |
 
-Choose stable IDs independent of printed numbering. `main_items` contains unique IDs from the selected major statements; it identifies main-result roles, not a separate record type or a filter. A main theorem may support another main theorem while retaining one identity.
+Choose stable IDs independent of printed numbering. IDs start with an ASCII letter and contain only ASCII letters, digits, hyphens, and underscores, for example `assumption-2-1`; printed labels may contain dots. `main_items` contains unique IDs from the selected major statements; it identifies main-result roles, not a separate record type or a filter. A main theorem may support another main theorem while retaining one identity.
 
-Major kinds are `assumption`, `definition`, `lemma`, `proposition`, `theorem`, `corollary`, and `external_result`. Follow the manuscript's declaration type: a declared lemma remains a lemma even if the paper attributes its proof elsewhere. Use `external_result` for a result only cited from other work. Located prose assumptions and definitions may have descriptive labels. Do not promote exposition or individual proof steps to major results. Intermediate kinds, non-null `owner`, and non-null use `group` are outside focused authoring; compatibility is documented separately.
+Major kinds are `assumption`, `definition`, `lemma`, `proposition`, `theorem`, `corollary`, and `external_result`. Follow the declaration type, separately from source provenance and availability. A numbered lemma restated in the paper remains a lemma even if attributed to another work. A theorem in the paper's supplement remains a theorem even when only described in the main text and the supplement is unavailable. Use `external_result` for an outside result whose original source is not provided and which is only cited, without a restated declaration. Located prose assumptions and definitions may have descriptive labels. Do not promote exposition or individual proof steps to major results. Intermediate kinds, non-null `owner`, and non-null use `group` are outside focused authoring; compatibility is documented separately.
 
 Represent one physical statement once. Several equations defining one coherent setup may share a definition node with multiple passages; separately numbered declarations, independently invoked results, or logically distinct assumptions remain distinct. Additional TeX keys may be recorded in optional `aliases` or source passages, without duplicating the result. `label` is its verified manuscript name or a short, honest descriptive label such as `Thm · Fixed point` when no printed number is available. Put the longer description in `caption` or `statement`, rather than a sentence-length node label. `caption` is a short prose gloss such as “Uniform error bound”; put formulas in `statement` instead. `statement` normally uses `{"form": "synopsis", "text": "..."}`; choose `verbatim` or `transcription` only when accurate.
 
@@ -46,6 +46,18 @@ Make essential conditions visible in the synopsis or an explicit, clearly named 
 
 ## Source locations
 
+Describe source provenance consistently in the existing source title, locator, issue, or scope; these descriptions are not new record kinds or fields:
+
+| Source description | Meaning |
+|---|---|
+| Main manuscript | The supplied main paper |
+| Supplementary | Supplementary material belonging to this paper, supplied or only referenced |
+| Appendix | An appendix belonging to this paper, inside the manuscript or in a separate file |
+| Other provided source | Another supplied document used as evidence |
+| External | An outside original source that is not provided and is only cited |
+
+Availability is separate from provenance. If a supplement or appendix is unavailable, anchor a bounded description to the supplied manuscript and disclose the missing material in `issue` or scope. For example, “Theorem S2.2, described on p. 17; supplementary proof unavailable” keeps kind `theorem`. Do not invent its missing statement or proof. A supplied outside article is another provided source; a selected lemma read there keeps its declared kind and identifies that article as its source.
+
 An item's `source` locates its statement. For several passages use, for example:
 
 ```json
@@ -55,7 +67,7 @@ An item's `source` locates its statement. For several passages use, for example:
 ]
 ```
 
-The other passage roles are `definition` and `evidence`. A use's `source` locates one passage supporting that contribution; `sources` lists several passages using the same locator fields. If both are supplied, `source` comes first, followed by `sources` in their given order. Include the passages needed to support the connection's explanation, without routinely duplicating every passage already attached to its endpoints.
+One item may have several `statement` passages, including a statement continuing across PDF pages; retain one item identity. The other passage roles are `definition` and `evidence`. A use's `source` locates one passage supporting that contribution; `sources` lists several passages using the same locator fields. If both are supplied, `source` comes first, followed by `sources` in their given order. Include the passages needed to support the connection's explanation, without routinely duplicating every passage already attached to its endpoints.
 
 For a connection supported by two PDF pages:
 
@@ -98,7 +110,7 @@ Use page-only locations for a PDF. This seed illustrates the shape; replace the 
 }
 ```
 
-Each PDF anchor captures the whole physical page's extracted text. Line ranges require a captured text source; they cannot select lines within a PDF page. Use an available page-viewing tool or a shared renderer such as PyMuPDF for page images; `pypdf` extracts text but does not render images. No second extractor is required. Establish image capability on the first page inspection already needed: correct an ordinary path error, but stop retrying a route that explicitly cannot supply usable images. Check the available tool's image capabilities; a missing browser does not imply missing image input.
+Each PDF anchor captures the whole physical page's extracted text. Line ranges require a captured text source; they cannot select lines within a PDF page. Use an available page-viewing tool or a shared renderer such as PyMuPDF (`import pymupdf`) for page images; `pypdf` extracts text but does not render images. No second extractor is required. Establish image capability on the first page inspection already needed: correct an ordinary path error, but stop retrying a route that explicitly cannot supply usable images. Check the available tool's image capabilities; a missing browser does not imply missing image input.
 
 Prefer direct PDF anchors. Extraction replacements such as `�` disclose lost characters, not recovered mathematics. If a derived transcript is genuinely needed, register the original PDF as a source before comparisons and disclose the derivation; transcript lines are text evidence and supplemental PDF pages are navigation metadata. Never guess missing glyphs. Apply the formula comparison guidance below to the affected records.
 

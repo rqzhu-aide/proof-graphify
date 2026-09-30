@@ -2,7 +2,7 @@
 name: proof-graphify
 description: Build a selective, source-backed interactive map of a paper's main results, important prerequisites, and their connections, from TeX or PDF sources to a standalone HTML page. Use for a theorem or lemma dependency graph, to understand argument structure, and to navigate results, not to reconstruct detailed proof steps or verify proofs.
 metadata:
-  version: "3.1.11"
+  version: "3.1.12"
 ---
 
 # Proof Graphify
@@ -38,13 +38,13 @@ The usual command sequence, where `<db>` is `<overview-folder>/data/paper-record
 ```text
 python <skill>/scripts/paper_database.py init <db> <overview-folder>/work/seed.json --focused --source-root <manuscript-dir>
 python <skill>/scripts/paper_database.py list <db>
-python <skill>/scripts/paper_database.py get <db> <item-id>
+python <skill>/scripts/paper_database.py get <db> <item-id> --compact-evidence
 python <skill>/scripts/paper_database.py apply <db> <overview-folder>/work/edits.json
 python <skill>/scripts/paper_database.py compare <db> <overview-folder>/work/comparisons.json
 python <skill>/scripts/paper_database.py render <db> <overview-folder>/overview.html
 ```
 
-Rendering checks integrity, source status, comparisons, record preservation, and geometry. An unchanged successful render needs no extra `validate`. Regenerate a retained JSON export after final comparisons, because observations can change without changing the mathematical snapshot ID.
+With `--compact-evidence`, repeated excerpts refer to the first matching anchor in the same packet through `excerpt_ref`; read that anchor's excerpt. Default `get` remains available with all excerpts inline. Rendering checks integrity, source status, comparisons, record preservation, and geometry. An unchanged successful render needs no extra `validate`. Regenerate a retained JSON export after final comparisons, because observations can change without changing the mathematical snapshot ID.
 
 Completion means the selected statements and connections are represented, source comparisons are current or explicitly unresolved, and the HTML faithfully displays them. Unreviewed or stale selected records still need attention; a reviewed `needs_attention` record can be delivered as unresolved. Source comparison does not establish proof correctness. Foreground the overview, selected scope, actual inspection, and material limitations in the delivery message; routine counts remain available in the artifact and receipts.
 

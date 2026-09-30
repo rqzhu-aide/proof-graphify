@@ -19,7 +19,7 @@ _ENVIRONMENTS = frozenset((
     "substack displaylines eqalign eqalignno"
 ).split())
 CONFIGURATION = {
-    "adapter_version": 6,
+    "adapter_version": 7,
     "delimiters": [["$", "$"], ["$$", "$$"], [r"\(", r"\)"], [r"\[", r"\]"]],
     "output": "static native MathML with original LaTeX annotation",
     "maximum_formula_characters": 8192,
@@ -176,6 +176,15 @@ def _safe_mathml(value: str, tex: str, display: str) -> str:
             tag = tag[len(MATHML_NS) + 2:]
         if tag not in _TAGS or any(name not in _ATTRIBUTES for name in element.attrib):
             raise ValueError("unsupported converter markup")
+        # Native MathML Core uses CSS widths: legacy negative named spaces
+        # are unsupported, and a negative numeric width cannot supply overlap.
+        width = element.get("width", "").strip()
+        if tag == "mspace" and width.startswith(("negative", "-")):
+            raise ValueError("unsupported negative spacing in native MathML: " + width)
+        # The converter treats a literal independence symbol as an identifier.
+        # It is a relation, including when used as the base of a script.
+        if tag == "mi" and element.text == "⫫" and not len(element):
+            tag = "mo"
         literal = re.search(r"\\[A-Za-z]+", (element.text or "") + (element.tail or ""))
         if literal:
             raise ValueError(f"an unsupported LaTeX command remains literal: {literal.group(0)}")
@@ -278,6 +287,19 @@ def _argument_operator(tex: str) -> str:
     ), tex)
 
 
+def _independence_symbol(tex: str) -> str:
+    r"""Display the common \perp\!\!\perp construction as U+2AEB.
+
+    One to three negative thin spaces join the two perpendicular glyphs into
+    the probability independence symbol. Adapt converter input only; the
+    original TeX remains the annotation and canonical evidence. Other negative
+    spacing falls back rather than silently losing the intended overlap.
+    """
+    return re.sub(r"\\perp(?:\s*\\!){1,3}\s*\\perp(?![A-Za-z])", lambda match: (
+        match.group(0) if _escaped(tex, match.start()) else "⫫"
+    ), tex)
+
+
 @lru_cache(maxsize=512)
 def _convert(tex: str, display: str) -> tuple[str | None, str]:
     if not tex.strip() or len(tex) > CONFIGURATION["maximum_formula_characters"]:
@@ -288,7 +310,7 @@ def _convert(tex: str, display: str) -> tuple[str | None, str]:
         return None, "The shared LaTeX converter is unavailable."
     try:
         _check_tex(tex)
-        adapted = _argument_operator(_sized_named_bars(_group_scripted_binomials(tex)))
+        adapted = _independence_symbol(_argument_operator(_sized_named_bars(_group_scripted_binomials(tex))))
         return _safe_mathml(convert(adapted, display=display), tex, display), ""
     except Exception as exc:
         # Converter failures must never remove the original mathematical text.

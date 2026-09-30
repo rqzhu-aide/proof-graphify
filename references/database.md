@@ -12,7 +12,7 @@ Use the shared Python interpreter. Run these examples from `<overview-folder>`, 
 python <skill>/scripts/paper_database.py init data/paper-records.sqlite work/seed.json --focused --source-root <manuscript-folder>
 python <skill>/scripts/paper_database.py list data/paper-records.sqlite
 python <skill>/scripts/paper_database.py list data/paper-records.sqlite --collection anchors
-python <skill>/scripts/paper_database.py get data/paper-records.sqlite representer
+python <skill>/scripts/paper_database.py get data/paper-records.sqlite representer --compact-evidence
 python <skill>/scripts/paper_database.py apply data/paper-records.sqlite work/edits.json
 python <skill>/scripts/paper_database.py compare data/paper-records.sqlite work/comparisons.json
 python <skill>/scripts/paper_database.py render data/paper-records.sqlite overview.html
@@ -143,11 +143,13 @@ python <skill>/scripts/paper_database.py backup data/paper-records.sqlite work/p
 
 Use citation candidates when connections are uncertain. They concern captured source, not live files, and propose reading without writing records. Inspect selected endpoints and actionable evidence gaps. A missing citation is not a false arrow; unselected declarations are listed separately under `outside_selected_scope`, not treated as missing overview content. Shared scan limitations need one explanation. PDF-only input has no TeX citation scan and requires direct reading. Exhaustive `scaffold`/`reconcile` utilities are retained for compatibility and refuse focused stores; they are not focused authoring or completion steps.
 
+In candidate pairs, `citing` names the statement containing the reference and `cited` names the referenced statement. If that passage establishes a dependency, its graph arrow runs `cited` → `citing`, from prerequisite to consumer. A background or forward citation alone does not establish that arrow.
+
 Final rendering checks exact record preservation, input/output hashes, actual graph identities and endpoints, source/comparison status, and selected geometry before replacing the HTML. Failure preserves the prior report. Cycles and parallel connections remain visible; layout order is not proof order. Mechanical checks do not establish readability or interaction correctness.
 
 Large math diagnostic sets are grouped by cause and record field, with totals and a short sample in the render receipt. Use `render <db> <html> --full-diagnostics` or the HTML's Math display notes when individual occurrences are needed. This avoids reading the same macro warning repeatedly; it does not suppress unresolved display limitations in the report.
 
-The CLI render receipt uses these fields:
+The CLI exits with code 0 when rendering succeeds and a nonzero code on failure. Inspect the following receipt fields for the separate mechanical and display results; there is no top-level `render_ok` or `status`. A successful render may still contain math fallbacks and unresolved source interpretations.
 
 | Field | Meaning |
 |---|---|
