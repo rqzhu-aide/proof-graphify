@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .refs import facet_digests, membership_digest, relation_members, setup_digest
 from .semantics import application, target_spec, boundaries
+from .errors import ConflictError, InvalidRequest
 
 BOUND_COLLECTIONS = ("checks", "observations", "reconciliations", "reuse_decisions", "source_reviews")
 
@@ -276,12 +277,16 @@ def binding_changes(state, binding: dict) -> dict:
         ref = entry["ref"]
         live = state.live(ref["collection"], ref["id"])
         actual = None
-        expected = entry.get("setup_digest", entry["digest"])
+        expected = entry.get("proof_span_selection_digest", entry.get("setup_digest", entry["digest"]))
         if live is not None:
             facets = facet_digests(live.collection, live.body)
-            actual = (setup_digest(live.collection, live.body,
-                                  include_evidence=entry.get("source_passage_selection") == 1) if "setup_digest" in entry
-                      else facets.get(entry["facet"]) or facets["full"])
+            if "proof_span_selection_digest" in entry:
+                from .proof_spans import boundary_selection_digest
+                actual = boundary_selection_digest(state, live)
+            else:
+                actual = (setup_digest(live.collection, live.body,
+                                      include_evidence=entry.get("source_passage_selection") == 1) if "setup_digest" in entry
+                          else facets.get(entry["facet"]) or facets["full"])
         if actual != expected:
             records.append({"ref": ref, "facet": entry["facet"], "expected": expected, "actual": actual,
                             "live_version": None if live is None else live.version})
@@ -300,6 +305,73 @@ def binding_changes(state, binding: dict) -> dict:
             relations.append({"relation": entry["relation"], "key": entry["key"], "expected": entry["digest"],
                               "actual": actual})
     return {"records": records, "relations": relations}
+
+
+def _source_only_work_manifest(state, body):
+    """Identify eligible review provenance, never from a binding's policy marker."""
+    if body.get("role") != "independent" or not body.get("response_id"):
+        return None
+    response = state.live("responses", body["response_id"])
+    if response is None or response.body["state"] != "accepted" \
+            or response.body["exposure"] != "source_only" \
+            or any(response.body[key] != body[key] for key in ("audit_id", "reviewer")):
+        return None
+    qualification = state.live("qualifications", response.body["qualification_id"])
+    if qualification is None or not qualification.body["qualified"] \
+            or qualification.body["reviewer"] != response.body["reviewer"] \
+            or qualification.body["protocol_version"] != body["protocol_version"]:
+        return None
+    original = state.db.packet(response.body["packet_id"])
+    if original is None or not state.db.has_blob(response.body["original_blob"]):
+        raise InvalidRequest("original independent packet or response is unavailable", code="SOURCE_CONTEXT_UNAVAILABLE")
+    manifest = original["manifest"]
+    work = manifest.get("work")
+    if original["packet_version"] != 2 or manifest.get("mode") != "independent" \
+            or manifest.get("review_basis", "source_only") != "source_only" \
+            or not isinstance(work, dict) or work.get("mode") != "independent" \
+            or work.get("audit_id") != body["audit_id"]:
+        return None
+    return manifest
+
+
+def _without_coordinator_coverage(binding):
+    # Boundary certificates also have a "coverage" facet. Only the coordinator's
+    # coverage collection/relation is irrelevant to a source-only examination.
+    result = {**binding,
+        "records": [row for row in binding["records"] if row["ref"]["collection"] != "coverage"],
+        "relations": [row for row in binding["relations"] if row["relation"] != "coverage_in_argument"]}
+    if "semantic_memberships" in binding:
+        result["semantic_memberships"] = [row for row in binding["semantic_memberships"]
+                                          if row["relation"] != "coverage_in_argument"]
+    return result
+
+
+def record_binding_changes(state, record, binding):
+    """Current mathematical drift, with narrow read-only recovery of old checks.
+
+    Generic binding_changes remains strict for transaction/reuse validation.
+    Saved bindings and original response bytes are never rewritten.
+    """
+    changes = binding_changes(state, binding)
+    coverage_changed = any(row["ref"]["collection"] == "coverage" for row in changes["records"]) \
+        or any(row["relation"] == "coverage_in_argument" for row in changes["relations"])
+    # Do not introduce new review gates where this correction grants no exemption.
+    # In particular, local group checks retain their existing mapped bindings.
+    if record.collection == "checks" and coverage_changed:
+        try:
+            manifest = _source_only_work_manifest(state, record.body)
+            if manifest is not None:
+                from .packets import independent_context_binding
+                neutral = independent_context_binding(state, manifest)
+                if neutral is not None:
+                    context_changes = binding_changes(state, neutral)
+                    if context_changes["records"] or context_changes["relations"]:
+                        return changes
+                    return binding_changes(state, _without_coordinator_coverage(binding))
+        except (ConflictError, InvalidRequest):
+            # Missing/insufficient original provenance cannot recover old credit.
+            return changes
+    return changes
 
 
 def task_binding(state, task: dict) -> dict:
@@ -563,8 +635,11 @@ def compute_bindings(state, collection: str, body: dict, *, packet=None) -> dict
     result['source_context_digest'] = None
     if identities is not None:
         result["semantic_memberships"] = identities
+    if collection == "checks" and neutral_context is not None \
+            and _source_only_work_manifest(state, body) is not None:
+        result = _without_coordinator_coverage(result)
     return result
 
 
-__all__ = ["BOUND_COLLECTIONS", "MATHEMATICAL_FACETS", "binding_changes", "compute_bindings",
+__all__ = ["BOUND_COLLECTIONS", "MATHEMATICAL_FACETS", "binding_changes", "record_binding_changes", "compute_bindings",
            "task_binding", "task_binding_changes"]

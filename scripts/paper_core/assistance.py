@@ -159,13 +159,14 @@ def _response_guidance(mode):
                     "kind": "composition",
                     "target": {"source_anchor_id": "<supplied proof anchor ID>",
                                "description": "The complete written route establishing the requested conclusion."}},
-                "note": "Keep required nullable scaffold fields. Use source targets for hidden inferences. "
-                        "covered_targets names reviewed source conclusions; composition targets its proof route "
-                        "using the supplied proof-anchor example. Replace its anchor placeholder and author "
-                        "scientific fields; the coordinator maps the unchanged response. Put extra prerequisite "
-                        "concerns in coverage_note, and concerns undermining the assigned conclusion in its "
-                        "reasoning/outcome. Do not silently add hypotheses. Context extension retains the "
-                        "obligation; an out-of-scope target needs another assignment."}
+                "note": "Keep required nullable scaffold fields. covered_targets names reviewed source conclusions; "
+                        "composition uses a source target describing its conclusion and written route. Replace "
+                        "the example anchor and author scientific fields. Examine every substantive inference "
+                        "in route reasoning; separate judgments suit distinct targets/routes or local outcomes "
+                        "needing separate treatment, with no row quota. Put extra prerequisite concerns in "
+                        "coverage_note; concerns undermining the conclusion also belong in its reasoning/outcome. "
+                        "Preserve counterexamples through corrections; never silently add hypotheses. "
+                        "Context extension retains the obligation; an out-of-scope target needs another assignment."}
     if mode == "primary":
         return {"mode": mode, "response_shape": describe(c.WORK_PRIMARY_RESPONSE),
                 "note": "Use assigned task IDs; keep required nullable fields. "
@@ -348,4 +349,7 @@ def mapping_template(*, source_packet_id, mapping_packet_id, response_id, judgme
             "note": "A is the original source-only worker packet; preserve its response unchanged. "
                     "B is the private current coordinator packet authorizing mapped targets in its read set. "
                     "Choose each target and source-overlap rationale explicitly. Mapping never changes the "
-                    "worker's kind, outcome, reasoning, evidence or reviewed scope."}
+                    "worker's kind, outcome, reasoning, evidence or reviewed scope. Wrong kinds or incompatible "
+                    "targets need a reviewer-authored correction, preserving unresolved concerns. Refine a "
+                    "missing inference from source; never invent records only to accept a response. "
+                    "All required routes and relevant accepted opinions still need examination and reconciliation."}

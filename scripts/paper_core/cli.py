@@ -741,7 +741,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("get", help="assemble a packet")
     _db_arg(p)
-    p.add_argument("--target", action="append", default=[], help="COLLECTION:ID (repeatable)")
+    p.add_argument("--target", action="append", default=[],
+                   help="papers:ID, items:ID, parts:ID, or audits:ID (repeatable); for a use, group, "
+                        "or argument, request its owning item or part")
     p.add_argument("--mode", default="author", help=f"one of {', '.join(MODES)}")
     p.add_argument("--extend", default=None, metavar="PACKET_ID")
     p.add_argument("--request", default=None, metavar="CONTEXT.json")

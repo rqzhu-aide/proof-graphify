@@ -100,7 +100,7 @@ def _provenance(db, envelope, manifest):
         if envelope["exposure"] == "compromised" and not envelope["exposure_note"].strip():
             raise InvalidRequest("compromised exposure needs a note")
     elif envelope["qualification_id"] is not None or envelope["exposure"] is not None:
-        raise InvalidRequest("primary/reconcile work has null qualification and exposure fields")
+        raise InvalidRequest("primary/reconcile qualification and exposure fields must be null")
     return audit
 
 
@@ -376,13 +376,14 @@ def _freshness(original, active, plan):
         old_audit = db.version("audits", audit_ref["id"], audit_ref["version"])
         live_audit = db.head("audits", audit_ref["id"])
         ignored_audit_fields = {"report_path"}
-        # Only new primary global assignments declare qualification-independent
-        # mathematical inputs. Keep historical full bindings and other roles strict.
+        # Primary mathematical work does not consume reviewer qualification.
+        # Preserve explicitly consumed full-audit or qualification inputs, including
+        # historical assignments; independent and reconciliation setup stays strict.
         submitted_tasks = [old_tasks.get(tid) for tid in plan["task_ids"]]
         if original["mode"] == "primary" and submitted_tasks and all(
                 task is not None and task["role"] == "primary"
-                and task["target"] == {"collection": "audits", "id": audit_ref["id"]}
-                and any(entry["ref"] == audit_ref and entry["facet"] == "proof"
+                and all(entry["ref"]["collection"] != "qualifications"
+                        and (entry["ref"]["collection"] != "audits" or entry["facet"] == "proof")
                         for entry in task["consumed_inputs"])
                 for task in submitted_tasks):
             ignored_audit_fields.add("qualification_id")

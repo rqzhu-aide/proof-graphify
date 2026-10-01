@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict, deque
 
-from .bindings import binding_changes
+from .bindings import binding_changes, record_binding_changes
 from .canonical import compact_json, digest
 from .contract import INTERMEDIATE_KINDS, MAJOR_KINDS, extract_refs
 from .errors import ConflictError, InvalidRequest
@@ -19,6 +19,7 @@ from .refs import RELATIONS, facet_digests
 from .storage import Database, Record
 from .support_semantics import SupportClosure
 from .semantics import has_evidence
+from .proof_spans import reviewed_spans, uncovered_spans
 
 PROOF_KINDS = ("lemma", "proposition", "theorem", "corollary")
 PROOF_CHECK_KINDS = ("derivation", "application", "composition", "case_coverage", "scope_discharge",
@@ -37,6 +38,8 @@ COVERAGE_CAUSES = {
                        "Restore the source anchor and review the affected proof boundary."),
     "boundary_source_pin": ("The boundary review does not include the captured source version for this anchor.",
                             "Inspect that source, record the review with its source/version pin, and renew the boundary's review reference; then check remaining work."),
+    "boundary_spans": ("The boundary does not retain a complete selection for this argument's proof inputs.",
+                       "Review every proof segment and continuation, pin its argument and anchors in a new source review, and renew the boundary reference."),
     "empty_text_evidence": ("The proof boundary contains only blank text passages.",
                             "Locate the written proof, rebind its anchors, and review the corrected boundary."),
     "missing_claims": ("A substantive coverage row has no claimed statements.",
@@ -367,7 +370,7 @@ def judgment_freshness(snap: Snapshot, record: Record, *, superseded: bool, reus
                 info.update(freshness="needs_review", changes=context_changes, context_changed=True)
                 return info
     info["context_changed"] = bound.get("source_context_digest") not in (None, snap.source_context_digest())
-    changes = binding_changes(snap, bound)
+    changes = record_binding_changes(snap, record, bound)
     info["context_changed"] = info["context_changed"] or any(
         change["ref"]["collection"] == "sources" for change in changes["records"])
     if not changes["records"] and not changes["relations"]:
@@ -1174,6 +1177,7 @@ class _Derivation(_AuditScope):
             return []
         snap = self.snap
         requirements = {}
+        selections = {}
         problems = []
         examined_boundaries = set()
         excluded = {anchor for e in self.audit.body["exclusions"] for anchor in e["source_anchor_ids"]}
@@ -1199,11 +1203,12 @@ class _Derivation(_AuditScope):
                         requirements[(argument.id, anchor)] = {argument.id}
                     if argument.id not in examined_boundaries:
                         examined_boundaries.add(argument.id)
-                        boundary_anchors = self._reviewed_boundary(argument)
-                        if boundary_anchors is None:
+                        boundary_spans = self._reviewed_boundary(argument)
+                        selections[argument.id] = boundary_spans
+                        if boundary_spans is None:
                             problems.append(f"proof boundary for {argument.id}: complete current source-boundary review required")
                         else:
-                            for anchor in boundary_anchors:
+                            for anchor in boundary_spans:
                                 requirements[(argument.id, anchor)] = {argument.id}
                 if member.body["origin"] == "source":
                     for passage in member.body["passages"]:
@@ -1298,18 +1303,6 @@ class _Derivation(_AuditScope):
         usable = {cov.id: completed(cov) for rows in coverages.values() for cov in rows}
         reported = set()
 
-        def uncovered(intervals, end):
-            cursor, missing = 0, []
-            for start, stop in sorted(intervals):
-                if start < 0 or stop > end or stop < start:
-                    continue
-                if start > cursor:
-                    missing.append([cursor, start])
-                cursor = max(cursor, stop)
-            if cursor < end:
-                missing.append([cursor, end])
-            return missing
-
         for (owner, anchor_id), argument_ids in sorted(requirements.items()):
             if anchor_id in excluded:
                 continue
@@ -1320,9 +1313,17 @@ class _Derivation(_AuditScope):
                                                   "owner": owner, "anchor_id": anchor_id})
                 continue
             end = len(anchor.body["excerpt"])
+            required = []
+            for argument_id in argument_ids:
+                selected = selections.get(argument_id)
+                if selected is not None:
+                    required.extend(selected.get(anchor_id, []))
+            if not required:
+                required = [(0, end)]
             relevant = [c for c in coverages.get(anchor_id, []) if c.body["argument_id"] in argument_ids]
-            missing = uncovered(((c.body["start_offset"], c.body["end_offset"])
-                                 for c in relevant if usable[c.id]), end)
+            valid = [c for c in relevant if 0 <= c.body["start_offset"] <= c.body["end_offset"] <= end]
+            missing = uncovered_spans(((c.body["start_offset"], c.body["end_offset"])
+                                       for c in valid if usable[c.id]), required)
             if missing:
                 spans = ", ".join(f"[{a}, {b})" for a, b in missing)
                 problems.append(f"proof coverage for {owner}, anchor {anchor_id}: "
@@ -1335,7 +1336,7 @@ class _Derivation(_AuditScope):
                         continue
                     self.coverage_diagnostics.extend(rejected[cov.id])
                     reported.add(cov.id)
-                absent = uncovered(((c.body["start_offset"], c.body["end_offset"]) for c in relevant), end)
+                absent = uncovered_spans(((c.body["start_offset"], c.body["end_offset"]) for c in valid), required)
                 identity = (anchor_id, tuple(sorted(argument_ids)), tuple(map(tuple, absent)))
                 if absent and identity not in reported:
                     self.coverage_diagnostics.append({"code": "missing_coverage", "argument_ids": sorted(argument_ids),
@@ -1386,7 +1387,13 @@ class _Derivation(_AuditScope):
                                     "boundary_ref": pinned_of(boundary), "source_review_ref": review_pin,
                                     "anchor_ids": [pin["id"] for pin in anchor_pins]})
                 if not missing:
-                    return [pin["id"] for pin in anchor_pins]
+                    spans = reviewed_spans(snap, review, argument, anchor_pins)
+                    if spans is not None:
+                        return spans
+                    missing.append({"code": "boundary_spans", "argument_ids": [argument.id],
+                                    "anchor_id": anchor_pins[0]["id"],
+                                    "boundary_ref": pinned_of(boundary), "source_review_ref": review_pin,
+                                    "anchor_ids": [pin["id"] for pin in anchor_pins]})
                 missing_sources.extend(missing)
         # A valid alternative certifies the boundary. Stale segments need the
         # existing general recovery, not an instruction to insert source pins.

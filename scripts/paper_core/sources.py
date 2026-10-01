@@ -483,14 +483,19 @@ def review_sources(db: Database, *, batch: dict) -> dict:
     for index, edit in enumerate(batch["edits"]):
         body = edit.get("body")
         if edit["collection"] == "source_reviews" and isinstance(body, dict):
-            for field in ("source_refs", "anchor_refs"):
-                for ref in body.get(field, []) if isinstance(body.get(field), list) else []:
-                    if not isinstance(ref, dict) or not {"collection", "id", "version"} <= set(ref):
-                        continue
-                    head = db.head(ref["collection"], ref["id"]) if ref["collection"] in ("sources", "anchors") \
-                        else None
-                    if head is None or head.retired or head.version != ref["version"]:
-                        errors.append(f"edits/{index}: {field} entry {ref['id']} must pin the live version")
+            pins = [(field, ref) for field in ("source_refs", "anchor_refs")
+                    for ref in (body.get(field, []) if isinstance(body.get(field), list) else [])]
+            pins.extend((f"proof_spans/{position}/argument_ref", span["argument_ref"])
+                        for position, span in enumerate(body.get("proof_spans", [])
+                                                       if isinstance(body.get("proof_spans"), list) else [])
+                        if isinstance(span, dict) and "argument_ref" in span)
+            for field, ref in pins:
+                if not isinstance(ref, dict) or not {"collection", "id", "version"} <= set(ref):
+                    continue
+                head = db.head(ref["collection"], ref["id"]) if ref["collection"] in ("sources", "anchors", "arguments") \
+                    else None
+                if head is None or head.retired or head.version != ref["version"]:
+                    errors.append(f"edits/{index}: {field} entry {ref['id']} must pin the live version")
     if errors:
         raise InvalidRequest("source review rejected", records=errors)
     return accept(db, request_id=batch["request_id"], request_digest=digest(batch), packet_id=batch["packet_id"],

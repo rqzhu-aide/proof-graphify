@@ -299,6 +299,11 @@ CALIBRATION = Obj({"case_id": Str(nonempty=True), "response_blob": Hash(),
 MAPPING = Obj({"old": Str(nonempty=True), "new_refs": Arr(REF), "rationale": Str(nonempty=True)})
 EXPOSURE_REPORT = Obj({"status": Enum(("none_known", "possible_exposure")), "note": Str()})
 SOURCE_TARGET = Obj({"source_anchor_id": Id("anchors"), "description": Str(nonempty=True)})
+PROOF_SPAN = Obj({"argument_ref": RefT(("arguments",), pinned=True),
+                  "anchor_ref": RefT(("anchors",), pinned=True),
+                  "start_offset": Int(0), "end_offset": Int(0)},
+                 local=lambda v: (["a proof span needs start_offset < end_offset"]
+                                  if v["start_offset"] >= v["end_offset"] else []))
 REF_OBJECT = Obj({"collection": Enum(COLLECTIONS), "id": Id()})
 
 
@@ -454,7 +459,10 @@ BODY_SCHEMAS = {
                            "anchor_refs": Arr(RefT(("anchors",), pinned=True)),
                            "purpose": Enum(("branch_selection", "locator_confirmation", "context_change", "proof_boundary")),
                            "decision": Enum(("accepted", "unresolved")), "rationale": Str(nonempty=True),
-                           "reviewer": Str(nonempty=True)}),
+                           "reviewer": Str(nonempty=True), "proof_spans": Arr(PROOF_SPAN, nonempty=True)},
+                          optional=("proof_spans",),
+                          local=lambda v: (["proof_spans require purpose proof_boundary"]
+                                           if "proof_spans" in v and v["purpose"] != "proof_boundary" else [])),
     "items": Obj({"kind": Enum(ITEM_KINDS), "label": Str(nonempty=True), "caption": Str(), "statement": STATEMENT,
                   "passages": Arr(PASSAGE), "aliases": Arr(Str(nonempty=True)), "uncertainty": Str(nullable=True),
                   "origin": ORIGIN, "owner_id": Id("items", nullable=True), "scope_id": Id("scopes", nullable=True),

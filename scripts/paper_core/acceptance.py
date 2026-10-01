@@ -247,6 +247,11 @@ def accept_in_transaction(db: Database, *, request_id: str, request_digest: str,
                            context_refs=packet["manifest"]["read_set"] if manifest else None)
     if errors:
         raise InvalidRequest("batch failed validation", code="INVALID_BATCH", records=errors)
+    if any(p.collection == "source_reviews" and p.body is not None and "proof_spans" in p.body for p in plan):
+        from . import PROOF_SPANS_FEATURE
+        features = set(json.loads(metadata.get("features", "[]")))
+        features.add(PROOF_SPANS_FEATURE)
+        db.set_metadata("features", json.dumps(sorted(features)))
     parent = db.max_revision()
     revision = parent + 1
     rebased_from = base_revision if parent > base_revision else None

@@ -11,7 +11,7 @@ from collections import Counter
 
 from . import CONTRACT_NAME, CONTRACT_VERSION, CORE_VERSION, PROJECTION_VERSION, STORAGE_FORMAT
 from .assessment import Snapshot, derive_full
-from .bindings import BOUND_COLLECTIONS, binding_changes
+from .bindings import BOUND_COLLECTIONS, record_binding_changes
 from .contract import extract_refs, validate_body
 from .ids import COLLECTIONS
 from .errors import InvalidRequest
@@ -95,7 +95,7 @@ def validate_snapshot(db: Database, *, revision=None) -> dict:
                 warnings.append(f"{_ref_text(record)}: no stored binding")
                 continue
             try:
-                drift = binding_changes(snap, binding["bindings"])
+                drift = record_binding_changes(snap, record, binding["bindings"])
             except Exception as exc:  # noqa: BLE001 - a bound record that violates the contract
                 warnings.append(f"{_ref_text(record)}: binding not compared "
                                 f"({type(exc).__name__}: {exc}); a bound record violates the contract")
@@ -225,7 +225,7 @@ def changes(db: Database, *, since: int, limit: int = 200, offset: int = 0) -> d
             binding = head.binding(check)
             if binding is None:
                 continue
-            drift = binding_changes(head, binding["bindings"])
+            drift = record_binding_changes(head, check, binding["bindings"])
             reasons = []
             for entry in drift["records"]:
                 key = (entry["ref"]["collection"], entry["ref"]["id"])

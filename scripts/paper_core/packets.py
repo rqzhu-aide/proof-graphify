@@ -386,6 +386,18 @@ def _neutral_members(closure, relation, ref):
     return members
 
 
+def _neutral_boundary(closure, boundary):
+    """Keep the complete page visible and the exact reviewed selection private."""
+    _neutral_bind(closure, boundary, "coverage")
+    entry = closure.neutral_inputs[(boundary.collection, boundary.id, "coverage")]
+    # Consume the reviewed selection without making reviewer prose or a renewed
+    # certificate over the same source into new mathematical inputs.
+    entry.pop("setup_digest", None)
+    from .proof_spans import boundary_selection_digest
+    entry["proof_span_selection_digest"] = boundary_selection_digest(getattr(closure, "state", closure.db), boundary)
+    closure.anchors(pin["id"] for pin in boundary.body["anchor_refs"])
+
+
 def _neutral_scope(closure, scope_id):
     while scope_id and closure.once("neutral_scope", scope_id):
         scope = closure.record("scopes", scope_id)
@@ -432,8 +444,10 @@ def _neutral_statement(closure, ref, *, borrowed=False):
         _neutral_bind(closure, record, "proof")
         anchors = [p["anchor_id"] for p in record.body["passages"] if p["role"] in ("proof", "evidence")]
         closure.anchors(anchors)
-        for boundary in closure.pull(("proof_boundaries",), ("/target", [record.key], False)):
-            closure.anchors(pin["id"] for pin in boundary.body["anchor_refs"])
+        for _, identity, _ in _neutral_members(closure, "proof_boundaries_for_target", record.ref):
+            boundary = closure.record("proof_boundaries", identity)
+            if boundary is not None and not boundary.retired:
+                _neutral_boundary(closure, boundary)
         if not anchors and record.collection == "parts":
             _neutral_statement(closure, {"collection": "items", "id": record.body["item_id"]}, borrowed=True)
     return record
@@ -443,6 +457,10 @@ def _neutral_dependencies(closure, target, *, include_evidence=False):
     """Use the graph only to locate source context, never to supply a proof outline."""
     if not closure.once("neutral_dependencies", target["collection"], target["id"]):
         return
+    for _, identity, _ in _neutral_members(closure, "proof_boundaries_for_target", target):
+        boundary = closure.record("proof_boundaries", identity)
+        if boundary is not None and not boundary.retired:
+            _neutral_boundary(closure, boundary)
     uses = {identity for _, identity, _ in _neutral_members(closure, "incoming_uses", target)}
     for _, argument_id, _ in _neutral_members(closure, "arguments_for_target", target):
         argument = closure.record("arguments", argument_id)
@@ -1144,8 +1162,7 @@ def _neutral_task_context(closure, task):
         boundary = closure.record("proof_boundaries", boundary_id)
         if boundary is None or boundary.retired:
             continue
-        _neutral_bind(closure, boundary, "coverage")
-        closure.anchors(pin["id"] for pin in boundary.body["anchor_refs"])
+        _neutral_boundary(closure, boundary)
         passages.extend(pin["id"] for pin in boundary.body["anchor_refs"])
     for _, argument_id, _ in closure.members("arguments_for_target", "items", statement.id):
         argument = closure.record("arguments", argument_id)
@@ -1475,8 +1492,22 @@ def neutral_relation_covered(state, relation, records, *, checked_targets=None):
         if relation["relation"] != "target_specs_for_target":
             _neutral_dependencies(closure, target)
         expected = {(row["ref"]["collection"], row["ref"]["id"], row["facet"]): row["digest"] for row in records}
+        expected_selections = {(row["ref"]["collection"], row["ref"]["id"]): row["proof_span_selection_digest"]
+                               for row in records if "proof_span_selection_digest" in row}
         for row in closure.neutral_inputs.values():
             pin = row["ref"]
+            if "proof_span_selection_digest" in row:
+                prior = expected_selections.get((pin["collection"], pin["id"]))
+                if prior is not None and prior != row["proof_span_selection_digest"]:
+                    return False
+                if prior is None:
+                    # Older manifests had no selector marker. Their whole-anchor
+                    # context stays usable, but cannot authorize new subpage spans.
+                    boundary = closure.record("proof_boundaries", pin["id"])
+                    review_pin = boundary.body["source_review_ref"]
+                    review = closure.db.version("source_reviews", review_pin["id"], review_pin["version"])
+                    if review is not None and "proof_spans" in review.body:
+                        return False
             if pin["collection"] in ("items", "parts", "scopes") \
                     and expected.get((pin["collection"], pin["id"], row["facet"])) != row["digest"]:
                 return False
@@ -1520,8 +1551,12 @@ def independent_context_binding(state, manifest):
                 and not (pin["collection"] == "items" and original.body["kind"] not in MAJOR_KINDS):
             continue
         consumed = copy.deepcopy(row)
-        projection = setup_digest(original.collection, original.body,
-                                  include_evidence=row.get("source_passage_selection") == 1)
+        if "proof_span_selection_digest" in row:
+            from .proof_spans import boundary_selection_digest
+            consumed["proof_span_selection_digest"] = boundary_selection_digest(state, original)
+        projection = (None if "proof_span_selection_digest" in row else
+                      setup_digest(original.collection, original.body,
+                                   include_evidence=row.get("source_passage_selection") == 1))
         if projection is not None:
             consumed["setup_digest"] = projection
         records[(pin["collection"], pin["id"], row["facet"])] = consumed

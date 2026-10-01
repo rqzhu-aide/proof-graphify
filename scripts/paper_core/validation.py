@@ -442,6 +442,11 @@ def _semantic(state: State, p: Planned, errors: list, command: str):
             argument = live("arguments", identity)
             if argument and argument.body['target'] != body['target']:
                 err("a boundary applies to arguments for its exact target")
+            if argument and review and "proof_spans" in review.body and body["state"] == "complete" \
+                    and p.index >= 0 and command != "import":
+                from .proof_spans import reviewed_spans
+                if reviewed_spans(state, review, argument, body["anchor_refs"]) is None:
+                    err("the boundary must retain every reviewed proof span for this argument's current proof inputs")
     elif c == "connection_refinements" and body['state'] == 'registered':
         summary = live('uses', body['summary_use_id'])
         argument = live('arguments', body['argument_id'])
@@ -568,6 +573,22 @@ def _semantic(state: State, p: Planned, errors: list, command: str):
                 and body['purpose'] in ('proof_boundary', 'locator_confirmation') \
                 and body['anchor_refs'] and not has_evidence(state, body['anchor_refs']):
             err('an accepted passage review needs supporting source evidence; blank text line ranges do not count')
+        for index, span in enumerate(body.get("proof_spans", [])):
+            pin = span["anchor_ref"]
+            if pin not in body["anchor_refs"]:
+                err(f"proof_spans/{index}: anchor_ref must occur in anchor_refs")
+            anchor = state.version("anchors", pin["id"], pin["version"])
+            if anchor is not None:
+                if span["end_offset"] > len(anchor.body["excerpt"]):
+                    err(f"proof_spans/{index}: offsets exceed the pinned anchor excerpt")
+                source_pin = {"collection": "sources", "id": anchor.body["source_id"],
+                              "version": anchor.body["source_version"]}
+                if source_pin not in body["source_refs"]:
+                    err(f"proof_spans/{index}: source_refs must include the pinned anchor's source version")
+            argument_pin = span["argument_ref"]
+            argument = state.version("arguments", argument_pin["id"], argument_pin["version"])
+            if argument is not None and (argument.retired or argument.body["origin"] != "source"):
+                err(f"proof_spans/{index}: argument_ref must identify a written source argument")
     elif c == "responses":
         if not state.has_blob(body["original_blob"]):
             err("original response blob is not stored")
