@@ -4,8 +4,10 @@ from __future__ import annotations
 import base64
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -105,6 +107,126 @@ class SourceReuseTests(unittest.TestCase):
             item['source'] = {'start_line': 1, 'end_line': 1}
         with self.assertRaisesRegex(records.RecordError, 'unexpected control character'):
             self.normalize()
+
+    def test_degraded_diagnostics_preserve_anchor_identities_and_locate_all_owners(self):
+        self.pages[0].extract_text.return_value = 'A\x00 + B\x10'
+        self.pages[1].extract_text.return_value = 'A plausible but unchecked symbol ↵'
+        self.seed['uses'] = [{'id': 'u21', 'from': 'item-2', 'to': 'item-1',
+                             'reason': 'The source supplies a bound.', 'source': {'page': 1}}]
+        data = self.normalize()
+        first = data['anchors'][0]['id']
+        data['items'][1]['passages'].append({'role': 'evidence', 'anchor_id': first})
+        data['uses'][0]['evidence_refs'].append(first)
+        data.pop('snapshot_id')
+        data = self.validate(data)
+        original = deepcopy(data)
+        diagnostics = records.pdf_extraction_diagnostics(data)
+        self.assertEqual(len(diagnostics), 3)  # Three distinct captures on one damaged page.
+        self.assertEqual({row['locator']['page'] for row in diagnostics}, {1})
+        self.assertTrue(all(row['replacement_count'] == 2 for row in diagnostics))
+        self.assertEqual(next(row for row in diagnostics if row['id'] == first)['targets'], [
+            {'collection': 'items', 'id': 'item-1'}, {'collection': 'items', 'id': 'item-2'},
+            {'collection': 'uses', 'id': 'u21'}])
+        self.assertTrue(all(row['file'] == 'paper.pdf' for row in diagnostics))
+        self.assertTrue(all('Missing glyph meanings' in row['extraction_note'] for row in diagnostics))
+        self.assertTrue(all('excerpt' not in row for row in diagnostics))
+        diagnostics[0]['locator']['page'] = 99
+        self.assertEqual(data, original)
+        non_pdf = deepcopy(data)
+        non_pdf['source_revision']['files'][0]['media_type'] = 'text/plain'
+        self.assertEqual(records.pdf_extraction_diagnostics(non_pdf), [])
+
+    def test_degraded_listing_is_read_only_in_native_and_common_stores(self):
+        import paper_database as database
+
+        self.pages[0].extract_text.return_value = 'A\x00 + B\x10'
+        self.seed['main_items'] = ['item-1']
+        seed_path = self.base / 'seed.json'
+        seed_path.write_text(json.dumps(self.seed), encoding='utf-8')
+        with patch.dict(sys.modules, {'pypdf': self.pdf_module}):
+            for native in (True, False):
+                with self.subTest(native=native):
+                    db_path = self.base / ('native.sqlite' if native else 'common.sqlite')
+                    if native:
+                        database._native_init_database(db_path, seed_path)
+                    else:
+                        database.init_database(db_path, seed_path, focused=True)
+                    original = database.export_snapshot(db_path)
+                    before = db_path.read_bytes()
+                    complete = database.list_records(db_path, 'anchors')
+                    filtered = database.list_records(db_path, degraded=True)
+                    explicit = database.list_records(db_path, 'anchors', degraded=True)
+                    self.assertEqual(filtered, explicit)
+                    self.assertEqual(filtered['expected_snapshot'], original['snapshot_id'])
+                    self.assertEqual(filtered['counts'], complete['counts'])
+                    self.assertEqual(len(complete['anchors']), 4)
+                    self.assertEqual(filtered['degraded_anchor_count'], 2)
+                    self.assertEqual({row['locator']['page'] for row in filtered['anchors']}, {1})
+                    self.assertEqual({target['id'] for row in filtered['anchors'] for target in row['targets']},
+                                     {'item-1', 'item-3'})
+                    self.assertTrue(all('excerpt' not in row for row in filtered['anchors']))
+                    self.assertTrue(all('replacement_count' not in row for row in complete['anchors']))
+                    with self.assertRaisesRegex(database.DatabaseError, '--degraded lists anchors'):
+                        database.list_records(db_path, 'items', degraded=True)
+                    self.assertEqual(database.export_snapshot(db_path), original)
+                    self.assertEqual(db_path.read_bytes(), before)
+
+    def test_degraded_listing_returns_an_empty_list_for_clean_sources(self):
+        import paper_database as database
+
+        self.seed['main_items'] = ['item-1']
+        seed_path = self.base / 'seed.json'
+        seed_path.write_text(json.dumps(self.seed), encoding='utf-8')
+        with patch.dict(sys.modules, {'pypdf': self.pdf_module}):
+            db_path = self.base / 'clean.sqlite'
+            database.init_database(db_path, seed_path, focused=True)
+            filtered = database.list_records(db_path, degraded=True)
+        self.assertEqual(filtered['anchors'], [])
+        self.assertEqual(filtered['degraded_anchor_count'], 0)
+        self.assertEqual(filtered['counts']['anchors'], 4)
+
+    def test_cli_quiets_pdf_warnings_but_retains_errors_and_extraction_diagnostics(self):
+        import paper_database as database
+
+        self.pages[0].extract_text.return_value = 'A\x00 + B\x10'
+        self.seed['main_items'] = ['item-1']
+        seed_path = self.base / 'seed.json'
+        seed_path.write_text(json.dumps(self.seed), encoding='utf-8')
+        db_path = self.base / 'cli.sqlite'
+        with patch.dict(sys.modules, {'pypdf': self.pdf_module}):
+            database.init_database(db_path, seed_path, focused=True)
+        # Emulate parser diagnostics independently of any particular pypdf
+        # release's messages. Exercise the shipped CLI entry point in a process.
+        code = r'''
+import logging, runpy, sys
+from pathlib import Path
+from types import SimpleNamespace
+entry, db = sys.argv[1:3]
+sys.path.insert(0, str(Path(entry).parent))
+logger = logging.getLogger('pypdf')
+logger.setLevel(logging.WARNING)
+import paper_database
+assert logger.level == logging.WARNING  # Importing the API does not quiet callers.
+def reader(stream):
+    child = logging.getLogger('pypdf.synthetic')
+    child.warning('ROUTINE_PDF_WARNING')
+    child.error('VISIBLE_PDF_ERROR')
+    return SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda: 'A\x00 + B\x10'),
+                                  SimpleNamespace(extract_text=lambda: 'Second physical page')])
+sys.modules['pypdf'] = SimpleNamespace(PdfReader=reader)
+sys.argv = [entry, 'list', db, '--degraded']
+runpy.run_path(entry, run_name='__main__')
+'''
+        environment = {key: value for key, value in os.environ.items() if key not in ('PYTHONPATH', 'PYTHONHOME')}
+        result = subprocess.run([sys.executable, '-X', 'utf8', '-B', '-c', code,
+                                 str(SKILL / 'scripts/paper_database.py'), str(db_path)],
+                                capture_output=True, text=True, encoding='utf-8', env=environment, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        filtered = json.loads(result.stdout)
+        self.assertNotIn('ROUTINE_PDF_WARNING', result.stderr)
+        self.assertIn('VISIBLE_PDF_ERROR', result.stderr)
+        self.assertEqual(filtered['degraded_anchor_count'], 2)
+        self.assertTrue(all('Missing glyph meanings' in row['extraction_note'] for row in filtered['anchors']))
 
     @unittest.skipUnless(shutil.which('node'), 'Node is needed for the public render path')
     def test_pdf_cleanup_survives_common_database_edit_comparison_refresh_and_render(self):

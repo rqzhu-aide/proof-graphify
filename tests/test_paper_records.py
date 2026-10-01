@@ -272,7 +272,7 @@ class PaperRecordsTests(unittest.TestCase):
         self.assertEqual(records.comparison_status(migrated)["status"], "complete")
         self.assertEqual(len(warnings), 1)
         self.assertIn("Source locator checks: 3 text line ranges", warnings[0])
-        self.assertIn("2 anchors still have locator details", warnings[0])
+        self.assertIn("2 anchors have locator details not mechanically verified", warnings[0])
         self.assertIn("2 entered/printed labels not mechanically matched", warnings[0])
         self.assertIn("1 PDF page locations not checked", warnings[0])
         self.assertNotIn("PDF page bounds", warnings[0])
@@ -288,7 +288,7 @@ class PaperRecordsTests(unittest.TestCase):
         migrated = self.compare_all(self.migrate())
         warning, = records.prepare_records(migrated, self.base)["warnings"][:1]
         self.assertIn("No mechanical source locator checks are recorded", warning)
-        self.assertIn("3 anchors still have locator details", warning)
+        self.assertIn("3 anchors have locator details not mechanically verified", warning)
         self.assertIn("3 entered/printed labels not mechanically matched", warning)
 
     def test_pdf_warning_counts_successful_page_checks_despite_unverified_labels(self):
@@ -308,7 +308,8 @@ class PaperRecordsTests(unittest.TestCase):
         prepared = records.prepare_records(data, self.base)
         warning, = prepared["warnings"]
         self.assertIn("Source locator checks: 3 PDF page bounds", warning)
-        self.assertIn("1 anchors still have locator details", warning)
+        self.assertIn("1 anchor has locator details not mechanically verified", warning)
+        self.assertNotIn("requiring source comparison", warning)
         self.assertIn("1 entered/printed labels not mechanically matched", warning)
         self.assertNotIn("text line ranges", warning)
         self.assertNotIn("PDF page locations not checked", warning)

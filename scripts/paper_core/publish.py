@@ -36,31 +36,56 @@ def _node_executable() -> str:
     return node
 
 
-def display_fragments(projection: dict) -> dict:
+def display_fragments(projection: dict, diagnostics=None) -> dict:
     """Escaped prose plus MathML for the text fields the renderer replaces; keyed by pinned ref."""
     refs = {}
     for entry in projection["records"]:
         ref, body = entry["ref"], entry["body"]
         fragments = {}
+        def render(value, field):
+            local = [] if diagnostics is not None else None
+            markup = render_text(value, diagnostics=local)
+            if local:
+                diagnostics.extend({**row, "ref": dict(ref), "field": field} for row in local)
+            return markup
         for field in FRAGMENT_FIELDS:
             value = body.get(field)
+            path = field
             if field in ("statement", "needed_form") and isinstance(value, dict):
                 value = value.get("text")
+                path += ".text"
             if value is None:
                 continue
             if field == "conditions":
                 if isinstance(value, list) and all(isinstance(v, str) for v in value):
-                    fragments["conditions_html"] = [render_text(v) for v in value]
+                    fragments["conditions_html"] = [render(v, f"conditions/{i}") for i, v in enumerate(value)]
                 continue
             if isinstance(value, str):
-                fragments[f"{field}_html"] = render_text(value)
+                fragments[f"{field}_html"] = render(value, path)
         if fragments:
             refs[f"{ref['collection']}:{ref['id']}:{ref['version']}"] = fragments
     return refs
 
 
+def summarize_math_diagnostics(entries) -> dict:
+    """Bound presentation output while counting failures in saved fields once."""
+    groups = {}
+    for row in entries:
+        group = groups.setdefault((row["kind"], row["reason"]),
+                                  {"kind": row["kind"], "reason": row["reason"], "count": 0, "samples": []})
+        group["count"] += 1
+        if len(group["samples"]) < 3:
+            sample = {key: row[key] for key in ("ref", "field", "excerpt")}
+            if sample not in group["samples"]:
+                group["samples"].append(sample)
+    return {"count": len(entries), "count_basis": "expression occurrences in saved record fields",
+            "nonblocking": True, "groups": list(groups.values())[:5], "groups_truncated": len(groups) > 5}
+
+
 def render_input(db: Database, projection: dict, *, release: bool, source_identity: str) -> dict:
     paper = paper_record(db)
+    diagnostics = []
+    fragments = display_fragments(projection, diagnostics)
     return {
         "render_input_version": 1,
         "title": paper.body["title"],
@@ -73,7 +98,7 @@ def render_input(db: Database, projection: dict, *, release: bool, source_identi
             "kind": "release" if release else "working",
         },
         "projection": projection,
-        "display": {"refs": display_fragments(projection)},
+        "display": {"refs": fragments, "math_diagnostics": summarize_math_diagnostics(diagnostics)},
     }
 
 
@@ -666,6 +691,7 @@ def render_html(db: Database, projection: dict, *, release: bool, source_identit
         raise PublicationError("mechanical acceptance failed", records=[acceptance])
     receipt["python_acceptance"] = acceptance
     receipt["input_bytes"] = input_path.stat().st_size
+    receipt["math_diagnostics"] = payload["display"]["math_diagnostics"]
     return html_bytes, receipt
 
 

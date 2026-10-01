@@ -497,5 +497,36 @@ def review_sources(db: Database, *, batch: dict) -> dict:
                   edits=batch["edits"], command="source_review")
 
 
-__all__ = ["anchor_sources", "capture_sources", "citations", "declarations", "discover", "media_type",
+def source_diagnostics(db: Database, *, degraded=False) -> dict:
+    """Locate detected glyph loss in current PDF anchors without changing evidence."""
+    rows, damaged_count = [], 0
+    for anchor in db.heads("anchors"):
+        body = anchor.body
+        if body["locator"]["page"] is None:
+            continue
+        source = db.version("sources", body["source_id"], body["source_version"])
+        if source is None or source.body is None or source.body["media_type"] != "pdf":
+            continue
+        replacements = body["excerpt"].count("\ufffd")
+        damaged_count += bool(replacements)
+        targets = {}
+        for entry in db.live_referrers("anchors", anchor.id):
+            # A pinned historical anchor is not this current anchor version.
+            if entry["target_version"] not in (None, anchor.version):
+                continue
+            key = (entry["owner_collection"], entry["owner_id"], entry["owner_version"])
+            targets[key] = {"collection": key[0], "id": key[1], "version": key[2]}
+        rows.append({"ref": anchor.pinned, "source_ref": source.pinned,
+                     "file": source.body["path"], "locator": dict(body["locator"]),
+                     "replacement_count": replacements, "extraction_note": body["limitation"],
+                     "targets": list(targets.values())})
+    selected = [row for row in rows if row["replacement_count"]] if degraded else rows
+    return {"revision": db.max_revision(), "pdf_anchor_count": len(rows),
+            "degraded_anchor_count": damaged_count, "returned_anchor_count": len(selected), "anchors": selected,
+            "scope": "Current PDF anchors and their direct live referrers; coordinator retrieval only.",
+            "note": "Replacement characters detect known extraction damage, not formula fidelity. "
+                    "These diagnostics do not change source comparisons or mathematical judgments."}
+
+
+__all__ = ["anchor_sources", "capture_sources", "citations", "declarations", "discover", "media_type", "source_diagnostics",
            "resolve_anchor", "review_sources", "uncomment"]

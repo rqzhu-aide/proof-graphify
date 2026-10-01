@@ -1,9 +1,9 @@
 """Offline display of explicit LaTeX math; canonical text is never rewritten.
 
-Derived from proof-graphify scripts/overview_math.py v1.0.0 (MIT). This is
-a presentation adapter, not a TeX interpreter. Unsupported expressions remain
-inspectable as labeled literal text. latex2mathml is optional at import time, so
-an unavailable converter cannot hide evidence.
+Derived from proof-graphify scripts/overview_math.py (MIT). This is a presentation
+adapter, not a TeX interpreter. Unsupported expressions remain inspectable as
+labeled literal text. The shared latex2mathml package is
+optional at import time, so an unavailable converter cannot hide evidence.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _ENVIRONMENTS = frozenset((
     "substack displaylines eqalign eqalignno"
 ).split())
 CONFIGURATION = {
-    "adapter_version": 2,
+    "adapter_version": 9,
     "delimiters": [["$", "$"], ["$$", "$$"], [r"\(", r"\)"], [r"\[", r"\]"]],
     "output": "static native MathML with original LaTeX annotation",
     "maximum_formula_characters": 8192,
@@ -40,10 +40,6 @@ _ATTRIBUTES = frozenset((
     "separators equalrows equalcolumns columnlines rowlines frame framespacing "
     "side minlabelspacing rowspan columnspan"
 ).split())
-# JSON accepts \t, \n and \r, so an under-escaped \theta arrives as a tab followed
-# by "heta" and would otherwise render as letters. Only distinctive remnants are
-# flagged; ordinary whitespace, CRLF, longer identifiers and little-o do not match.
-# Kept in step with proof-graphify scripts/overview_math.py.
 _DECODED_ESCAPE = re.compile(
     r"\t(?:heta|au|imes|ilde|riangle|frac|o(?!\s*\())(?![A-Za-z])"
     r"|\n(?:abla|otin)(?![A-Za-z])"
@@ -66,7 +62,13 @@ def _spans(text: str):
         if _escaped(text, index):
             index += 1
             continue
-        if text.startswith("$$", index):
+        doubled = False
+        if text.startswith(r"\\(", index) or text.startswith(r"\\[", index):
+            opening = text[index:index + 3]
+            closing = r"\\)" if opening.endswith("(") else r"\\]"
+            display = "inline" if opening.endswith("(") else "block"
+            doubled = True
+        elif text.startswith("$$", index):
             opening, closing, display = "$$", "$$", "block"
         elif text[index] == "$":
             opening, closing, display = "$", "$", "inline"
@@ -84,6 +86,11 @@ def _spans(text: str):
                     break
             end += 1
         if end == len(text):
+            # An isolated doubled slash is ordinary prose, often a path. Only
+            # a paired math-like delimiter is evidence of accidental escaping.
+            if doubled:
+                index += len(opening)
+                continue
             yield index, len(text), None, display
             return
         finish = end + len(closing)
@@ -93,6 +100,17 @@ def _spans(text: str):
 
 def _check_tex(tex: str) -> None:
     """Reject structures the converter can otherwise silently discard or expand."""
+    # JSON accepts \t, \n and \r, so an under-escaped \rVert becomes a carriage
+    # return followed by Vert (likewise \theta, \rho, \nabla). The converter then
+    # renders the remaining letters as mathematics without an error. Only flag
+    # these distinctive remnants: ordinary whitespace and ambiguous newline/tab +
+    # words (such as eq, ext, u) are not evidence of a lost command. A CRLF does
+    # not match, nor does a longer identifier or little-o notation.
+    damaged = _DECODED_ESCAPE.search(tex)
+    if damaged:
+        control, remnant = damaged[0][0], damaged[0][1:]
+        raise ValueError("likely decoded LaTeX escape: " + _CONTROL_NAMES[control] + " + " + remnant
+                         + "; check JSON escaping for \\" + _CONTROL_LETTERS[control] + remnant)
     depth = 0
     for index, character in enumerate(tex):
         if character in "{}" and not _escaped(tex, index):
@@ -107,6 +125,43 @@ def _check_tex(tex: str) -> None:
     for match in re.finditer(r"\\(?:newcommand|renewcommand|providecommand|def|gdef|edef|xdef|let|DeclareMathOperator|newenvironment|renewenvironment)\b", tex):
         if not _escaped(tex, match.start()):
             raise ValueError("source macro definitions are not expanded")
+    # A doubled command slash is accepted by the converter as a line break,
+    # then letters (e.g. 'mathbf'), which can silently change the display.
+    # Inside a row environment, however, those letters can legitimately begin
+    # the next row. Do not infer corruption there.
+    environments = []
+    for match in re.finditer(
+            r"\\(begin|end)\s*\{([^{}]*)\}|(?<!\\)\\\\([A-Za-z]{2,})", tex):
+        if _escaped(tex, match.start()):
+            continue
+        if match[1] == "begin":
+            environments.append(match[2])
+        elif match[1] == "end":
+            if environments and environments[-1] == match[2]:
+                environments.pop()
+        elif not environments:
+            # These braced row commands also permit \\\\ without an environment.
+            # Their body is parsed by the converter; avoid guessing whether a
+            # following bare word was intended as a command.
+            if _in_row_argument(tex, match.start()):
+                continue
+            raise ValueError("likely doubled LaTeX command slash: " + match.group(0)
+                             + "; check the stored text's escaping")
+
+
+def _in_row_argument(tex: str, position: int) -> bool:
+    for match in re.finditer(r"\\(?:substack|displaylines|eqalign|eqalignno)\s*\{", tex):
+        if match.end() > position or _escaped(tex, match.start()):
+            continue
+        depth = 1
+        for index in range(match.end(), position):
+            if tex[index] in "{}" and not _escaped(tex, index):
+                depth += 1 if tex[index] == "{" else -1
+            if depth == 0:
+                break
+        if depth:
+            return True
+    return False
 
 
 def _safe_mathml(value: str, tex: str, display: str) -> str:
@@ -122,13 +177,36 @@ def _safe_mathml(value: str, tex: str, display: str) -> str:
             tag = tag[len(MATHML_NS) + 2:]
         if tag not in _TAGS or any(name not in _ATTRIBUTES for name in element.attrib):
             raise ValueError("unsupported converter markup")
-        if re.search(r"\\[A-Za-z]+", (element.text or "") + (element.tail or "")):
-            raise ValueError("an unsupported LaTeX command remains literal")
+        # Native MathML Core uses CSS widths: legacy negative named spaces
+        # are unsupported, and a negative numeric width cannot supply overlap.
+        width = element.get("width", "").strip()
+        if tag == "mspace" and width.startswith(("negative", "-")):
+            raise ValueError("unsupported negative spacing in native MathML: " + width)
+        # The converter treats a literal independence symbol as an identifier.
+        # It is a relation, including when used as the base of a script.
+        if tag == "mi" and element.text == "⫫" and not len(element):
+            tag = "mo"
+        literal = re.search(r"\\[A-Za-z]+", (element.text or "") + (element.tail or ""))
+        if literal:
+            raise ValueError(f"an unsupported LaTeX command remains literal: {literal.group(0)}")
         arity = {"mfrac": 2, "mroot": 2, "msub": 2, "msup": 2,
                  "munder": 2, "mover": 2, "msubsup": 3, "munderover": 3}.get(tag)
         if arity is not None and len(element) != arity:
             raise ValueError("incomplete mathematical structure")
         element.tag = tag
+    # Native MathML can leave a directly scripted bar unstretched despite its
+    # explicit size. A one-child row supplies the same stretch context as the
+    # opposite fence without changing the script's base or the original TeX.
+    for element in elements:
+        if element.tag in {"msub", "msup", "msubsup"}:
+            base = element[0]
+            if (base.tag == "mo" and base.text in {"|", "‖"}
+                    and base.get("minsize")
+                    and base.get("minsize") == base.get("maxsize")):
+                element.remove(base)
+                row = ET.Element("mrow")
+                row.append(base)
+                element.insert(0, row)
     if root.tag != "math":
         raise ValueError("converter did not return MathML")
     root.set("xmlns", MATHML_NS)
@@ -149,35 +227,91 @@ def _group_scripted_binomials(tex: str) -> str:
 
     latex2mathml 3.81.0 emits a binomial's two fences and fraction as three
     children of a script node. Explicit TeX grouping gives that node one base.
-    Limit the workaround to binomials with two braced arguments and a script.
+    Arguments may be braced or single unbraced tokens (\binom{n}{k} or
+    \binom nk); anything else is left for the ordinary safety checks.
     """
+    def skip_space(index: int) -> int:
+        while index < len(tex) and tex[index].isspace():
+            index += 1
+        return index
+
+    def argument_end(index: int) -> int | None:
+        index = skip_space(index)
+        if index == len(tex):
+            return None
+        if tex[index] == "{":
+            depth = 1
+            index += 1
+            while index < len(tex) and depth:
+                if tex[index] in "{}" and not _escaped(tex, index):
+                    depth += 1 if tex[index] == "{" else -1
+                index += 1
+            return index if not depth else None
+        if tex[index] == "\\":
+            token = re.match(r"\\[A-Za-z]+|\\[^A-Za-z]", tex[index:])
+            return index + token.end() if token else None
+        return index + 1
+
     insertions = []
     for match in re.finditer(r"\\binom\b", tex):
         if _escaped(tex, match.start()):
             continue
         end = match.end()
         for _ in range(2):
-            while end < len(tex) and tex[end].isspace():
-                end += 1
-            if end == len(tex) or tex[end] != "{":
-                break
-            depth = 1
-            end += 1
-            while end < len(tex) and depth:
-                if tex[end] in "{}" and not _escaped(tex, end):
-                    depth += 1 if tex[end] == "{" else -1
-                end += 1
-            if depth:
+            end = argument_end(end) if end is not None else None
+            if end is None:
                 break
         else:
-            script = end
-            while script < len(tex) and tex[script].isspace():
-                script += 1
+            script = skip_space(end)
             if script < len(tex) and tex[script] in "^_":
                 insertions.extend(((match.start(), "{"), (end, "}")))
     for index, brace in sorted(insertions, reverse=True):
         tex = tex[:index] + brace + tex[index:]
     return tex
+
+
+_SIZED_BAR_RE = re.compile(
+    r"(\\(?:Bigg[lmr]|bigg[lmr]|Big[lmr]|big[lmr]|Big|big)\s*)"
+    r"\\(lVert|rVert|lvert|rvert|Vert|vert)(?![A-Za-z])")
+
+
+def _sized_named_bars(tex: str) -> str:
+    r"""Swap a sized named bar for the symbol form the converter supports.
+
+    latex2mathml 3.81.0 leaves \lvert, \rvert, \vert, \lVert, \rVert, and
+    \Vert literal when one directly follows a \big-family sizing command. The
+    literal symbols | and ‖ convert at the same explicit size; \| would remain
+    literal after a sizing command. \left\lVert already converts and is never touched.
+    The lookahead is a letter class, not a word boundary: \rVert_{\mathcal H}
+    has an underscore after the command name. Converter input only.
+    """
+    def replace(match: re.Match) -> str:
+        if _escaped(tex, match.start()):
+            return match.group(0)
+        bar = "|" if match.group(2) in ("lvert", "rvert", "vert") else "‖"
+        return match.group(1) + bar
+
+    return _SIZED_BAR_RE.sub(replace, tex)
+
+
+def _argument_operator(tex: str) -> str:
+    r"""Render the actual \arg command as an operator in converter input only."""
+    return re.sub(r"\\arg(?![A-Za-z])", lambda match: (
+        match.group(0) if _escaped(tex, match.start()) else r"\operatorname{arg}"
+    ), tex)
+
+
+def _independence_symbol(tex: str) -> str:
+    r"""Display the common \perp\!\!\perp construction as U+2AEB.
+
+    One to three negative thin spaces join the two perpendicular glyphs into
+    the probability independence symbol. Adapt converter input only; the
+    original TeX remains the annotation and canonical evidence. Other negative
+    spacing falls back rather than silently losing the intended overlap.
+    """
+    return re.sub(r"\\perp(?:\s*\\!){1,3}\s*\\perp(?![A-Za-z])", lambda match: (
+        match.group(0) if _escaped(tex, match.start()) else "⫫"
+    ), tex)
 
 
 @lru_cache(maxsize=512)
@@ -195,10 +329,14 @@ def _convert(tex: str, display: str) -> tuple[str | None, str]:
         return None, "The shared LaTeX converter is unavailable."
     try:
         _check_tex(tex)
-        return _safe_mathml(convert(_group_scripted_binomials(tex), display=display), tex, display), ""
-    except Exception:
+        adapted = _independence_symbol(_argument_operator(_sized_named_bars(_group_scripted_binomials(tex))))
+        return _safe_mathml(convert(adapted, display=display), tex, display), ""
+    except Exception as exc:
         # Converter failures must never remove the original mathematical text.
-        return None, "This LaTeX expression is unsupported by the offline converter."
+        # The bounded reason locates the problem; a traceback would not.
+        detail = str(exc).split("\n", 1)[0][:160]
+        reason = "This LaTeX expression is unsupported by the offline converter."
+        return None, f"{reason} {detail}" if detail else reason
 
 
 def _fallback(literal: str, reason: str) -> str:
@@ -207,16 +345,31 @@ def _fallback(literal: str, reason: str) -> str:
             + html.escape(literal, quote=True) + '</code></span>')
 
 
-def render_text(text: str) -> str:
-    """Escape prose and typeset only explicit math, without changing source text."""
+def render_text(text: str, diagnostics=None) -> str:
+    """Escape prose and typeset only explicit math, without changing source text.
+
+    When ``diagnostics`` is a list, each expression that falls back appends one
+    entry with a bounded excerpt, the display mode, and the converter's reason,
+    so callers can locate the failing record field without custom tooling.
+    """
     text = str(text)
     parts, previous = [], 0
     for start, end, tex, display in _spans(text):
         parts.append(html.escape(text[previous:start], quote=True))
-        if tex is None:
+        if text.startswith((r"\\(", r"\\["), start):
+            markup, reason = None, ("Likely doubled LaTeX delimiter slashes; "
+                                    "check the stored text's escaping.")
+        elif tex is None:
             markup, reason = None, "The LaTeX opening delimiter has no matching closing delimiter."
         else:
             markup, reason = _convert(tex, display)
+        if markup is None and diagnostics is not None:
+            lowered = reason.lower()
+            kind = ("unmatched_delimiter" if tex is None else
+                    "converter_unavailable" if reason == "The shared LaTeX converter is unavailable." else
+                    "damaged_escape" if "likely decoded latex escape" in lowered or "likely doubled" in lowered else
+                    "unsupported_expression")
+            diagnostics.append({"kind": kind, "excerpt": text[start:end][:200], "display": display, "reason": reason})
         parts.append(markup if markup is not None else _fallback(text[start:end], reason))
         previous = end
     parts.append(html.escape(text[previous:], quote=True))

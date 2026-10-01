@@ -206,7 +206,9 @@ def accept_in_transaction(db: Database, *, request_id: str, request_digest: str,
         outside = [f"edits/{p.index}: {p.collection}:{p.id} is not in the packet's write scope"
                    for p in plan if p.op != "create" and p.key not in scope and p.key not in scope_exempt]
         if outside:
-            raise InvalidRequest("writes outside the packet's write scope", code="WRITE_SCOPE", records=outside)
+            raise InvalidRequest("writes outside the packet's write scope", code="WRITE_SCOPE", records=outside,
+                retry="Use a packet authorizing the named edits. Reading a record does not authorize replacing "
+                      "it; preserve unaffected work. work extend supplies independent source context only.")
         _read_set_conflicts(db, manifest, conflicts)
         # Work submissions never gain a raw guard bypass; the validator must explicitly
         # validate task semantics and supply the remaining current guard expectations.

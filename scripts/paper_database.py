@@ -11,6 +11,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import sqlite3
@@ -263,7 +264,7 @@ def _common_core():
     if loaded is not None and Path(getattr(loaded, "__file__", "") or ".").resolve() != bundle / "__init__.py":
         raise DatabaseError("A different paper_core is already loaded. Run this skill's paper_database.py "
                             "in a fresh Python process; do not mix skill installations in one process.")
-    missing = [name for name in ("__init__.py", "overview.py") if not (bundle / name).is_file()]
+    missing = [name for name in ("__init__.py", "overview.py", "math_render.py") if not (bundle / name).is_file()]
     if missing:
         raise DatabaseError(f"The bundled paper_core is incomplete: missing {', '.join(missing)}. "
                             "Reinstall the complete proof-graphify skill; no database was changed.")
@@ -540,10 +541,14 @@ def compact_evidence_packet(packet):
     return result
 
 
-def list_records(db_path, collection=None, snapshot_id=None):
+def list_records(db_path, collection=None, snapshot_id=None, *, degraded=False):
     """List selected identities and comparison states without source blobs or prose."""
     if collection not in (None, "items", "uses", "anchors"):
         raise DatabaseError("Choose collection items, uses, or anchors.")
+    if degraded:
+        if collection not in (None, "anchors"):
+            raise DatabaseError("--degraded lists anchors; omit --collection or use --collection anchors.")
+        collection = "anchors"
     data = export_snapshot(db_path, snapshot_id)
     labels = {item["id"]: item["label"] for item in data["items"]}
     anchors = {anchor["id"]: anchor for anchor in data["anchors"]}
@@ -573,9 +578,13 @@ def list_records(db_path, collection=None, snapshot_id=None):
                            "evidence_locations": [location(anchor_id) for anchor_id in use["evidence_refs"]]}
                           for use in data["uses"]]
     if collection == "anchors":
-        result["anchors"] = [{"id": anchor["id"], "file_id": anchor.get("file_id"),
-                              "file": files.get(anchor.get("file_id")), "locator": anchor["locator"]}
-                             for anchor in data["anchors"]]
+        if degraded:
+            result["anchors"] = records.pdf_extraction_diagnostics(data)
+            result["degraded_anchor_count"] = len(result["anchors"])
+        else:
+            result["anchors"] = [{"id": anchor["id"], "file_id": anchor.get("file_id"),
+                                  "file": files.get(anchor.get("file_id")), "locator": anchor["locator"]}
+                                 for anchor in data["anchors"]]
     return result
 
 
@@ -1185,13 +1194,14 @@ def main():
             command.add_argument("dataset", type=Path, help="Seed/export JSON; source.file paths resolve from this JSON directory")
             command.add_argument("--focused", action="store_true", help="Author selected major statements and sourced connections with explicit main results")
         if name in ("init", "refresh"):
-            command.add_argument("--source", type=Path, action="append", default=[], help="Additional appendix or macro source; repeat as needed")
+            command.add_argument("--source", type=Path, action="append", default=[], help="Additional source relative to --source-root (init defaults to the JSON directory; refresh uses the stored source root); repeat as needed")
             command.add_argument("--source-root", type=Path, help="Manuscript root for stored paths and refresh; seed paths still resolve from the JSON directory")
         if name == "get":
             command.add_argument("item", help="Stored item ID from list; returns the item and its incoming uses")
             command.add_argument("--compact-evidence", action="store_true", help="Share identical captured excerpts through excerpt_ref anchor IDs; all evidence links remain")
         if name == "list":
             command.add_argument("--collection", choices=("items", "uses", "anchors"), help="Default: items and uses; anchors lists locators without excerpts")
+            command.add_argument("--degraded", action="store_true", help="List PDF anchors with detected replacement characters, source locations, and affected record IDs; no excerpts")
         if name == "reconcile":
             command.add_argument("audits", type=Path, help="Filled edge-audit JSON file or the folder scaffold wrote")
         if name in ("apply", "compare"):
@@ -1223,7 +1233,7 @@ def main():
             if args.compact_evidence:
                 result = compact_evidence_packet(result)
         elif args.command == "list":
-            result = list_records(args.database, args.collection, args.snapshot)
+            result = list_records(args.database, args.collection, args.snapshot, degraded=args.degraded)
         elif args.command == "apply":
             result = apply_edits(args.database, _read_json(args.batch))
         elif args.command == "compare":
@@ -1288,4 +1298,7 @@ init_database = _init_common
 
 
 if __name__ == "__main__":
+    # Keep routine PDF repair chatter out of CLI receipts and tool transcripts.
+    # Library callers retain their logging settings; errors and evidence limits remain.
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
     raise SystemExit(main())

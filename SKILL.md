@@ -2,7 +2,7 @@
 name: proof-graphify
 description: Build a selective, source-backed interactive map of a paper's main results, important prerequisites, and their connections, from TeX or PDF sources to a standalone HTML page. Use for a theorem or lemma dependency graph, to understand argument structure, and to navigate results, not to reconstruct detailed proof steps or verify proofs.
 metadata:
-  version: "3.1.12"
+  version: "3.1.13"
 ---
 
 # Proof Graphify

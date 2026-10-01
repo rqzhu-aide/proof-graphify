@@ -26,15 +26,17 @@ A captured text line range containing only whitespace does not supply located ev
 
 Profile metadata is outside the mathematical payload and target digests. Portable exports retain the native schema without a profile field; use `init --focused` when importing one for focused work. Incompatible rich content is rejected without trimming records or observations. Existing rich databases and lossless unflagged import remain supported through the [compatibility path](audit-database.md#existing-detailed-overviews), not the new-work tutorial.
 
-Seed source references resolve from the JSON directory. `--source-root` identifies the actual manuscript directory for stored paths, extra sources, and refreshes. Literal local TeX inputs and packages are captured when they resolve inside the manuscript root or the folder of the registered file that includes them; any other input is reported as outside the manuscript root and is not captured. Register additional relevant files using repeatable `--source appendix.tex`; register a PDF used for numbering, formulas, or evidence before comparisons. Adding a source later changes the source revision and initially stales earlier comparisons. Captured exports retain source bindings, so provide the root where their relative paths resolve.
+Seed source references resolve from the JSON directory. `--source-root` identifies the actual manuscript directory for stored paths, extra sources, and refreshes. Relative `--source` paths resolve from that root; for `init` without `--source-root`, they resolve from the JSON directory, and for `refresh` they use the stored root unless overridden. Literal local TeX inputs and packages are captured when they resolve inside the manuscript root or the folder of the registered file that includes them; any other input is reported as outside the manuscript root and is not captured. Register additional relevant files using repeatable `--source appendix.tex`; register a PDF used for numbering, formulas, or evidence before comparisons. Adding a source later changes the source revision and initially stales earlier comparisons. Captured exports retain source bindings, so provide the root where their relative paths resolve.
 
 ## Read one argument
 
 `list <db>` gives compact IDs, labels, kinds, connection endpoints, anchor references, comparison states, and `expected_snapshot`, without statement bodies or source excerpts. Item `passages` include each passage's role, `anchor_id`, `file_id`, file path, and locator; use `evidence_locations` provide the same location fields for each `evidence_refs` entry. Existing `anchor_ids` and `evidence_refs` remain available. Use `--collection items`, `uses`, or `anchors` to narrow it. Copy generated IDs from this listing or a packet; do not infer their hash suffixes or inspect raw SQL merely to find them.
 
+Use `list <db> --degraded` to enumerate PDF anchors whose captured excerpts contain replacement characters. Each row names its file, physical page in `locator`, replacement count, extraction note, and affected item/use IDs in `targets`. `degraded_anchor_count` counts the returned anchors; `counts` still describes the full stored view. `--collection anchors --degraded` is equivalent. No excerpts are included, and no records or comparison states change. This identifies detected glyph loss; plausible but wrongly extracted symbols may have no replacement characters and still require visual inspection.
+
 `get <db> <item-id>` returns the selected statement, incoming connections, directly relevant prerequisites, required source passages, current comparisons, freshness, and `expected_snapshot`. To inspect a connection, get its target item; passing an existing use ID returns a message with that command. Join item `passages[].anchor_id` and use `evidence_refs` to the packet's `anchors`. Comparison `note_ref` values resolve through `comparison_notes`, so repeated notes appear once. Full source blobs and accumulated review history are omitted; exports retain them. Empty compatibility fields can remain.
 
-Use `get <db> <item-id> --compact-evidence` when several anchors repeat a captured passage. The first excerpt stays inline; later identical captures can use `excerpt_ref`, the ID of that first anchor in the packet's `anchors`. Short excerpts stay inline when a reference would be longer. Resolve the reference when reading the excerpt; every anchor keeps its own ID, file binding, source revision, locator, hash, and verification metadata. Default `get` output is unchanged. This optional retrieval view changes no stored records, comparisons, exports, or HTML; `excerpt_ref` is not a field for canonical edit batches.
+Use `get <db> <item-id> --compact-evidence` when several anchors repeat a captured passage. The first excerpt stays inline; later identical captures can use `excerpt_ref`, the ID of that first anchor in the packet's `anchors`, and omit the `excerpt` field. This omission is shared content, not empty evidence. Short excerpts stay inline when a reference would be longer. Resolve the reference when reading the excerpt; every anchor keeps its own ID, file binding, source revision, locator, hash, and verification metadata. Default `get` output is unchanged. This optional retrieval view changes no stored records, comparisons, exports, or HTML; `excerpt_ref` is not a field for canonical edit batches.
 
 Retrieve the argument being edited, not the whole export. Reuse recently read context at the same source revision and read additional source only when needed. A packet is not a claim that its prerequisites suffice. See [revisions.md](revisions.md) when the manuscript changes.
 
@@ -47,6 +49,22 @@ For standing setup, seed passages may repeat the same source locator. In canonic
 ## Apply a bounded batch
 
 Use the current `expected_snapshot` from `list` or a packet. **An `upsert` replaces the entire record; it does not merge omitted fields.** Re-supply every intended field. An item's inline `source` and a connection's `source` or `sources` become anchors at initialization: canonical item edits use `passages[].anchor_id`, and use edits use `evidence_refs`. Do not paste seed-style `source` or `sources` fields into canonical edits. Public overview use endpoints `from` and `to` are string item IDs, as below; raw common-store references use a different internal shape. Author through the public commands. An anchor upsert needs an existing file ID and a verified locator; the script extracts and hashes its passage.
+
+`get` returns complete canonical records in `item`, `prerequisite_items`, and `incoming_uses`, including optional fields. Copy the record being edited directly; reconstructing it from a seed, listing, and earlier batches is unnecessary. For example, after saving a current packet to `work/current.json`:
+
+```python
+import json
+from pathlib import Path
+packet = json.loads(Path("work/current.json").read_text(encoding="utf-8"))
+record = packet["item"]
+record["statement"]["text"] = r"Replace with the source-supported correction."
+batch = {"expected_snapshot": packet["expected_snapshot"], "edits": [
+    {"collection": "items", "op": "upsert", "id": record["id"], "record": record}
+]}
+Path("work/edits.json").write_text(json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8")
+```
+
+For a connection, copy its complete entry from `incoming_uses` in the target item's packet and use collection `uses`. Keep unaffected optional fields and evidence links in that record.
 
 ```json
 {

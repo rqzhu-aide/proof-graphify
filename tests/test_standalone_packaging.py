@@ -108,7 +108,7 @@ class StandalonePackagingTests(unittest.TestCase):
         foreign.mkdir(parents=True)
         (foreign / "__init__.py").write_text(
             "raise RuntimeError('UNEXPECTED_EXTERNAL_CORE')\n", encoding="utf-8")
-        for filename in ("overview.py", "__init__.py"):
+        for filename in ("overview.py", "math_render.py", "__init__.py"):
             with self.subTest(missing=filename):
                 module = self.scripts / "paper_core" / filename
                 contents = module.read_bytes()

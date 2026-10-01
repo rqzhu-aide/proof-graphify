@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
@@ -22,14 +23,14 @@ from .acceptance import apply_batch
 from .errors import CoreError, InvalidRequest, PublicationError
 from .export_import import import_legacy, migrate_overview, write_export
 from .ids import COLLECTIONS, PREFIXES, new_id
-from .packets import MODES, get_packet
+from .packets import MAX_WORK_RECORDS, MODES, get_packet
 from .projection import build_projection
 from .publish import publish_report
 from .queries import changes as query_changes
 from .queries import status as query_status
 from .queries import validate_snapshot
 from .review import compare, map_response, reconcile, record_qualification, submit_review
-from .sources import anchor_sources, capture_sources, review_sources
+from .sources import anchor_sources, capture_sources, review_sources, source_diagnostics
 from .storage import Database, initialize, paper_record
 from .telemetry import STAGES, events, record_event, summarize
 
@@ -236,6 +237,12 @@ def cmd_source_review(args):
     return {"command": "source review", "receipt": result}
 
 
+def cmd_source_diagnostics(args):
+    with Database(args.db, write=False) as db:
+        result = source_diagnostics(db, degraded=args.degraded)
+    return {"command": "source diagnostics", **result}
+
+
 def cmd_ids(args):
     if args.kind not in ID_KINDS:
         raise InvalidRequest(f"unknown id kind {args.kind!r}; choose one of {list(ID_KINDS)}", code="USAGE")
@@ -247,6 +254,7 @@ def cmd_ids(args):
 def _packet_summary(packet: dict) -> dict:
     return {"packet_id": packet["packet_id"], "packet_version": packet["packet_version"], "mode": packet["mode"],
             "base_revision": packet["base_revision"], "targets": packet["targets"], "records": len(packet["records"]),
+            "record_count": len(packet["records"]),
             "write_scope": len(packet["write_scope"]), "extends": packet.get("extends"),
             "omitted": len(packet.get("omitted") or []), "truncated": packet.get("truncated", False)}
 
@@ -413,8 +421,13 @@ def cmd_work_prepare(args):
                               max_bytes=args.max_bytes, allow_provisional=args.allow_provisional, route_id=args.route)
         if result.get("prepared"):
             result["files"] = _write_work_artifacts(db, result, args.out)
+            if result.get("deferred"):
+                result["continuation_note"] = (
+                    "Proceed with this assignment. Deferred units remain available to ordinary scheduling; "
+                    "different_context and unit_limit require no repair or immediate inspection.")
         else:
             _preparation_diagnostic(db, result, args.audit)
+        result["packet_limits"] = {"max_bytes": args.max_bytes, "max_records": MAX_WORK_RECORDS}
     return {"command": "work prepare", **_compact_work(result)}
 
 
@@ -653,7 +666,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--audit", required=True)
     p.add_argument("--focus")
     p.add_argument("--snapshot")
-    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--limit", type=int, default=20, help="1..100 tasks (default: 20)")
     p.add_argument("--cursor")
     p.set_defaults(func=cmd_work_list)
     p = work.add_parser("prepare", help="prepare one coherent assignment without dispatching a model")
@@ -664,8 +677,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--route", help="exact argument for supplied-route independent review")
     p.add_argument("--task", action="append", default=[])
     p.add_argument("--exclude-task", action="append", default=[])
-    p.add_argument("--max-units", type=int, default=5)
-    p.add_argument("--max-bytes", type=int, default=131072)
+    p.add_argument("--max-units", type=int, default=5, help="1..10 coherent units (default: 5)")
+    p.add_argument("--max-bytes", type=int, default=131072,
+                   help="1..1048576 packet bytes (default: 131072); at most 2048 records; units stay whole")
     p.add_argument("--allow-provisional", action="store_true")
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_work_prepare)
@@ -691,7 +705,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out")
     p.set_defaults(func=cmd_work_inspect)
 
-    source = sub.add_parser("source", help="capture, anchor and review sources").add_subparsers(dest="subcommand",
+    source = sub.add_parser("source", help="capture, anchor, review and inspect sources").add_subparsers(dest="subcommand",
                                                                                                  metavar="ACTION")
     source.required = True
     p = source.add_parser("capture", help="capture listed files under the source root")
@@ -707,6 +721,10 @@ def build_parser() -> argparse.ArgumentParser:
     _db_arg(p)
     p.add_argument("--request", required=True)
     p.set_defaults(func=cmd_source_review)
+    p = source.add_parser("diagnostics", help="read current PDF extraction limitations and affected records (coordinator)")
+    _db_arg(p)
+    p.add_argument("--degraded", action="store_true", help="return only PDF anchors with detected replacement characters")
+    p.set_defaults(func=cmd_source_diagnostics)
 
     p = sub.add_parser("ids", help="mint identifiers")
     p.add_argument("--kind", required=True, help=f"one of {', '.join(ID_KINDS)}")
@@ -849,8 +867,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 # -- entry ------------------------------------------------------------------------------
 def _emit(payload):
-    sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    try:
+        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # The consumer deliberately stopped reading. Keep the command's result,
+        # and redirect any buffered shutdown flush instead of emitting again.
+        try:
+            descriptor = sys.stdout.fileno()
+        except (AttributeError, OSError, ValueError):  # substituted streams, e.g. embedded callers
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")
+        else:
+            with open(os.devnull, "wb") as sink:
+                os.dup2(sink.fileno(), descriptor)
 
 
 def _record_command_event(args, *, started, exit_code, error_code=None):
@@ -870,6 +899,8 @@ def _record_command_event(args, *, started, exit_code, error_code=None):
 
 
 def main(argv=None) -> int:
+    # Keep routine PDF repair chatter out of CLI transcripts; errors and recorded limits remain.
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8")

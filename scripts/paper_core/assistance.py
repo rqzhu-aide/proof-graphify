@@ -159,18 +159,19 @@ def _response_guidance(mode):
                     "kind": "composition",
                     "target": {"source_anchor_id": "<supplied proof anchor ID>",
                                "description": "The complete written route establishing the requested conclusion."}},
-                "note": "Use the scaffold; required nullable fields stay present. "
-                        "Use a source target for a hidden inference; composition checks its argument. "
-                        "Replace the example's anchor placeholder and author all scientific fields. "
-                        "The coordinator maps your unchanged response. Preserve extra prerequisite concerns "
-                        "in coverage_note; concerns undermining the assigned conclusion belong in its reasoning "
-                        "and outcome. Do not silently add hypotheses. Context extension keeps the same obligation; "
-                        "a new target outside scope needs another assignment."}
+                "note": "Keep required nullable scaffold fields. Use source targets for hidden inferences. "
+                        "covered_targets names reviewed source conclusions; composition targets its proof route "
+                        "using the supplied proof-anchor example. Replace its anchor placeholder and author "
+                        "scientific fields; the coordinator maps the unchanged response. Put extra prerequisite "
+                        "concerns in coverage_note, and concerns undermining the assigned conclusion in its "
+                        "reasoning/outcome. Do not silently add hypotheses. Context extension retains the "
+                        "obligation; an out-of-scope target needs another assignment."}
     if mode == "primary":
         return {"mode": mode, "response_shape": describe(c.WORK_PRIMARY_RESPONSE),
-                "note": "Use assigned task IDs; required nullable fields stay present. "
-                        "Author the judgments. Finding rows create new issues; cite unchanged existing findings "
-                        "during renewal instead of recreating them. A renewed check alone does not resolve a finding."}
+                "note": "Use assigned task IDs; keep required nullable fields. "
+                        "check_task_ids/related_task_ids link this response's checks, never source_fidelity "
+                        "observations; existing_check_refs pins saved checks. Author judgments; cite existing "
+                        "findings during renewal. Renewed checks alone do not resolve findings."}
     if mode == "reconcile":
         return {"mode": mode, "row_shape": describe(c.BODY_SCHEMAS["reconciliations"]),
                 "note": "Choose exact-target pins from coordinator guidance; author the decision and rationale. "
@@ -205,6 +206,10 @@ def coordinator_guidance(db, manifest, *, assessed=None):
             if record is None or record.collection != "checks" or record.body["state"] != "draft":
                 continue
             result["draft_candidates"].append({"task_id": task["id"], **_opinion(record, pin)})
+    if result["draft_candidates"]:
+        result["draft_note"] = (
+            "For replaces, choose the assigned task's same-reviewer draft ref and preserve that draft's "
+            "supersedes. A completed predecessor is not a replaces candidate. No candidate is selected here.")
     audit_id = manifest.get("work", {}).get("audit_id")
     renewal_checks = []
     if mode == "primary":
@@ -250,7 +255,8 @@ def coordinator_guidance(db, manifest, *, assessed=None):
             result["renewal_candidates"] = candidates
             result["renewal_note"] = (
                 "These completed checks consumed changed inputs. Their pinned opinions are reference material, "
-                "not renewed proof credit. Pass only the needed predecessor context to the assigned primary "
+                "not renewed proof credit. Each candidate's ref is its possible supersedes pin, not replaces. "
+                "Pass only the needed predecessor context to the assigned primary "
                 "checker, who re-examines the affected work and authors explicit supersedes before saving. "
                 "Preserve negative outcomes, conditions and reasoning unless the examiner explicitly revises "
                 "them. Submit the response unchanged; keep this inventory out of independent delivery.")

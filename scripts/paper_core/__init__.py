@@ -6,7 +6,7 @@ New-format code never imports the legacy ``proofcheck.py`` monolith.
 """
 from __future__ import annotations
 
-CORE_VERSION = "2.3.5"
+CORE_VERSION = "2.3.6"
 STORAGE_FORMAT = 4
 CONTRACT_VERSION = 4
 CONTRACT_NAME = "proofcheck-records/4"

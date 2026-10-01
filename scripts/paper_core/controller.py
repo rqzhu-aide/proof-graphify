@@ -40,7 +40,9 @@ def read_bounded(path, limit):
 def _shape(schema, value, what):
     errors = validate_shape(schema, value)
     if errors:
-        raise InvalidRequest(f"invalid {what}", records=errors[:DIAGNOSTIC_LIMIT])
+        raise InvalidRequest(f"invalid {what}", records=errors[:DIAGNOSTIC_LIMIT],
+                             retry="Correct the named fields using the supplied role guidance/template; "
+                                   "keep required nullable fields present. No separate schema query is needed.")
 
 
 def _parse(raw, what):
@@ -125,7 +127,18 @@ def _pinned_in(ref, manifest):
 def _reference(ref, manifest, *, pinned=False, where="reference"):
     allowed = manifest["read_set"]
     if not any(_key(r) == _key(ref) and (not pinned or r["version"] == ref["version"]) for r in allowed):
-        raise InvalidRequest(f"{where} is outside the supplied context", code="WRITE_SCOPE", records=[ref])
+        versions = [r["version"] for r in allowed if _key(r) == _key(ref)]
+        if versions:
+            action = "Use the permissible pinned version already supplied for this reference."
+        elif manifest["mode"] == "independent":
+            action = ("Have the coordinator supply the needed captured neutral source with work extend, "
+                      "then examine it and save a new response naming that packet.")
+        else:
+            action = ("Use an assignment or authorized packet that supplies this needed reference; "
+                      "preserve unaffected saved reasoning. work extend is for independent source context.")
+        raise InvalidRequest(f"{where} is outside the supplied context", code="WRITE_SCOPE", records=[ref],
+                             retry={"field": where, "reason": "wrong_version" if versions else "missing_context",
+                                    "available_versions": versions, "action": action})
 
 
 def _edit(collection, body, replaces=None):
@@ -182,14 +195,18 @@ def _primary_plan(db, envelope, manifest, active, worker):
             replacement = result["replaces"]
             if replacement:
                 if replacement not in current.get("draft_refs", []):
-                    raise InvalidRequest(f"results/{index}/replaces is not an authorized draft", code="WRITE_SCOPE")
+                    raise InvalidRequest(f"results/{index}/replaces is not an authorized draft", code="WRITE_SCOPE",
+                        records=[replacement], retry="Use this task's same-reviewer draft candidate for replaces; "
+                        "a completed predecessor belongs in supersedes. Candidates are in coordinator guidance.")
                 prior = db.head("checks", replacement["id"])
                 if (prior is None or prior.retired or prior.version != replacement["version"]):
                     raise ConflictError("draft changed", records=[replacement])
                 if (prior.body["reviewer"] != envelope["reviewer"] or prior.body["state"] != "draft"
                         or prior.body["target"] != task["target"] or prior.body["kind"] != task["kind"]
                         or prior.body["audit_id"] != audit.id or prior.body["role"] != "primary"):
-                    raise InvalidRequest("only this reviewer's same-task draft may be replaced", code="WRITE_SCOPE")
+                    raise InvalidRequest("only this reviewer's same-task draft may be replaced", code="WRITE_SCOPE",
+                        records=[replacement], retry="Choose the assigned task's draft for the actual reviewer "
+                        "from coordinator guidance; do not replace another reviewer's judgment.")
                 if prior.body["supersedes"] != result["supersedes"]:
                     raise InvalidRequest("resuming a draft preserves its supersedes reference")
             if result["supersedes"]:
@@ -211,7 +228,10 @@ def _primary_plan(db, envelope, manifest, active, worker):
         for tid in task_ids:
             pin = record_map.get(tid)
             if pin is None or pin["collection"] != "checks":
-                raise InvalidRequest(f"{where}: task {tid} has no check in this response")
+                raise InvalidRequest(f"{where}: task {tid} has no check in this response",
+                    records=[{"task_id": tid}], retry="check_task_ids/related_task_ids name tasks producing "
+                    "checks in this response, not source_fidelity observations. Use existing_check_refs "
+                    "for a permissible saved pinned check; do not invent a check to repair the link.")
             linked.append(pin)
         for ref in refs:
             _reference(ref, manifest, pinned=True, where=where)
@@ -222,7 +242,10 @@ def _primary_plan(db, envelope, manifest, active, worker):
 
     for index, row in enumerate(worker["coverage"]):
         if row["argument_id"] not in arguments:
-            raise InvalidRequest(f"coverage/{index}: argument is not assigned", code="WRITE_SCOPE")
+            raise InvalidRequest(f"coverage/{index}: argument is not assigned", code="WRITE_SCOPE",
+                records=[{"collection": "arguments", "id": row["argument_id"]}],
+                retry="Save coverage under an assignment for this argument. Preserve unrelated work; "
+                      "work extend does not authorize new primary work.")
         _reference({"collection": "anchors", "id": row["anchor_id"]}, manifest, where="coverage anchor")
         auxiliary.append({"collection": "anchors", "id": row["anchor_id"]})
         for ref in row["claim_refs"]:
@@ -408,7 +431,7 @@ def _failure(exc, *, request_id=None, stored=False, prior_submission=False, othe
     elif other_command:
         actions = ["use a new request ID; this ID belongs to another command and has no work submission to inspect"]
     elif stored:
-        actions = ["inspect the retained work submission",
+        actions = ["correct the named issue using the local input and diagnostics; inspect the retained submission only if those artifacts are unavailable",
                    "identical input with the same request ID returns this saved receipt; use a new request ID for corrected input or a rebase"]
     else:
         actions = ["correct setup or bounded input; this call did not reserve a new request ID"]

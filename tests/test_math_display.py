@@ -114,7 +114,8 @@ class ConverterAdaptationTests(unittest.TestCase):
         self.assertIn(r"\privateMinimum", diagnostics[0]["reason"])
 
     def test_sized_named_bars_convert_at_the_authored_size(self):
-        for tex in (r"\Bigl\lVert x \Bigr\rVert_{\mathcal H}",
+        namespace = {"m": math_display.MATHML_NS}
+        for tex in (r"\Bigl\lVert x \Bigr\rVert_{\mathcal H}^2",
                     r"\bigl\lVert x \bigr\rVert",
                     r"\Biggl\lVert x \Biggr\rVert",
                     r"\Bigl\vert x \Bigr\vert",
@@ -122,12 +123,20 @@ class ConverterAdaptationTests(unittest.TestCase):
             with self.subTest(tex=tex):
                 markup, reason = math_display._convert(tex, "inline")
                 self.assertIsNotNone(markup, reason)
-                self.assertIn("<math", markup)
+                root = ET.fromstring(markup)
+                expected = "‖" if "Vert" in tex else "|"
+                fences = root.findall(".//m:mo", namespace)
+                self.assertEqual([node.text for node in fences], [expected, expected])
                 # Explicit sizing survives (a \left/\right rewrite would not fix it).
-                self.assertIn('minsize="', markup)
-                body = markup.split("<semantics>", 1)[1].split("<annotation")[0]
-                self.assertNotIn("\\lVert", body)
-                self.assertNotIn("\\lvert", body)
+                for fence in fences:
+                    self.assertTrue(fence.get("minsize"))
+                    self.assertEqual(fence.get("minsize"), fence.get("maxsize"))
+                self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
+                if "_{" in tex:
+                    scripted = root.find(".//m:msubsup", namespace)
+                    self.assertEqual("".join(scripted[0].itertext()), "‖")
+                    self.assertEqual("".join(scripted[1].itertext()), "H")
+                    self.assertEqual(scripted[2].text, "2")
 
     def test_escaped_sizing_command_is_not_adapted(self):
         literal = r"\\Bigl\lVert"
@@ -202,7 +211,7 @@ class ConverterAdaptationTests(unittest.TestCase):
                     self.assertIn(literal, markup)
                     self.assertEqual(len(diagnostics), 1)
                     self.assertEqual(diagnostics[0]["excerpt"], literal)
-                    self.assertIn("likely decoded LaTeX escape", diagnostics[0]["reason"])
+                    self.assertIn("likely decoded latex escape", diagnostics[0]["reason"].lower())
                     self.assertIn("\\" + command, diagnostics[0]["reason"])
 
     def test_decoded_common_commands_do_not_silently_render_as_letters(self):
@@ -215,7 +224,7 @@ class ConverterAdaptationTests(unittest.TestCase):
                 markup = math_display.render_text("$" + tex + "$", diagnostics)
                 self.assertIn('class="math-fallback"', markup)
                 self.assertEqual(len(diagnostics), 1)
-                self.assertIn("likely decoded LaTeX escape", diagnostics[0]["reason"])
+                self.assertIn("likely decoded latex escape", diagnostics[0]["reason"].lower())
 
     def test_legitimate_math_whitespace_and_commands_are_not_escape_warnings(self):
         for tex in (r"\lVert x\rVert_2", r"\lvert x\rvert",
@@ -511,7 +520,7 @@ class PrepareDiagnosticsTests(unittest.TestCase):
         self.assertIn('class="math-fallback"', lemma["statement_html"])
         self.assertEqual(len(failures), 1)
         self.assertEqual((failures[0]["collection"], failures[0]["field"]), ("items", "statement"))
-        self.assertIn("likely decoded LaTeX escape", failures[0]["reason"])
+        self.assertIn("likely decoded latex escape", failures[0]["reason"].lower())
         self.assertEqual(prepared["build_context"]["input_snapshot"], original["snapshot_id"])
 
 
@@ -586,7 +595,7 @@ class RendererDiagnosticsTests(unittest.TestCase):
         diagnostic, = receipt["math_diagnostics"]
         self.assertEqual((diagnostic["collection"], diagnostic["id"], diagnostic["field"]),
                          ("items", "key-bound", "statement"))
-        self.assertIn("likely decoded LaTeX escape", diagnostic["reason"])
+        self.assertIn("likely decoded latex escape", diagnostic["reason"].lower())
         self.assertEqual(diagnostic["excerpt"], literal[len("The bound is "):-1])
         self.assertIn("key-bound (statement)", receipt["warnings"][-1])
         self.assertIn("Math display notes", output.read_text(encoding="utf-8"))

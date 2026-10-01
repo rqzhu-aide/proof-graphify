@@ -1626,6 +1626,30 @@ def _graph_cycles(items, uses):
     return sorted(groups, key=lambda group: order[group['item_ids'][0]])
 
 
+def pdf_extraction_diagnostics(data):
+    """Locate detected PDF glyph loss without inferring the missing mathematics."""
+    files = {source['id']: source['path'] for source in data['source_revision']['files']
+             if source['media_type'] == 'application/pdf'}
+    damaged = {anchor['id']: anchor for anchor in data['anchors']
+               if anchor.get('file_id') in files and anchor['locator'].get('page')
+               and '\ufffd' in anchor['excerpt']}
+    targets = {identity: [] for identity in damaged}
+    for collection in ('items', 'uses'):
+        for row in data[collection]:
+            refs = (dict.fromkeys(passage['anchor_id'] for passage in row['passages'])
+                    if collection == 'items' else dict.fromkeys(row['evidence_refs']))
+            for identity in refs:
+                if identity in targets:
+                    targets[identity].append({'collection': collection, 'id': row['id']})
+    return [{'id': anchor['id'], 'file_id': anchor['file_id'], 'file': files[anchor['file_id']],
+             'locator': copy.deepcopy(anchor['locator']),
+             'replacement_count': anchor['excerpt'].count('\ufffd'),
+             'extraction_note': anchor['verification'].get('note') or
+                 'PDF excerpt contains replacement characters; inspect the original page.',
+             'targets': targets[anchor['id']]}
+            for anchor in damaged.values()]
+
+
 def record_report(data, base_dir, fidelity=None):
     """Structural/source diagnostics for validated records, without math rendering."""
     report = {'warnings': []}
@@ -1647,11 +1671,8 @@ def record_report(data, base_dir, fidelity=None):
     status = comparison_status(data, fidelity)
     if status['status'] != 'complete':
         report['warnings'].append(status['summary'] + ' These are overview comparisons, not proof verdicts.')
-    pdf_files = {f['id']: f['path'] for f in data['source_revision']['files']
-                 if f['media_type'] == 'application/pdf'}
-    damaged_pages = sorted({(pdf_files[a['file_id']], a['locator']['page']) for a in data['anchors']
-                            if a.get('file_id') in pdf_files and a['locator'].get('page')
-                            and '\ufffd' in a['excerpt']})
+    damaged_pages = sorted({(row['file'], row['locator']['page'])
+                            for row in pdf_extraction_diagnostics(data)})
     if damaged_pages:
         sample = '; '.join(f'{path}, p. {page}' for path, page in damaged_pages[:4])
         report['warnings'].append(
@@ -1682,7 +1703,8 @@ def record_report(data, base_dir, fidelity=None):
         if pages:
             pending.append(f'{pages} PDF page locations not checked')
         details = f" ({'; '.join(pending)})" if pending else ''
-        report['warnings'].append(f"{summary}; {unverified} anchors still have locator details requiring source comparison{details}. Location checks do not establish that a passage states the recorded claim.")
+        subject = 'anchor has' if unverified == 1 else 'anchors have'
+        report['warnings'].append(f"{summary}; {unverified} {subject} locator details not mechanically verified{details}. Source-comparison results are reported separately. Location checks do not establish that a passage states the recorded claim.")
     inventory = data.get('inventory', {})
     missing = sum(not d['item_ids'] for d in inventory.get('declarations', []))
     # This is a selected map. Unselected declarations are discovery context,

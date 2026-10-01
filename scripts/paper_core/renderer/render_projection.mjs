@@ -535,6 +535,18 @@ export function validateInput(input) {
       fragments.set(key, value);
     });
   }
+  const mathDiagnostics = display?.math_diagnostics;
+  if (mathDiagnostics !== undefined) {
+    if (!isObject(mathDiagnostics) || !Number.isInteger(mathDiagnostics.count) || mathDiagnostics.count < 0 ||
+        !Array.isArray(mathDiagnostics.groups)) bad('display.math_diagnostics must contain a count and groups');
+    else for (const group of mathDiagnostics.groups) {
+      if (!isObject(group) || !isString(group.reason) || !Number.isInteger(group.count) || !Array.isArray(group.samples))
+        bad('display.math_diagnostics groups must contain reason, count and samples');
+      else for (const sample of group.samples)
+        if (!isObject(sample) || !records.has(refKey(sample.ref || {})) || !isString(sample.field) || !isString(sample.excerpt))
+          bad('display.math_diagnostics samples must name a projected record field and literal excerpt');
+    }
+  }
   done();
 
   return {
@@ -552,6 +564,7 @@ export function validateInput(input) {
     layout,
     summary,
     fragments,
+    mathDiagnostics,
   };
 }
 
@@ -920,8 +933,35 @@ ${contexts.length ? `<p>${contexts.map(([field, label]) => explanation[field + '
 
   readerSources(ref, role) {
     const body = this.readerRecord(ref)?.body || {};
-    const ids = [...new Set([...(body.evidence_refs || []).map(entry => isString(entry) ? entry : entry.id), ...(body.passages || []).filter(p => isString(p) || !role || p.role === role || p.role === 'evidence').map(p => isString(p) ? p : p.anchor_id)].filter(Boolean))];
-    return ids.length ? `<p class="proof-reader-sources">${ids.map((id, i) => this.humanLink({collection:'anchors', id}, `${role === 'proof' ? 'Proof source' : 'Source'}${ids.length > 1 ? ` ${i + 1}` : ''}`)).join(' · ')}</p>` : '';
+    const refs = [...(body.evidence_refs || []).map(entry => isString(entry) ? {collection:'anchors', id:entry} : entry),
+      ...(body.passages || []).filter(p => isString(p) || !role || p.role === role || p.role === 'evidence')
+        .map(p => ({collection:'anchors', id:isString(p) ? p : p.anchor_id})), ...(body.anchor_refs || [])];
+    const unique = [...new Map(refs.filter(r => r?.id).map(r => [Number.isInteger(r.version) ? refKey(r) : looseKey(r), r])).values()];
+    return unique.length ? `<p class="proof-reader-sources">${unique.map(anchor => this.humanLink(anchor,
+      `${role === 'proof' ? 'Proof source' : 'Source'}: ${this.sourceLocationLabel(anchor)}`)).join(' · ')}</p>` : '';
+  }
+
+  sourceLocationLabel(ref) {
+    const anchor = Number.isInteger(ref.version) ? this.readerRecord(ref) : this.model.recordsByLoose.get(looseKey(ref));
+    const body = anchor?.body || {}, locator = body.locator || {};
+    const source = this.readerRecord({collection:'sources', id:body.source_id, version:body.source_version});
+    const parts = [source?.body.path || (body.source_id ? `Captured source ${body.source_id}` : 'Source location unavailable')];
+    if (Number.isInteger(locator.page)) parts.push(`physical page ${locator.page}`);
+    if (Number.isInteger(locator.start_line)) parts.push(locator.end_line && locator.end_line !== locator.start_line
+      ? `lines ${locator.start_line} to ${locator.end_line}` : `line ${locator.start_line}`);
+    if (locator.label) parts.push(locator.label);
+    if (Number.isInteger(body.source_version)) parts.push(`captured v${body.source_version}`);
+    return parts.join(', ');
+  }
+
+  mathDisplayNotes() {
+    const notes = this.model.mathDiagnostics;
+    if (!notes?.count) return '';
+    return `<details id="proof-math-notes" class="proof-build-disclosure"><summary>Math display notes (${notes.count} occurrences in saved fields)</summary>
+<p>Display only: the original text is retained. These notes do not change audit completion or request additional audit work.</p>
+<ul>${notes.groups.slice(0, 5).map(group => `<li>${esc(group.reason)} (${group.count})<ul>${group.samples.slice(0, 3).map(sample =>
+      `<li>${this.humanLink(sample.ref)}: ${esc(sample.field)} <code>${esc(sample.excerpt)}</code></li>`).join('')}</ul></li>`).join('')}</ul>
+${notes.groups_truncated ? '<p>Additional causes are omitted from this summary; literal formulas remain visible in their record fields.</p>' : ''}</details>`;
   }
 
   readerNamedLink(key, context, ref) {
@@ -1615,7 +1655,7 @@ ${headline}
   page(fontStyle) {
     const { model } = this;
     const requested = model.summary.scope.target_refs.filter((ref) => ref.collection === 'items').map((ref) => ref.id);
-    const beforeGraph = `<div id="proof-main" class="proof-reader"><p class="proof-kicker">Proof audit${model.build.kind === 'release' ? ' · release' : ' · working copy'}</p>${this.readerReportState()}<details class="proof-build-disclosure"><summary>Audit progress, findings and source version</summary><p class="proof-build">${this.buildLine()}</p>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
+    const beforeGraph = `<div id="proof-main" class="proof-reader"><p class="proof-kicker">Proof audit${model.build.kind === 'release' ? ' · release' : ' · working copy'}</p>${this.readerReportState()}<details class="proof-build-disclosure"><summary>Audit progress, findings and source version</summary><p class="proof-build">${this.buildLine()}</p>${this.summaryHtml()}</details>${this.mathDisplayNotes()}${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
 ${mainNavigation(model.nodeList, model.connectionList, requested)}
 <h2 id="proof-graph-heading" class="proof-visually-hidden">Dependency graph</h2><p id="proof-graph-desc" class="proof-visually-hidden">Major results and their recorded uses. Connection colors describe the represented assessments under declared premises.</p>`;
     const pendingWork = model.projection.worklist?.tasks.filter(task => task.required && task.state !== 'satisfied').length;
@@ -2131,7 +2171,7 @@ html:not([data-js]) #proof-detail-empty,html.show-all-details #proof-detail-empt
 .proof-reader-overview .proof-reader-value{white-space:pre-wrap;overflow-wrap:anywhere}
 .proof-reader-overview .proof-fragment{font-size:1rem}
 .proof-reader-label{font-size:.88rem;font-weight:600;margin:.65em 0 .25em;color:var(--ink)}
-.proof-reader-sources{font-size:.85rem;margin:.5em 0;color:var(--muted)}
+.proof-reader-sources{font-size:.85rem;margin:.5em 0;color:var(--muted);overflow-wrap:anywhere}
 .proof-reader-strategy{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 0 1em}
 .proof-reader-route{border-top:1px solid var(--line);margin-top:1.2em;padding-top:.25em}
 .proof-reader-application{padding:.7em 0;border-bottom:1px solid var(--line)}
