@@ -7,7 +7,7 @@ from pathlib import Path
 from . import CONTRACT_VERSION
 
 from .acceptance import accept_in_transaction
-from .bindings import task_binding_changes
+from .bindings import record_binding_changes, task_binding_changes
 from .canonical import canonical_bytes, digest, load_json_bytes, sha256_bytes
 from .contract import (BATCH, CHECK_TARGETS, WORK_PRIMARY_RESPONSE, WORK_SUBMISSION, WORKER_RESPONSE,
                        extract_refs, validate_body, validate_shape)
@@ -180,6 +180,8 @@ def _primary_plan(db, envelope, manifest, active, worker):
     original_tasks, active_tasks = _task_map(manifest), _task_map(active)
     audit = db.head("audits", manifest["work"]["audit_id"])
     edits, record_map, selected, evidence, auxiliary = [], {}, [], {}, []
+    seen, omitted, unchanged = set(), [], {}
+    defaults = {row["task_id"]: row for row in response_scaffold(manifest)["results"]}
     arguments = set()
     for task in active_tasks.values():
         arg = task.get("argument")
@@ -193,13 +195,17 @@ def _primary_plan(db, envelope, manifest, active, worker):
 
     for index, result in enumerate(worker["results"]):
         tid = result["task_id"]
-        if tid in record_map or tid not in original_tasks or tid not in active_tasks:
+        if tid in seen or tid not in original_tasks or tid not in active_tasks:
             raise InvalidRequest(f"results/{index}/task_id is duplicate or unassigned", code="TASK_SCOPE")
+        seen.add(tid)
         task, current = original_tasks[tid], active_tasks[tid]
         if any(task[k] != current[k] for k in ("target", "kind", "role", "action")):
             raise ConflictError("task identity changed", records=[{"task_id": tid}])
         if task["role"] != "primary":
             raise InvalidRequest("primary response cannot submit another role", code="TASK_SCOPE")
+        if result == defaults[tid]:
+            omitted.append(tid)
+            continue
         for anchor in result["evidence_refs"]:
             _reference({"collection": "anchors", "id": anchor}, manifest, where=f"results/{index}/evidence_refs")
         selected.append(tid)
@@ -237,6 +243,14 @@ def _primary_plan(db, envelope, manifest, active, worker):
             body.update(audit_id=audit.id, target=task["target"], kind=task["kind"], role="primary",
                         reviewer=envelope["reviewer"], protocol_version=audit.body["protocol_version"],
                         response_id=None)
+            if (body["state"] == "draft" and (not body["reasoning"].strip()
+                    or not (body["next_action"] or "").strip())):
+                raise InvalidRequest("a draft needs authored reasoning and a concrete remaining question or next_action",
+                                     code="NO_AUTHORED_WORK", records=[{"task_id": tid, "result_index": index}])
+            if replacement and body == prior.body:
+                record_map[tid] = prior.pinned
+                unchanged[tid] = prior.pinned
+                continue
             edit = _edit("checks", body, replacement)
         errors = validate_body(edit["collection"], body)
         if errors:
@@ -249,6 +263,12 @@ def _primary_plan(db, envelope, manifest, active, worker):
         for tid in task_ids:
             pin = record_map.get(tid)
             if pin is None or pin["collection"] != "checks":
+                if tid in omitted:
+                    raise InvalidRequest(f"{where}: task {tid} refers to an untouched omitted scaffold",
+                        code="OMITTED_CHECK_LINK", records=[{"task_id": tid, "field": where,
+                                                             "omitted_task_ids": sorted(omitted)}],
+                        retry="Author the supporting check or use an existing permissible check reference; "
+                              "preserve the submitted coverage or finding for correction.")
                 raise InvalidRequest(f"{where}: task {tid} has no check in this response",
                     records=[{"task_id": tid}], retry="check_task_ids/related_task_ids name tasks producing "
                     "checks in this response, not source_fidelity observations. Use existing_check_refs "
@@ -301,10 +321,18 @@ def _primary_plan(db, envelope, manifest, active, worker):
                                              f"findings/{index}"))
         edits.append(_edit("findings", body))
     # Coverage/findings without new results still consume the assigned local context.
+    if not edits and not unchanged:
+        raise InvalidRequest("response contains no authored work", code="NO_AUTHORED_WORK",
+                             records=[{"omitted_task_ids": sorted(omitted)}],
+                             retry={"operation": "author_assigned_work", "reason_code": "NO_AUTHORED_WORK",
+                                    "omitted_task_ids": sorted(omitted),
+                                    "message": "Author reasoning or source comparison for the omitted tasks, "
+                                               "or choose another useful task; unchanged scaffolds do not save work."})
     consumed = selected or list(original_tasks.keys() & active_tasks.keys())
     return {"edits": edits, "record_map": record_map, "task_ids": consumed, "evidence": evidence,
             "auxiliary": auxiliary, "command": "work_primary", "state": "accepted",
-            "annotations": {}, "warnings": [], "blobs": []}
+            "annotations": {}, "warnings": [], "blobs": [], "omitted_task_ids": sorted(omitted),
+            "unchanged_check_refs": unchanged}
 
 
 def _review_plan(db, envelope, manifest, worker, raw):
@@ -430,6 +458,16 @@ def _freshness(original, active, plan):
             current = task_binding_changes(state, fresh, packet=active)
             if current["records"] or current["relations"]:
                 raise changed("acceptance context changed", records=[{"task_id": tid, **current}])
+            pin = plan.get("unchanged_check_refs", {}).get(tid)
+            if pin:
+                prior = db.head("checks", pin["id"])
+                bound = db.binding("checks", pin["id"], pin["version"])
+                if prior is None or prior.retired or prior.pinned != pin or bound is None:
+                    raise changed("unchanged continuation lacks its applicable saved draft", records=[pin])
+                drift = record_binding_changes(state, prior, bound["bindings"])
+                if drift["records"] or drift["relations"]:
+                    raise changed("saved draft consumed changed inputs; reexamine the affected work",
+                                  records=[{"task_id": tid, "check_ref": pin, **drift}])
         original_pins = {_key(r): r for r in original["read_set"]}
         for ref in plan.get("auxiliary", []):
             _reference(ref, active, where="auxiliary evidence acceptance context")
@@ -593,12 +631,21 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
             else:
                 plan = _reconcile_plan(db, envelope, original, worker)
             input_part = "acceptance"
-            receipt = accept_in_transaction(
-                db, request_id=request_id, request_digest=request_digest, packet_id=active["packet_id"],
-                edits=plan["edits"], command=plan["command"], blobs=plan["blobs"],
-                annotations=plan["annotations"], warnings=plan["warnings"],
-                freshness_validator=_freshness(original, active, plan),
-                receipt_context={"packet_id": original["packet_id"], "acceptance_packet_id": active["packet_id"]})
+            if plan["edits"]:
+                receipt = accept_in_transaction(
+                    db, request_id=request_id, request_digest=request_digest, packet_id=active["packet_id"],
+                    edits=plan["edits"], command=plan["command"], blobs=plan["blobs"],
+                    annotations=plan["annotations"], warnings=plan["warnings"],
+                    freshness_validator=_freshness(original, active, plan),
+                    receipt_context={"packet_id": original["packet_id"], "acceptance_packet_id": active["packet_id"]})
+            else:
+                _freshness(original, active, plan)(db, active, [])
+                receipt = None
+                plan["state"] = "needs_revision"
+                plan["diagnostics"] = [{"code": "UNCHANGED_DRAFT",
+                    "task_ids": sorted(plan.get("unchanged_check_refs", {})),
+                    "message": "The identical continuation keeps the existing applicable draft; "
+                               "no new scientific work was saved."}]
             current_work = derive_work(db, audit_id=original["work"]["audit_id"])
             task_states = {t["id"]: t["state"] for t in current_work["tasks"]}
             remaining = [tid for tid in _task_map(original) if task_states.get(tid) != "satisfied"]
@@ -610,11 +657,25 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                              if (task["target"]["collection"], task["target"]["id"], task["kind"]) not in completed]
             result = {"request_id": request_id, "packet_id": original["packet_id"],
                       "acceptance_packet_id": active["packet_id"], "stored": True, "state": plan["state"],
-                      "committed_revision": receipt["revision"], "receipt": receipt,
+                      "committed_revision": receipt["revision"] if receipt else None, "receipt": receipt,
                       "record_map": plan["record_map"], "remaining_task_ids": sorted(set(remaining)),
+                      "no_change": receipt is None,
+                      "omitted_task_ids": plan.get("omitted_task_ids", []),
+                      "saved_complete_check_refs": [_pin_edit(e) for e in plan["edits"]
+                          if e["collection"] == "checks" and e["body"]["state"] == "complete"],
+                      "saved_draft_check_refs": [_pin_edit(e) for e in plan["edits"]
+                          if e["collection"] == "checks" and e["body"]["state"] == "draft"],
+                      "unchanged_check_refs": list(plan.get("unchanged_check_refs", {}).values()),
+                      "satisfied_task_ids": sorted(tid for tid in _task_map(original)
+                                                   if task_states.get(tid) == "satisfied"),
                       "diagnostics": plan.get("diagnostics", [])[:DIAGNOSTIC_LIMIT],
                       "next_actions": ["prepare current remaining work"] if remaining else ["inspect next work"],
                       "exit_code": 0}
+            if result["no_change"]:
+                result["next_actions"] = ["Continue the saved draft with substantive reasoning or evidence, "
+                                          "or choose another useful task; replaying identical content saves no new work."]
+                result["recovery"] = [{"operation": "continue_saved_draft", "reason_code": "UNCHANGED_DRAFT",
+                    "check_refs": result["unchanged_check_refs"], "message": result["next_actions"][0]}]
             if mode == "independent":
                 from .review import mapping_input_changes, response_recovery
                 result.update(response_id=plan["response_id"],
@@ -629,7 +690,7 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                 if result["recovery"]:
                     result["next_actions"] = [entry["message"] for entry in result["recovery"]]
             db.finalize_work_submission(request_id, state=result["state"], result=result,
-                                        committed_revision=receipt["revision"])
+                                        committed_revision=receipt["revision"] if receipt else None)
             db.commit()
             return result
         except BaseException:
@@ -638,6 +699,8 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
     except CoreError as exc:
         _pairing_failure(exc, envelope, response_bytes)
         result = _failure(exc, request_id=request_id, stored=True, input_part=input_part)
+        result["omitted_task_ids"] = sorted({tid for row in exc.records if isinstance(row, dict)
+                                             for tid in row.get("omitted_task_ids", [])})
         db.begin_immediate()
         try:
             previous = db.work_submission(request_id)
@@ -721,24 +784,43 @@ def extend_work(db, *, packet_id, request):
 
 
 def prepare_work(db, *, audit_id, mode, focus=None, task_ids=(), exclude_task_ids=(),
-                 max_units=5, max_bytes=131072, allow_provisional=False, route_id=None):
+                 max_units=5, max_bytes=131072, allow_provisional=False, route_id=None,
+                 exception_purpose=None, exception_limitations=None):
     if mode not in ("primary", "independent", "reconcile"):
         raise InvalidRequest("unknown assignment mode")
     if type(max_bytes) is not int or not 1 <= max_bytes <= 1048576:
         raise InvalidRequest("max_bytes must be between 1 and 1048576")
+    exception = None
+    if exception_purpose is not None or exception_limitations is not None:
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (exception_purpose, exception_limitations)):
+            raise InvalidRequest("exceptional preparation requires both a nonempty purpose and limitations",
+                                 code="PREPARATION_EXCEPTION_REQUIRED")
+        exception = {"kind": "investigation", "purpose": exception_purpose.strip(),
+                     "limitations": exception_limitations.strip()}
     if route_id is not None:
+        if exception is not None:
+            raise InvalidRequest("--route already declares its supplied-route purpose and limitations")
         if mode != "independent" or task_ids or exclude_task_ids or allow_provisional:
             raise InvalidRequest("--route requires independent mode without task overrides or provisional work")
         prepared = prepare_route_assignment(db, audit_id=audit_id, route_id=route_id, max_bytes=max_bytes)
         return _assist(db, prepared)
+    if exception is None:
+        from .stages import prepare_ordinary_work
+        return prepare_ordinary_work(db, audit_id=audit_id, mode=mode, focus=focus,
+            task_ids=task_ids, exclude_task_ids=exclude_task_ids, max_units=max_units,
+            max_bytes=max_bytes, allow_provisional=allow_provisional)
     view, assessed = derive_work(db, audit_id=audit_id, focus=focus, include_assessment=True)
-    return prepare_assessed_work(db, audit_id=audit_id, mode=mode, view=view, assessed=assessed,
+    result = prepare_assessed_work(db, audit_id=audit_id, mode=mode, view=view, assessed=assessed,
         focus=focus, task_ids=task_ids, exclude_task_ids=exclude_task_ids, max_units=max_units,
-        max_bytes=max_bytes, allow_provisional=allow_provisional)
+        max_bytes=max_bytes, allow_provisional=allow_provisional, preparation_exception=exception)
+    result["preparation_exception"] = exception
+    return result
 
 
 def prepare_assessed_work(db, *, audit_id, mode, view, assessed, focus=None, task_ids=(), exclude_task_ids=(),
-                          candidate_task_ids=None, max_units=5, max_bytes=131072, allow_provisional=False):
+                          candidate_task_ids=None, max_units=5, max_bytes=131072, allow_provisional=False,
+                          preparation_exception=None):
     """Prepare using the same assessed revision that supplied a scheduling boundary."""
     if mode not in ("primary", "independent", "reconcile"):
         raise InvalidRequest("unknown assignment mode")
@@ -750,7 +832,8 @@ def prepare_assessed_work(db, *, audit_id, mode, view, assessed, focus=None, tas
                                         "allow_provisional": allow_provisional})
     if not selection.get("prepared"):
         return {"revision": view["revision"], "audit_id": audit_id, "mode": mode, **selection}
-    prepared = prepare_assignment(db, audit_id=audit_id, mode=mode, selection=selection, max_bytes=max_bytes)
+    prepared = prepare_assignment(db, audit_id=audit_id, mode=mode, selection=selection, max_bytes=max_bytes,
+                                  preparation_exception=preparation_exception)
     if task_ids:
         prepared["task_selection"] = selection_guidance(view, task_ids, prepared.get("assigned_task_ids", ()))
     return _assist(db, prepared, assessed=assessed)
@@ -841,7 +924,7 @@ def _current(db, row):
         current["recovery"] = [{"operation": "replay_saved_submission", "request_id": row["request_id"],
             "reason_code": "INTAKE_INTERRUPTED",
             "message": "Recover and replay the unchanged saved envelope and response with the same request ID."}]
-    elif result.get("receipt"):
+    elif result.get("receipt") or result.get("no_change"):
         manifest = _packet(db, row["packet_id"])["manifest"]
         view = derive_work(db, audit_id=manifest["work"]["audit_id"])
         states = {task["id"]: task["state"] for task in view["tasks"]}

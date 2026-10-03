@@ -21,7 +21,7 @@ from .errors import ConflictError, InvalidRequest
 from .ids import new_id, valid_id
 from .packets import independent_context_changes, load_packet
 from .storage import Database
-from .semantics import application
+from .semantics import anchors_overlap, application, target_source_resolution
 
 QUALIFICATION_REQUEST = Obj({"contract_version": RequestVersion(), "request_id": Str(nonempty=True), "edits": Arr(EDIT_CREATE),
                              "blobs": Arr(Obj({"sha256": Hash(), "encoding": Const("base64"), "data": Str()}))})
@@ -184,12 +184,8 @@ def _target_in_scope(db: Database, target: dict, scope: list, parts: dict) -> bo
 
 
 def _anchors_overlap(left: dict, right: dict) -> bool:
-    if (left["source_id"], left["source_version"]) != (right["source_id"], right["source_version"]):
-        return False
-    a, b = left["locator"], right["locator"]
-    if all(type(value) is int for value in (a["start_line"], a["end_line"], b["start_line"], b["end_line"])):
-        return max(a["start_line"], b["start_line"]) <= min(a["end_line"], b["end_line"])
-    return left["excerpt_sha256"] == right["excerpt_sha256"]
+    """Compatibility alias for the shared physical-source resolver."""
+    return anchors_overlap(left, right)
 
 
 def _audit_for(db: Database, packet: dict):
@@ -685,10 +681,8 @@ def map_response(db: Database, *, mapping: dict) -> dict:
             errors.append(f"{where}: judgment refers to evidence absent from the original independent packet; "
                           "the worker must review a source extension and resubmit")
             continue
-        target_anchor_ids = (head.body.get("evidence_refs") or
-                             [p["anchor_id"] for p in head.body.get("passages", [])])
-        target_anchors = [db.head("anchors", aid) for aid in target_anchor_ids]
-        if not any(anchor is not None and _anchors_overlap(original_records[("anchors", aid)], anchor.body)
+        target_anchors = target_source_resolution(db, head)["anchors"]
+        if not any(_anchors_overlap(original_records[("anchors", aid)], anchor.body)
                    for aid in evidence for anchor in target_anchors):
             errors.append(f"{where}: mapped target has no source passage overlapping the worker's reviewed evidence")
             continue

@@ -19,7 +19,7 @@ from .refs import RELATIONS, facet_digests
 from .storage import Database, Record
 from .support_semantics import SupportClosure
 from .semantics import has_evidence
-from .proof_spans import reviewed_spans, uncovered_spans
+from .proof_spans import reviewed_spans, uncovered_spans, review_covers_added_anchor
 
 PROOF_KINDS = ("lemma", "proposition", "theorem", "corollary")
 PROOF_CHECK_KINDS = ("derivation", "application", "composition", "case_coverage", "scope_discharge",
@@ -1179,11 +1179,14 @@ class _Derivation(_AuditScope):
         # Keep compact facts for focused work preparation. Public assessment
         # expands only a bounded sample with the shared cause/action text.
         self.coverage_diagnostics = []
+        self.reviewed_boundaries = {}
+        self.unresolved_explicit_boundaries = set()
         if self.audit is None or self.audit.body["mode"] not in ("full", "focused"):
             return []
         snap = self.snap
         requirements = {}
         selections = {}
+        self.reviewed_boundaries = selections
         problems = []
         examined_boundaries = set()
         excluded = {anchor for e in self.audit.body["exclusions"] for anchor in e["source_anchor_ids"]}
@@ -1224,7 +1227,7 @@ class _Derivation(_AuditScope):
                             # A declared proof cannot disappear by omitting its
                             # evidence from the argument record.
                             requirements[(key_of(ref_of(member)), passage["anchor_id"])] = {
-                                a.id for a in arguments}
+                                a.id for a in (written or arguments)}
         coverages = defaultdict(list)
         for cov in snap.all("coverage"):
             coverages[cov.body["anchor_id"]].append(cov)
@@ -1312,6 +1315,11 @@ class _Derivation(_AuditScope):
         reported = set()
 
         for (owner, anchor_id), argument_ids in sorted(requirements.items()):
+            # An explicit but unusable selector means boundary recovery, not a
+            # request to check neighboring text on the same captured page.
+            argument_ids = argument_ids - self.unresolved_explicit_boundaries
+            if not argument_ids:
+                continue
             if anchor_id in excluded:
                 continue
             anchor = snap.live("anchors", anchor_id)
@@ -1362,13 +1370,17 @@ class _Derivation(_AuditScope):
         missing_sources = []
         for boundary in snap.proof_boundaries(argument.id):
             body = boundary.body
+            review_pin = body["source_review_ref"]
+            review = snap.get(review_pin)
+            if review is not None and "proof_spans" in review.body:
+                self.unresolved_explicit_boundaries.add(argument.id)
             if body["state"] != "complete" or body["target"] != argument.body["target"]:
                 continue
             anchor_pins = body["anchor_refs"]
-            if not anchor_pins or not declared <= {p["id"] for p in anchor_pins}:
+            additional = declared - {p["id"] for p in anchor_pins}
+            if not anchor_pins or review is None or any(
+                    not review_covers_added_anchor(snap, review, argument, identity) for identity in additional):
                 continue
-            review_pin = body["source_review_ref"]
-            review = snap.get(review_pin)
             if review is None or review.version != review_pin["version"] \
                     or review.body["decision"] != "accepted" or review.body["purpose"] != "proof_boundary":
                 continue
@@ -1397,6 +1409,7 @@ class _Derivation(_AuditScope):
                 if not missing:
                     spans = reviewed_spans(snap, review, argument, anchor_pins)
                     if spans is not None:
+                        self.unresolved_explicit_boundaries.discard(argument.id)
                         return spans
                     missing.append({"code": "boundary_spans", "argument_ids": [argument.id],
                                     "anchor_id": anchor_pins[0]["id"],

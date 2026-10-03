@@ -13,6 +13,175 @@ from .errors import ConflictError, InvalidRequest
 
 BOUND_COLLECTIONS = ("checks", "observations", "reconciliations", "reuse_decisions", "source_reviews")
 
+# Private, forward-only comparison metadata. Ordinary facet digests and pins
+# remain intact so a reader that does not recognize this policy stays strict.
+EVIDENCE_MAINTENANCE_VERSION = 1
+_EVIDENCE_FACETS = {"arguments": "proof", "groups": "inference", "uses": "application",
+                    "scopes": "scope", "target_specs": "statement"}
+
+
+def _anchor_extent(anchor, selected):
+    """Candidate excerpt offsets inside a pinned selection anchor, or unknown."""
+    if (anchor.body["source_id"], anchor.body["source_version"]) != (
+            selected.body["source_id"], selected.body["source_version"]):
+        return None
+    loc, prior = anchor.body["locator"], selected.body["locator"]
+    if loc["page"] is not None or prior["page"] is not None:
+        if loc["page"] != prior["page"] or anchor.body["excerpt"] != selected.body["excerpt"]:
+            return None
+        return 0, len(selected.body["excerpt"])
+    start, end = loc["start_line"], loc["end_line"]
+    left, right = prior["start_line"], prior["end_line"]
+    if any(type(value) is not int for value in (start, end, left, right)) or not left <= start <= end <= right:
+        return None
+    lines = selected.body["excerpt"].split("\n")
+    if len(lines) != right - left + 1:
+        return None
+    begin = sum(len(line) + 1 for line in lines[:start - left])
+    stop = begin + len("\n".join(lines[start - left:end - left + 1]))
+    return (begin, stop) if selected.body["excerpt"][begin:stop] == anchor.body["excerpt"] else None
+
+
+def _selection_covers(state, selections, anchor):
+    from .proof_spans import uncovered_spans
+    for selection in selections:
+        pin, source_pin = selection["anchor_ref"], selection["source_ref"]
+        prior = state.version("anchors", pin["id"], pin["version"])
+        current = state.live("anchors", pin["id"])
+        source = state.live("sources", source_pin["id"])
+        if prior is None or prior.retired or current is None or source is None \
+                or source.version != source_pin["version"] \
+                or facet_digests("sources", source.body)["source"] != selection["source_digest"] \
+                or facet_digests("anchors", current.body)["source"] != selection["anchor_digest"]:
+            continue
+        extent = _anchor_extent(anchor, prior)
+        if extent is not None and extent[0] < extent[1] \
+                and not uncovered_spans(selection["intervals"], [extent]):
+            return True
+    return False
+
+
+def evidence_maintenance_compatible(state, entry, live):
+    """Prove an append-only link addition from original consumed source extent."""
+    policy = entry.get("evidence_maintenance")
+    if not isinstance(policy, dict) or policy.get("version") != EVIDENCE_MAINTENANCE_VERSION \
+            or set(policy) != {"version", "selections"} or not policy["selections"] \
+            or entry["facet"] != _EVIDENCE_FACETS.get(live.collection) \
+            or any(key in entry for key in ("global_proof_selection_digest", "proof_span_selection_digest")):
+        return False
+    pin = entry["ref"]
+    original = state.version(pin["collection"], pin["id"], pin["version"])
+    if original is None or original.retired or "evidence_refs" not in original.body:
+        return False
+    if entry["digest"] != facet_digests(original.collection, original.body).get(entry["facet"]):
+        return False
+    if "setup_digest" in entry and (entry.get("source_passage_selection") != 1 or entry["setup_digest"] !=
+            setup_digest(original.collection, original.body, include_evidence=True)):
+        return False
+    before, after = original.body["evidence_refs"], live.body.get("evidence_refs")
+    if not isinstance(after, list) or after[:len(before)] != before or len(after) <= len(before) \
+            or len(after) != len(set(after)) \
+            or {k: v for k, v in original.body.items() if k != "evidence_refs"} != {
+                k: v for k, v in live.body.items() if k != "evidence_refs"}:
+        return False
+    try:
+        for identity in after[len(before):]:
+            anchor = state.live("anchors", identity)
+            if anchor is None or not _selection_covers(state, policy["selections"], anchor):
+                return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
+def _maintenance_selections(state, rows, packet, *, spans=None):
+    """Only anchors both delivered and consumed can authorize future additions."""
+    manifest = (packet or {}).get("manifest", packet or {})
+    delivered = {(ref["collection"], ref["id"], ref["version"]) for ref in manifest.get("read_set", [])}
+    selections = []
+    for row in rows:
+        pin = row["ref"]
+        if pin["collection"] != "anchors" or ("anchors", pin["id"], pin["version"]) not in delivered:
+            continue
+        anchor = state.version("anchors", pin["id"], pin["version"])
+        if anchor is None or anchor.retired:
+            continue
+        source_pin = {"collection": "sources", "id": anchor.body["source_id"], "version": anchor.body["source_version"]}
+        if ("sources", source_pin["id"], source_pin["version"]) not in delivered:
+            continue
+        source = state.version("sources", source_pin["id"], source_pin["version"])
+        intervals = (spans or {}).get(pin["id"], []) if spans is not None else [(0, len(anchor.body["excerpt"]))]
+        if source is None or source.retired or not intervals:
+            continue
+        selection = {"anchor_ref": pin, "source_ref": source_pin,
+                     "source_digest": facet_digests("sources", source.body)["source"],
+                     "anchor_digest": facet_digests("anchors", anchor.body)["source"],
+                     "intervals": [list(interval) for interval in intervals]}
+        if selection not in selections:
+            selections.append(selection)
+    return selections
+
+
+def _argument_selection(state, argument_id):
+    """Restrict consumed page anchors to an actual explicit route certificate."""
+    from .proof_spans import reviewed_spans
+    argument = state.live("arguments", argument_id)
+    explicit = False
+    for boundary in boundaries(state, argument_id):
+        pin = boundary.body["source_review_ref"]
+        review = state.version("source_reviews", pin["id"], pin["version"])
+        if review is None or "proof_spans" not in review.body:
+            continue
+        explicit = True
+        if boundary.body["state"] == "complete" and review.body["decision"] == "accepted":
+            spans = reviewed_spans(state, review, argument, boundary.body["anchor_refs"])
+            if spans is not None:
+                return spans
+    return {} if explicit else None
+
+
+def _mark_evidence_maintenance(state, result, collection, body, packet):
+    spans = None
+    if collection == "source_reviews":
+        if "proof_spans" not in body or body["decision"] != "accepted" or body["purpose"] != "proof_boundary":
+            return
+    else:
+        target = body.get("target", {})
+        record = state.live(target.get("collection"), target.get("id")) if target else None
+        argument_id = None
+        if record is not None:
+            if record.collection == "arguments":
+                argument_id = record.id
+            elif record.collection == "groups":
+                argument_id = record.body["argument_id"]
+            elif record.collection == "uses":
+                group = state.live("groups", application(state, record).get("group_id"))
+                argument_id = group.body["argument_id"] if group else None
+        if argument_id is not None:
+            spans = _argument_selection(state, argument_id)
+    # The private neutral closure transports source context but does not say
+    # which passages an actual returned judgment examined. Require its own
+    # explicit evidence, or a source review's certified selection.
+    consumed_ids = {span["anchor_ref"]["id"] for span in body.get("proof_spans", [])} \
+        if collection == "source_reviews" else set(body.get("evidence_refs", []))
+    consumed_rows = [row for row in result["records"] if row["ref"]["collection"] == "anchors"
+                     and row["ref"]["id"] in consumed_ids]
+    for row in result["records"]:
+        pin = row["ref"]
+        if row["facet"] != _EVIDENCE_FACETS.get(pin["collection"]):
+            continue
+        selected = spans
+        if collection == "source_reviews":
+            if pin["collection"] != "arguments":
+                continue
+            selected = {}
+            for span in body["proof_spans"]:
+                if span["argument_ref"] == pin:
+                    selected.setdefault(span["anchor_ref"]["id"], []).append((span["start_offset"], span["end_offset"]))
+        selections = _maintenance_selections(state, consumed_rows, packet, spans=selected)
+        if selections:
+            row["evidence_maintenance"] = {"version": EVIDENCE_MAINTENANCE_VERSION, "selections": selections}
+
 
 class _Builder:
     def __init__(self, state):
@@ -303,6 +472,8 @@ def binding_changes(state, binding: dict) -> dict:
                                       include_evidence=entry.get("source_passage_selection") == 1) if "setup_digest" in entry
                           else facets.get(entry["facet"]) or facets["full"])
         if actual != expected:
+            if live is not None and evidence_maintenance_compatible(state, entry, live):
+                continue
             records.append({"ref": ref, "facet": entry["facet"], "expected": expected, "actual": actual,
                             "live_version": None if live is None else live.version})
     for entry in binding["relations"]:
@@ -592,12 +763,14 @@ def compute_bindings(state, collection: str, body: dict, *, packet=None) -> dict
                                      'digest':comparison_context(state,body['target'],selection_id)}}
     b = _Builder(state)
     neutral_context = None
+    maintenance_packet = packet
     if collection == "checks":
         _bind_check(b, body)
         _work_composition_checks(b, body, packet)
         if body.get('role') == 'independent' and body.get('response_id'):
             response = state.live('responses', body['response_id'])
             original = state.db.packet(response.body['packet_id']) if response else None
+            maintenance_packet = original
             manifest = original['manifest'] if original else {}
             from .packets import independent_context_binding
             neutral_context = independent_context_binding(state, manifest)
@@ -649,6 +822,8 @@ def compute_bindings(state, collection: str, body: dict, *, packet=None) -> dict
             b.add_ref(ref, "source")
         for ref in body["anchor_refs"]:
             b.add_ref(ref, "source")
+        for span in body.get("proof_spans", []):
+            b.add_ref(span["argument_ref"], "proof")
     manifest = (packet or {}).get("manifest", packet or {})
     if collection == 'checks' or _semantic_membership_origin(state, collection, body, manifest):
         identities = _semantic_members(b)
@@ -687,6 +862,8 @@ def compute_bindings(state, collection: str, body: dict, *, packet=None) -> dict
     if collection == "checks" and neutral_context is not None \
             and _source_only_work_manifest(state, body) is not None:
         result = _without_coordinator_coverage(result)
+    if collection in ("checks", "observations", "source_reviews"):
+        _mark_evidence_maintenance(state, result, collection, body, maintenance_packet)
     return result
 
 

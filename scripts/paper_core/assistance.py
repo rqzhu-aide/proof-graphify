@@ -173,6 +173,9 @@ def _response_guidance(mode):
                 "coverage_row_template": skeleton(c.WORK_COVERAGE),
                 "finding_row_template": skeleton(c.WORK_FINDING),
                 "note": "Use assigned task IDs; keep required nullable fields. "
+                        "Untouched scaffold results are omitted, and a scaffold-only return saves no scientific work. "
+                        "A useful draft needs authored reasoning and a concrete remaining question or next_action; "
+                        "explain missing source evidence when evidence_refs is empty. "
                         "check_task_ids/related_task_ids link this response's checks, never source_fidelity "
                         "observations; existing_check_refs pins saved checks. Author judgments; cite existing "
                         "findings during renewal. Renewed checks alone do not resolve findings. "
@@ -253,7 +256,9 @@ def coordinator_guidance(db, manifest, *, assessed=None):
     if result["draft_candidates"]:
         result["draft_note"] = (
             "For replaces, choose the assigned task's same-reviewer draft ref and preserve that draft's "
-            "supersedes. A completed predecessor is not a replaces candidate. No candidate is selected here.")
+            "supersedes. An identical continuation with unchanged consumed inputs keeps the saved draft "
+            "and reports no change. Changed inputs require examination before continuation. "
+            "A completed predecessor is not a replaces candidate. No candidate is selected here.")
     audit_id = manifest.get("work", {}).get("audit_id")
     renewal_checks = []
     if mode == "primary":

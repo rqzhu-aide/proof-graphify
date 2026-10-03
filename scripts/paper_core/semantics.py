@@ -49,6 +49,74 @@ def has_evidence(state, anchor_refs):
     return False
 
 
+def target_source_resolution(state, target):
+    """Resolve a canonical record's own source links, without guessing its meaning.
+
+    Source associations belong to the record being examined. A containing
+    argument, a supplier, or a neighboring page is not an implicit source link.
+    Readers may use the usable anchors for correspondence and the issues for
+    precise grounding recovery. This does not certify semantic correspondence.
+    """
+    record = live(state, target['collection'], target['id']) if isinstance(target, dict) else target
+    if record is None or record.retired:
+        return {'anchor_ids': [], 'anchors': [], 'issues': [{'code': 'missing_target'}]}
+    identities = list(dict.fromkeys(list(record.body.get('evidence_refs', ())) +
+                                   [p['anchor_id'] for p in record.body.get('passages', ())]))
+    anchors, issues = [], []
+    for identity in identities:
+        anchor = live(state, 'anchors', identity)
+        source = live(state, 'sources', anchor.body['source_id']) if anchor is not None else None
+        code = ('missing_anchor' if anchor is None else 'missing_source' if source is None else
+                'stale_source' if source.version != anchor.body['source_version'] else
+                'empty_text_evidence' if not anchor_has_evidence(state, anchor) else None)
+        if code is not None:
+            issues.append({'code': code, 'anchor_id': identity})
+        else:
+            anchors.append(anchor)
+    return {'anchor_ids': identities, 'anchors': anchors, 'issues': issues}
+
+
+def anchors_overlap(left, right, *, left_spans=None, right_spans=None):
+    """Physical source overlap, optionally restricted to certified text ranges.
+
+    Offsets are measured in the immutable anchor excerpt. Exact line locators
+    translate them to file positions; page anchors require the same actual page.
+    No text matching or proximity is used to infer a mathematical association.
+    """
+    if (left['source_id'], left['source_version']) != (right['source_id'], right['source_version']):
+        return False
+    a, b = left['locator'], right['locator']
+    if all(type(value) is int for value in (a['start_line'], a['end_line'], b['start_line'], b['end_line'])):
+        if left_spans is None and right_spans is None:
+            return max(a['start_line'], b['start_line']) <= min(a['end_line'], b['end_line'])
+
+        def positions(body, selected):
+            text = body['excerpt']
+            def position(offset):
+                before = text[:offset]
+                return (body['locator']['start_line'] + before.count('\n'),
+                        len(before.rsplit('\n', 1)[-1]))
+            return [(position(start), position(end)) for start, end in
+                    ([(0, len(text))] if selected is None else selected)
+                    if 0 <= start < end <= len(text)]
+        return any(max(start, other_start) < min(end, other_end)
+                   for start, end in positions(left, left_spans)
+                   for other_start, other_end in positions(right, right_spans))
+    if type(a.get('page')) is int and type(b.get('page')) is int:
+        if a['page'] != b['page']:
+            return False
+    elif left['excerpt_sha256'] != right['excerpt_sha256']:
+        return False
+    if left_spans is None and right_spans is None:
+        return True
+    # Certified offsets are transferable only across the same captured text.
+    if left['excerpt_sha256'] != right['excerpt_sha256']:
+        return False
+    return any(max(start, other_start) < min(end, other_end)
+               for start, end in ([(0, len(left['excerpt']))] if left_spans is None else left_spans)
+               for other_start, other_end in ([(0, len(right['excerpt']))] if right_spans is None else right_spans))
+
+
 def related(state, collection, field, target, *, prefix=False, revision=None):
     # Prospective batches must include records created in that same batch.
     if hasattr(state, 'overlay'):

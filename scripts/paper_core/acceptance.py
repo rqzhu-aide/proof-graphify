@@ -108,6 +108,70 @@ def _guard_changes(db: Database, manifest: dict) -> list:
     return changed
 
 
+def _authored_work_errors(plan: list) -> list:
+    """New authoring rules, deliberately absent from historical shape validation."""
+    errors = []
+    for p in plan:
+        if p.body is None:
+            continue
+        body = p.body
+        where = f"edits/{p.index} {p.collection}:{p.id}"
+        if p.collection == "checks" and body["state"] == "draft":
+            if not body["reasoning"].strip():
+                errors.append(f"{where}: a draft needs authored reasoning about the investigation")
+            if not (body["next_action"] or "").strip():
+                errors.append(f"{where}: a draft needs a concrete remaining question or next_action")
+        elif p.collection == "observations" and not body["note"].strip() and not body["evidence_refs"]:
+            errors.append(f"{where}: a source comparison needs an authored note or source evidence")
+    return errors
+
+
+def _validate_successors(db: Database, plan: list):
+    """Authorize only new branches from current predecessors under the writer lock."""
+    checks = [p for p in plan if p.collection == "checks" and p.body is not None and p.body["supersedes"]]
+    if not checks:
+        return
+    stored = db.heads("checks")
+    existing = {}
+    for record in stored:
+        if record.body["supersedes"] is not None:
+            existing.setdefault(record.body["supersedes"]["id"], []).append(record.pinned)
+    new_branches = {}
+    for p in checks:
+        pin = p.body["supersedes"]
+        inherited = (p.op == "replace" and p.prev is not None and p.prev.body["state"] == "draft"
+                     and p.prev.body["supersedes"] == pin and p.id not in existing
+                     and all(p.prev.body[field] == p.body[field]
+                             for field in ("reviewer", "audit_id", "role", "kind", "target")))
+        if not inherited:
+            new_branches.setdefault(pin["id"], []).append(p)
+    state = State(db, plan)
+    for predecessor, branches in new_branches.items():
+        current = state.live("checks", predecessor)
+        if predecessor in existing:
+            reason = "PREDECESSOR_SUPERSEDED"
+        elif len(branches) != 1:
+            reason = "DUPLICATE_SUCCESSORS"
+        elif current is None or branches[0].body["supersedes"] != current.pinned:
+            reason = "PREDECESSOR_NOT_CURRENT"
+        else:
+            continue
+        body = branches[0].body
+        candidates = [r.pinned for r in stored if r.id not in existing
+                      and all(r.body[field] == body[field]
+                              for field in ("audit_id", "role", "kind", "target"))]
+        raise InvalidRequest("new successors must use a current predecessor once", code=reason,
+            records=[{"predecessor": branches[0].body["supersedes"], "target": body["target"],
+                      "current_predecessor": current.pinned if current is not None else None,
+                      "current_candidates": candidates,
+                      "proposed_successors": [p.record.pinned for p in branches],
+                      "existing_successors": existing.get(predecessor, [])}],
+            retry={"operation": "inspect_current_candidates", "reason_code": reason,
+                   "target": body["target"], "current_candidates": candidates,
+                   "message": "Inspect the current candidates for this target and reexamine only the affected "
+                              "terminal work; preserve predecessor reasoning and distinct reviewer opinions."})
+
+
 def accept(db: Database, *, request_id: str, request_digest: str, packet_id, edits: list, command: str,
            blobs=(), annotations=None, warnings=(), check_guards: bool = True, scope_exempt=frozenset(),
            required_packet_ids=(), freshness_validator=None, receipt_context=None) -> dict:
@@ -247,6 +311,11 @@ def accept_in_transaction(db: Database, *, request_id: str, request_digest: str,
                            context_refs=packet["manifest"]["read_set"] if manifest else None)
     if errors:
         raise InvalidRequest("batch failed validation", code="INVALID_BATCH", records=errors)
+    if command != "import":
+        authored_errors = _authored_work_errors(plan)
+        if authored_errors:
+            raise InvalidRequest("batch has unfinished authoring", code="NO_AUTHORED_WORK", records=authored_errors)
+        _validate_successors(db, plan)
     if any(p.collection == "source_reviews" and p.body is not None and "proof_spans" in p.body for p in plan):
         from . import PROOF_SPANS_FEATURE
         features = set(json.loads(metadata.get("features", "[]")))

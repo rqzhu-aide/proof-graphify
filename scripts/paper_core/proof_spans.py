@@ -10,6 +10,54 @@ def _argument_proof(state, pin):
     return None if argument is None or argument.retired else facet_digests("arguments", argument.body)["proof"]
 
 
+def _reviewed_argument_proof(state, review, pin):
+    """Compare physical-span provenance under its original private policy."""
+    if not hasattr(state, "live"):
+        from .validation import State
+        state = State(state, [])
+    expected = _argument_proof(state, pin)
+    current = state.live("arguments", pin["id"])
+    if current is None:
+        return None
+    if facet_digests("arguments", current.body)["proof"] == expected:
+        return expected
+    stored = state.db.binding("source_reviews", review.id, review.version)
+    if stored is not None:
+        from .bindings import evidence_maintenance_compatible
+        for entry in stored["bindings"]["records"]:
+            if entry["ref"] == pin and entry["facet"] == "proof" \
+                    and evidence_maintenance_compatible(state, entry, current):
+                return expected
+    return None
+
+
+def _boundary_argument_proof(state, review, pin):
+    """Unmarked certificates retain their original digest comparison policy."""
+    db = getattr(state, "db", state)
+    stored = db.binding("source_reviews", review.id, review.version)
+    if stored is not None and any(entry["ref"] == pin and isinstance(entry.get("evidence_maintenance"), dict)
+                                  and entry["evidence_maintenance"].get("version") == 1
+                                  for entry in stored["bindings"]["records"]):
+        return _reviewed_argument_proof(state, review, pin)
+    return _argument_proof(state, pin)
+
+
+def review_covers_added_anchor(state, review, argument, anchor_id):
+    """A maintained source link does not enlarge the certified proof extent."""
+    stored = state.db.binding("source_reviews", review.id, review.version)
+    if stored is None:
+        return False
+    from .bindings import evidence_maintenance_compatible, _selection_covers
+    anchor = state.live("anchors", anchor_id)
+    if anchor is None:
+        return False
+    for entry in stored["bindings"]["records"]:
+        if entry["ref"]["collection"] == "arguments" and entry["ref"]["id"] == argument.id \
+                and entry["facet"] == "proof" and evidence_maintenance_compatible(state, entry, argument):
+            return _selection_covers(state, entry["evidence_maintenance"]["selections"], anchor)
+    return False
+
+
 def boundary_selection_digest(state, boundary):
     """Private source selection, excluding the reviewer's administrative metadata."""
     body = boundary.body
@@ -22,7 +70,7 @@ def boundary_selection_digest(state, boundary):
         for row in review.body["proof_spans"]:
             argument, anchor = row["argument_ref"], row["anchor_ref"]
             if argument["id"] in body["argument_ids"]:
-                key = (argument["id"], _argument_proof(state, argument), anchor["id"], anchor["version"])
+                key = (argument["id"], _boundary_argument_proof(state, review, argument), anchor["id"], anchor["version"])
                 grouped.setdefault(key, []).append((row["start_offset"], row["end_offset"]))
         selected["proof_spans"] = [{"argument_id": key[0], "argument_proof": key[1],
                                    "anchor_ref": {"collection": "anchors", "id": key[2], "version": key[3]},
@@ -46,9 +94,8 @@ def reviewed_spans(state, review, argument, anchor_refs):
         anchors[pin["id"]] = anchor
     if "proof_spans" not in review.body:
         return {identity: [(0, len(anchor.body["excerpt"]))] for identity, anchor in anchors.items()}
-    proof = facet_digests("arguments", argument.body)["proof"]
     selected = [row for row in review.body["proof_spans"] if row["argument_ref"]["id"] == argument.id
-                and _argument_proof(state, row["argument_ref"]) == proof]
+                and _reviewed_argument_proof(state, review, row["argument_ref"]) is not None]
     pins = {(pin["id"], pin["version"]) for pin in anchor_refs}
     if not selected or {(row["anchor_ref"]["id"], row["anchor_ref"]["version"]) for row in selected} != pins:
         return None

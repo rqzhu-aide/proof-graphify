@@ -1334,7 +1334,7 @@ def _assignment_packet(closure, *, audit_id, mode, selection, units, tasks, spec
 
 
 def prepare_assignment(db: Database, *, audit_id: str, mode: str, selection: dict,
-                       max_bytes: int = DEFAULT_WORK_BYTES) -> dict:
+                       max_bytes: int = DEFAULT_WORK_BYTES, preparation_exception=None) -> dict:
     """Persist one bounded complete-unit prefix of a derived coordinator selection.
 
     No model is dispatched. On overflow the uncut next unit remains pending; if
@@ -1437,6 +1437,9 @@ def prepare_assignment(db: Database, *, audit_id: str, mode: str, selection: dic
     if best is None:
         return {"prepared": False, "diagnostics": diagnostics, **remaining}
     manifest, packet = best
+    if preparation_exception is not None:
+        # Scheduling rationale belongs to coordinator provenance, never worker input.
+        manifest["work"]["preparation_exception"] = dict(preparation_exception)
     if mode == "independent":
         problems = blinding_violations(packet)
         if problems:
@@ -1446,6 +1449,8 @@ def prepare_assignment(db: Database, *, audit_id: str, mode: str, selection: dic
             "manifest": manifest, "packet": packet, "selected_unit_ids": [u["id"] for u in selected],
             "assigned_task_ids": [t["id"] for t in assigned],
             "conditional_on_task_ids": manifest["work"]["conditional_on_task_ids"],
+            **({"preparation_exception": manifest["work"]["preparation_exception"]}
+               if preparation_exception is not None else {}),
             **remaining, "size": manifest["work"]["size"], "diagnostics": diagnostics}
 
 
@@ -1937,6 +1942,9 @@ def prepare_route_assignment(db: Database, *, audit_id, route_id, max_bytes=DEFA
             max_bytes=max_bytes, declared_scope=scope)
         manifest.update(review_basis="route_provided", route_ref=route.pinned,
                         initial_response_refs=initial, supplied_derivation_refs=supplied_refs)
+        manifest["work"]["preparation_exception"] = {
+            "kind": "supplied_route", "purpose": f"Examine the supplied route {route_id}",
+            "limitations": "Supplied-route review retains source and exposure requirements; it does not replace initial source-only review or waive audit completion."}
         packet.update(review_basis="route_provided", route_ref=route.pinned, supplied_derivations=supplied)
         # The worker sees the reviewed proposal but none of the author judgments.
         # Source review records and coverage are coordinator provenance only.
@@ -1954,6 +1962,7 @@ def prepare_route_assignment(db: Database, *, audit_id, route_id, max_bytes=DEFA
     _persist(db, manifest, packet)
     return {"prepared": True, "packet_id": manifest["packet_id"], "revision": revision,
             "audit_id": audit_id, "mode": "independent", "review_basis": "route_provided",
+            "preparation_exception": manifest["work"]["preparation_exception"],
             "manifest": manifest, "packet": packet, "selected_unit_ids": [unit["id"]],
             "assigned_task_ids": unit["task_ids"], "conditional_on_task_ids": [],
             "deferred": [], "size": size, "diagnostics": []}

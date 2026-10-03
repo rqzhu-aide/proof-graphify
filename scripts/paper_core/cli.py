@@ -402,10 +402,10 @@ def _preparation_diagnostic(db, result, audit_id, args=None):
         reason = "packet_size_limit"
     elif result.get("reason_code") == "TASK_NOT_REQUIRED" or not_required or "NOT_REQUIRED" in codes or "not_required" in reasons:
         reason = "not_required"
-    elif stage_state:
-        reason = result.get("reason_code", "stage_work_or_remaining_prerequisites").lower()
     elif state["process_complete"]:
         reason = "recorded_scope_complete"
+    elif stage_state:
+        reason = result.get("reason_code", "stage_work_or_remaining_prerequisites").lower()
     elif result.get("coordinator_actions") or "needs_coordinator" in reasons:
         reason = "coordinator_work"
     else:
@@ -413,7 +413,7 @@ def _preparation_diagnostic(db, result, audit_id, args=None):
     result["preparation"] = {"reason": reason, "revision": state["revision"],
                              "process_complete": state["process_complete"],
                              "next_commands": _work_commands(db, audit_id)}
-    if stage_state and args is not None:
+    if stage_state and args is not None and args.command in ("stage1", "stage2"):
         result["preparation"]["next_commands"] = [
             [PROG, args.command, "status", str(db.path.resolve()), "--audit", audit_id]]
     if reason == "packet_size_limit" and args is not None:
@@ -428,7 +428,9 @@ def _preparation_diagnostic(db, result, audit_id, args=None):
                 command.extend(["--mode", args.mode])
             command += ["--max-units", str(args.max_units),
                        "--max-bytes", str(MAX_WORK_BYTES), "--out", str(args.out)]
-            for flag, value in (("--focus", args.focus), ("--route", getattr(args, "route", None))):
+            for flag, value in (("--focus", args.focus), ("--route", getattr(args, "route", None)),
+                                ("--exception-purpose", getattr(args, "exception_purpose", None)),
+                                ("--exception-limitations", getattr(args, "exception_limitations", None))):
                 if value:
                     command.extend([flag, value])
             for flag, values in (("--task", args.task), ("--exclude-task", args.exclude_task)):
@@ -468,7 +470,9 @@ def cmd_work_prepare(args):
         result = prepare_work(db, audit_id=args.audit, mode=args.mode,
                               focus=_parse_target(args.focus) if args.focus else None, task_ids=args.task,
                               exclude_task_ids=args.exclude_task, max_units=args.max_units,
-                              max_bytes=args.max_bytes, allow_provisional=args.allow_provisional, route_id=args.route)
+                              max_bytes=args.max_bytes, allow_provisional=args.allow_provisional, route_id=args.route,
+                              exception_purpose=getattr(args, "exception_purpose", None),
+                              exception_limitations=getattr(args, "exception_limitations", None))
         if result.get("prepared"):
             result["files"] = _write_work_artifacts(db, result, args.out)
             if result.get("deferred"):
@@ -876,6 +880,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mode", choices=("primary", "independent", "reconcile"), required=True)
     p.add_argument("--focus")
     p.add_argument("--route", help="exact argument for supplied-route independent review")
+    p.add_argument("--exception-purpose", help="explicit investigation outside ordinary stage ordering; requires --exception-limitations")
+    p.add_argument("--exception-limitations", help="bounded limitations of that investigation; waives no scientific requirements")
     p.add_argument("--task", action="append", default=[])
     p.add_argument("--exclude-task", action="append", default=[])
     p.add_argument("--max-units", type=int, default=5, help="1..10 coherent units (default: 5)")
