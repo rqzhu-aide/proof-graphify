@@ -1,7 +1,8 @@
 """Uncommitted authoring assistance derived from the live validation contract.
 
 These views supply shapes and candidate identities, never mathematical decisions.
-Worker guidance is deliberately independent of the private assignment manifest.
+Role guidance is independent of the private assignment manifest. Primary task
+labels are a separate view of the original packet's pinned records.
 """
 from __future__ import annotations
 
@@ -169,16 +170,58 @@ def _response_guidance(mode):
                         "Context extension retains the obligation; an out-of-scope target needs another assignment."}
     if mode == "primary":
         return {"mode": mode, "response_shape": describe(c.WORK_PRIMARY_RESPONSE),
+                "coverage_row_template": skeleton(c.WORK_COVERAGE),
+                "finding_row_template": skeleton(c.WORK_FINDING),
                 "note": "Use assigned task IDs; keep required nullable fields. "
                         "check_task_ids/related_task_ids link this response's checks, never source_fidelity "
                         "observations; existing_check_refs pins saved checks. Author judgments; cite existing "
-                        "findings during renewal. Renewed checks alone do not resolve findings."}
+                        "findings during renewal. Renewed checks alone do not resolve findings. "
+                        "Row templates are unfinished examples outside the response scaffold. Fill only "
+                        "rows justified by the examination; author their classifications, evidence, links "
+                        "and descriptions. Coverage replaces is null for new rows; saved check references "
+                        "must be permissible pinned checks from the packet. Coverage links stay in the "
+                        "same argument."}
     if mode == "reconcile":
         return {"mode": mode, "row_shape": describe(c.BODY_SCHEMAS["reconciliations"]),
                 "note": "Choose exact-target pins from coordinator guidance; author the decision and rationale. "
                         "Preserve the scaffold request_id and use that same ID in the submission envelope. "
                         "An empty pin list or template is not completed reconciliation."}
     raise InvalidRequest(f"unknown assistance mode {mode!r}", code="ASSISTANCE_MODE")
+
+
+def primary_task_table(db, manifest):
+    """Label only assigned primary tasks, using the original packet's read set.
+
+    This helper is intentionally separate from role-only worker_guidance. Never
+    attach its private decomposition to independent delivery.
+    """
+    if manifest.get("mode") != "primary" or manifest.get("work", {}).get("mode") != "primary":
+        raise InvalidRequest("a primary task table requires a primary work assignment", code="ASSISTANCE_MODE")
+    from .work import record_label
+
+    class PinnedLabels:
+        def __init__(self):
+            self.pins = {(p["collection"], p["id"]): p for p in manifest["read_set"]}
+            self.records = {}
+
+        def get(self, ref):
+            key = (ref["collection"], ref["id"])
+            pin = self.pins.get(key)
+            if pin is None or ref.get("version", pin["version"]) != pin["version"]:
+                return None
+            if key not in self.records:
+                self.records[key] = db.version(*key, pin["version"])
+            return self.records[key]
+
+        def live(self, collection, identifier):
+            return self.get({"collection": collection, "id": identifier})
+
+    labels = PinnedLabels()
+    return [{"task_id": task["id"], "target": deepcopy(task["target"]),
+             "target_label": record_label(labels, task["target"]), "kind": task["kind"],
+             "result_type": (c.WORK_COMPARISON if task["action"] == "compare_source"
+                             else c.WORK_CHECK).fields["type"].expected}
+            for task in manifest["work"]["tasks"]]
 
 
 def _opinion(record, pin):

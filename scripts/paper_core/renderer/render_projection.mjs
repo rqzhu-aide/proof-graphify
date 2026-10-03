@@ -187,6 +187,21 @@ export function validateInput(input) {
   if (!isObject(projection.layout)) bad('projection.layout must be an object');
   done();
 
+  if (build.finalization !== undefined) {
+    const frozen = build.finalization;
+    if (!isObject(frozen) || typeof frozen.process_complete !== 'boolean' || typeof frozen.representation_settled !== 'boolean'
+        || !Array.isArray(frozen.finalization_blockers) || !isCount(frozen.finalization_blocker_count)
+        || !isString(frozen.snapshot_sha256) || !/^[0-9a-f]{64}$/.test(frozen.snapshot_sha256)) {
+      bad('build.finalization must identify the frozen completion and source representation');
+    } else {
+      if (frozen.process_complete !== projection.summary.progress?.process_complete) bad('frozen completion differs from projection');
+      if (build.kind === 'release' && (!frozen.process_complete || !frozen.representation_settled || frozen.finalization_blocker_count)) bad('release requires completed and settled frozen delivery');
+      if (frozen.finalization_blocker_count < frozen.finalization_blockers.length) bad('frozen blocker count is smaller than its displayed blockers');
+      if (!frozen.finalization_blockers.every(row => isObject(row) && isString(row.message))) bad('frozen finalization blockers must contain messages');
+    }
+    done();
+  }
+
   const validateRef = (ref, where, pinned) => {
     if (!isObject(ref)) { bad(`${where} must be an object`); return null; }
     let ok = true;
@@ -1099,7 +1114,7 @@ ${overviewScope.exclusions.length ? `<h4>Original overview exclusions</h4><ul cl
 <div class="proof-summary-grid">
 <div class="proof-card">
 <h3>Process</h3>
-<p class="proof-process ${progress.process_complete ? 'is-complete' : 'is-incomplete'}" data-proof-process-complete="${progress.process_complete ? 'true' : 'false'}">${progress.process_complete ? 'Audit process complete' : 'Audit process incomplete'}</p>
+<p class="proof-process ${progress.process_complete ? 'is-complete' : 'is-incomplete'}" data-proof-process-complete="${progress.process_complete ? 'true' : 'false'}">${progress.process_complete ? (model.build.finalization?.representation_settled === false ? 'Canonical examination accounting complete; source representation unresolved' : 'Audit process complete') : 'Audit process incomplete'}</p>
 <dl class="proof-kv">
 <dt>Required obligations</dt><dd>${count('progress.required_obligations', progress.required_obligations)}</dd>
 <dt>Completed current obligations</dt><dd>${count('progress.completed_current_obligations', progress.completed_current_obligations)}</dd>
@@ -1649,7 +1664,12 @@ ${headline}
     const mapState = !nodes ? 'No results have been recorded in this report.' : !connections
       ? `${nodes} results are recorded, but no connections between them are recorded. This does not establish that the results are independent.`
       : `${nodes} results and ${connections} connections are shown in the recorded map.`;
-    return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${summary.progress.process_complete ? 'Required audit process complete.' : 'Audit process incomplete.'} Mathematical support is stated separately for each result and application.</p><p class="proof-muted">${mapState}</p>${summary.limitations?.length ? '<p class="proof-muted">Unresolved audit requirements are listed in the audit progress below.</p>' : ''}${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}</section>`;
+    const frozen = this.model.build.finalization;
+    const completion = summary.progress.process_complete ? (frozen?.representation_settled === false ? 'Canonical examination accounting is complete; delivery remains unfinished.' : 'Required audit process complete.') : 'Audit process incomplete.';
+    const finalization = frozen ? `<p data-proof-finalization>${this.model.build.kind === 'release' ? 'Finalized release snapshot.' : 'Working report; delivery has not been finalized.'}</p>${!frozen.representation_settled ? '<p data-proof-representation-unsettled>Source representation remains unresolved.</p>' : ''}${frozen.finalization_blockers.length ? `<ul>${frozen.finalization_blockers.map((row, index) => `<li data-proof-finalization-blocker="${index}">${esc(row.message)} ${row.target_ref ? this.humanLink(row.target_ref, 'Affected record') : ''}${row.comparison_ref ? ` ${this.humanLink(row.comparison_ref, 'Source comparison')}` : ''}</li>`).join('')}</ul>` : ''}${frozen.finalization_blocker_count > frozen.finalization_blockers.length ? `<p>Additional finalization blockers are omitted from this display (${frozen.finalization_blocker_count} total).</p>` : ''}` : '';
+    const unavailable = (this.model.build.source_originals || []).filter(row => !row.available);
+    const originals = unavailable.length ? `<p class="proof-muted" data-proof-originals-unavailable>External original source files are unavailable from this report location. Captured source excerpts remain embedded.</p><ul>${unavailable.map(row => `<li>${esc(row.label)}</li>`).join('')}</ul>` : '';
+    return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${completion} Mathematical support is stated separately for each result and application.</p>${finalization}${originals}<p class="proof-muted">${mapState}</p>${summary.limitations?.length ? '<p class="proof-muted">Unresolved audit requirements are listed in the audit progress below.</p>' : ''}${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}</section>`;
   }
 
   page(fontStyle) {

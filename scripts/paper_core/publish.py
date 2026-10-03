@@ -654,10 +654,15 @@ def mechanical_acceptance(html_bytes: bytes, projection: dict) -> dict:
 
 def render_html(db: Database, projection: dict, *, release: bool, source_identity: str, workdir: Path) -> tuple:
     """Run the renderer in ``workdir``; return ``(html_bytes, receipt)`` or raise ``PublicationError``."""
+    payload = render_input(db, projection, release=release, source_identity=source_identity)
+    return render_payload(payload, workdir=workdir)
+
+
+def render_payload(payload: dict, *, workdir: Path) -> tuple:
+    """Render and accept one already constructed payload without reading a database."""
     node = _node_executable()
     if not RENDERER.is_file():
         raise PublicationError(f"renderer missing at {RENDERER}")
-    payload = render_input(db, projection, release=release, source_identity=source_identity)
     input_path = workdir / "render-input.json"
     output_path = workdir / "report.html"
     input_path.write_bytes(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -686,13 +691,258 @@ def render_html(db: Database, projection: dict, *, release: bool, source_identit
         raise PublicationError("renderer geometry receipt failed", records=[receipt])
     if receipt.get("artifact_sha256") != sha256_bytes(html_bytes):
         raise PublicationError("renderer receipt hash does not match the written page", records=[receipt])
-    acceptance = mechanical_acceptance(html_bytes, projection)
+    if receipt.get("input_sha256") != sha256_bytes(input_path.read_bytes()):
+        raise PublicationError("renderer receipt hash does not match its input", records=[receipt])
+    acceptance = mechanical_acceptance(html_bytes, payload["projection"])
+    acceptance["failures"].extend(_finalization_failures(html_bytes, payload))
+    if acceptance["failures"]:
+        acceptance["status"] = "fail"
     if acceptance["status"] != "pass":
         raise PublicationError("mechanical acceptance failed", records=[acceptance])
     receipt["python_acceptance"] = acceptance
     receipt["input_bytes"] = input_path.stat().st_size
     receipt["math_diagnostics"] = payload["display"]["math_diagnostics"]
     return html_bytes, receipt
+
+
+def _frozen_delivery(snapshot: dict) -> dict:
+    return {"snapshot_sha256": snapshot.get("snapshot_sha256"),
+            "process_complete": snapshot["process_complete"],
+            "representation_settled": snapshot["representation_settled"],
+            "finalization_blockers": snapshot["finalization_blockers"],
+            "finalization_blocker_count": snapshot["finalization_blocker_count"]}
+
+
+def frozen_render_input(snapshot: dict, *, snapshot_sha256: str) -> dict:
+    """Create display fragments exclusively from validated frozen scientific text."""
+    diagnostics = []
+    fragments = display_fragments(snapshot["projection"], diagnostics)
+    finalization = _frozen_delivery(snapshot)
+    finalization["snapshot_sha256"] = snapshot_sha256
+    return {"render_input_version": 1, "title": snapshot["paper"]["title"],
+            "build": {"core_version": CORE_VERSION, "revision": snapshot["revision"],
+                      "audit_id": snapshot["audit_id"], "built_at": now_iso(),
+                      "source_identity": snapshot["source_identity"], "kind": snapshot["kind"],
+                      "finalization": finalization,
+                      "source_originals": [{**row, "available": Path(row["path"]).is_file()}
+                                           for row in snapshot["source_originals"]]},
+            "projection": snapshot["projection"],
+            "display": {"refs": fragments, "math_diagnostics": summarize_math_diagnostics(diagnostics)}}
+
+
+def _finalization_failures(html_bytes: bytes, payload: dict) -> list:
+    """Check visible delivery disclosures independently of the renderer's receipt."""
+    expected = payload["build"].get("finalization")
+    if expected is None:
+        return []
+    scan = _Scan()
+    scan.feed(html_bytes.decode("utf-8"))
+    scan.close()
+    failures = []
+    try:
+        embedded = json.loads("".join(scan.scripts["proof-render-input"]))
+    except (KeyError, ValueError):
+        return ["frozen render input is missing or unreadable"]
+    if embedded != {"title": payload["title"], "build": payload["build"]}:
+        failures.append("embedded render input differs from its frozen build payload")
+    disclosure = [e for e in scan.elements if "data-proof-finalization" in e["attrs"]]
+    label = "Finalized release snapshot." if payload["build"]["kind"] == "release" else "Working report; delivery has not been finalized."
+    if len(disclosure) != 1 or "".join(disclosure[0]["text"]).strip() != label:
+        failures.append("visible frozen finalization label is missing or differs")
+    blockers = [e for e in scan.elements if "data-proof-finalization-blocker" in e["attrs"]]
+    for index, expected_blocker in enumerate(expected["finalization_blockers"]):
+        rows = [e for e in blockers if e["attrs"]["data-proof-finalization-blocker"] == str(index)]
+        if len(rows) != 1 or expected_blocker["message"] not in "".join(rows[0]["text"]):
+            failures.append(f"visible finalization blocker {index} is missing or differs")
+    if len(blockers) != len(expected["finalization_blockers"]):
+        failures.append("visible finalization blocker count differs")
+    if not expected["representation_settled"]:
+        notices = [e for e in scan.elements if "data-proof-representation-unsettled" in e["attrs"]]
+        if len(notices) != 1 or "Source representation remains unresolved." not in "".join(notices[0]["text"]):
+            failures.append("unresolved source representation is not visibly disclosed")
+    return failures
+
+
+def presentation_identity() -> dict:
+    """Identify rendering code and bundled assets separately from scientific freshness."""
+    from .bundle import bundle_files, content_identity, sha256_file
+    if not RENDERER.is_file():
+        raise PublicationError(f"renderer missing at {RENDERER}")
+    files = bundle_files(RENDERER.parent)
+    return {"renderer_sha256": sha256_file(RENDERER),
+            "math_adapter_sha256": sha256_file(Path(__file__).with_name("math_render.py")),
+            "assets_identity": content_identity(files)}
+
+
+def _frozen_paths(directory: Path, snapshot: dict) -> list:
+    from .finalization import EXPORT_NAME, RECEIPT_NAME, SNAPSHOT_NAME
+    return snapshot["protected_paths"] + [str(directory / name) for name in (SNAPSHOT_NAME, RECEIPT_NAME, EXPORT_NAME)]
+
+
+def _existing_frozen_build(output: Path, receipt_path: Path, snapshot: dict, finalization: dict,
+                           presentation: dict) -> dict | None:
+    if not output.is_file() or not receipt_path.is_file():
+        return None
+    try:
+        build = json.loads(receipt_path.read_text(encoding="utf-8"))
+        publication = build["publication"]
+        if (build.get("build_receipt_version") != 1 or build.get("snapshot_sha256") != finalization["snapshot_sha256"]
+                or build.get("presentation") != presentation or publication["output_path"] != str(output)
+                or publication["artifact_sha256"] != sha256_bytes(output.read_bytes())
+                or any(build.get(field) != snapshot[field] for field in ("revision", "audit_id", "paper_id", "source_identity", "producer"))
+                or publication["revision"] != snapshot["revision"] or publication["kind"] != snapshot["kind"]
+                or publication["state"] != "published" or publication["receipt"].get("state") != "published"
+                or publication["receipt"].get("kind") != snapshot["kind"]
+                or publication["receipt"].get("artifact_sha256") != publication["artifact_sha256"]
+                or publication["receipt"].get("publication_id") != publication["publication_id"]):
+            return None
+        html = output.read_bytes()
+        scan = _Scan()
+        scan.feed(html.decode("utf-8"))
+        payload = json.loads("".join(scan.scripts["proof-render-input"]))
+        frozen = _frozen_delivery(snapshot)
+        frozen["snapshot_sha256"] = finalization["snapshot_sha256"]
+        if (payload["build"].get("finalization") != frozen or payload["title"] != snapshot["paper"]["title"]
+                or payload["build"]["revision"] != snapshot["revision"]
+                or payload["build"]["audit_id"] != snapshot["audit_id"]
+                or payload["build"]["source_identity"] != snapshot["source_identity"]
+                or payload["build"]["kind"] != snapshot["kind"]
+                or build.get("render_input_sha256") != publication["receipt"].get("input_sha256")
+                or build.get("artifact_sha256") != publication["artifact_sha256"]
+                or build.get("acceptance", {}).get("status") != "pass"
+                or mechanical_acceptance(html, snapshot["projection"])["status"] != "pass"
+                or _finalization_failures(html, payload)):
+            return None
+        return {**publication, "snapshot_sha256": finalization["snapshot_sha256"],
+                "build_receipt": build, "build_receipt_path": str(receipt_path), "reused": True}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def _restore_output(path: Path, backup: Path, existed: bool):
+    if existed:
+        fd, name = tempfile.mkstemp(dir=path.parent, prefix=".paper-restore-")
+        os.close(fd)
+        staged = Path(name)
+        try:
+            shutil.copy2(backup, staged)
+            os.replace(staged, path)
+        finally:
+            if staged.exists():
+                staged.unlink()
+    elif path.exists():
+        path.unlink()
+
+
+def publish_frozen(bundle, *, output, db: Database | None = None, receipt_output=None) -> dict:
+    """Build a frozen bundle without scientific derivation, optionally logging delivery.
+
+    HTML and its build receipt are staged together. Any failed replacement or
+    operational database write restores both prior files. The default receipt
+    is ``<HTML>.receipt.json``; compatibility release can keep it privately.
+    """
+    from .finalization import load_finalization, producer_identity, protected_destination
+
+    directory = Path(bundle).resolve()
+    snapshot, finalization = load_finalization(directory)
+    protected = _frozen_paths(directory, snapshot)
+    output = protected_destination(output, protected)
+    receipt_path = Path(receipt_output).resolve() if receipt_output is not None else Path(str(output) + ".receipt.json")
+    receipt_path = protected_destination(receipt_path, protected + [str(output)], what="build receipt output")
+    if db is not None:
+        if not db.write:
+            raise InvalidRequest("publication requires a writable database")
+        if db.conn.in_transaction:
+            raise InvalidRequest("frozen publication requires a connection without an active transaction")
+        paper = db.latest_at("papers", snapshot["paper_id"], snapshot["revision"])
+        audit = db.latest_at("audits", snapshot["audit_id"], snapshot["revision"])
+        if str(db.path.resolve()) != snapshot["database_path"] or paper is None or audit is None:
+            raise InvalidRequest("publication database does not match the frozen audit identity")
+    pub_id = new_id("publication")
+    started = now_iso()
+    kind, revision = snapshot["kind"], snapshot["revision"]
+    before_html, before_receipt = output.exists(), receipt_path.exists()
+    replaced_html = replaced_receipt = False
+    try:
+        presentation = presentation_identity()
+        existing = _existing_frozen_build(output, receipt_path, snapshot, finalization, presentation)
+        if existing is not None:
+            if db is None or any(row["id"] == existing["publication_id"] for row in db.publications()):
+                return existing
+        output.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=output.parent, prefix=".paper-report-") as tmp:
+            workdir = Path(tmp)
+            payload = frozen_render_input(snapshot, snapshot_sha256=finalization["snapshot_sha256"])
+            html_bytes, receipt = render_payload(payload, workdir=workdir)
+            artifact_sha = sha256_bytes(html_bytes)
+            receipt.update({"publication_id": pub_id, "started_at": started, "output_path": str(output),
+                            "kind": kind, "state": "published"})
+            publication = {"publication_id": pub_id, "revision": revision, "kind": kind, "state": "published",
+                           "output_path": str(output), "artifact_sha256": artifact_sha, "receipt": receipt}
+            build_receipt = {"build_receipt_version": 1, "revision": revision, "audit_id": snapshot["audit_id"],
+                             "paper_id": snapshot["paper_id"], "source_identity": snapshot["source_identity"],
+                             "snapshot_sha256": finalization["snapshot_sha256"],
+                             "producer": snapshot["producer"], "producing_core": producer_identity(),
+                             "presentation": presentation, "render_input_sha256": receipt["input_sha256"],
+                             "artifact_sha256": artifact_sha, "acceptance": receipt["python_acceptance"],
+                             "publication": publication}
+            staged_html = workdir / "staged.html"
+            staged_html.write_bytes(html_bytes)
+            # The receipt may live on another filesystem, so stage it beside its destination.
+            fd, staged_name = tempfile.mkstemp(dir=receipt_path.parent, prefix=".paper-build-", suffix=".json")
+            os.close(fd)
+            staged_receipt = Path(staged_name)
+            staged_receipt.write_text(json.dumps(build_receipt, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+            backup_html, backup_receipt = workdir / "prior.html", workdir / "prior-receipt.json"
+            if before_html:
+                shutil.copy2(output, backup_html)
+            if before_receipt:
+                shutil.copy2(receipt_path, backup_receipt)
+            try:
+                if db is not None:
+                    db.begin_immediate()
+                    db.put_blob(html_bytes)
+                    db.insert_publication(pub_id, revision, kind, "published", str(output), artifact_sha, receipt)
+                protected_destination(output, protected)
+                protected_destination(receipt_path, protected + [str(output)], what="build receipt output")
+                _replace_file(staged_html, output)
+                replaced_html = True
+                _replace_file(staged_receipt, receipt_path)
+                replaced_receipt = True
+                if db is not None:
+                    db.commit()
+            except BaseException:
+                if db is not None:
+                    db.rollback()
+                if replaced_receipt:
+                    _restore_output(receipt_path, backup_receipt, before_receipt)
+                if replaced_html:
+                    _restore_output(output, backup_html, before_html)
+                raise
+            finally:
+                if staged_receipt.exists():
+                    staged_receipt.unlink()
+    except Exception as exc:
+        if not isinstance(exc, PublicationError):
+            exc = PublicationError(f"frozen report delivery failed: {exc}")
+        failure = {"publication_id": pub_id, "started_at": started, "output_path": str(output), "kind": kind,
+                   "state": "failed", "snapshot_sha256": finalization["snapshot_sha256"],
+                   "error": exc.to_json()["error"]}
+        if db is not None:
+            try:
+                db.begin_immediate()
+                db.insert_publication(pub_id, revision, kind, "failed", str(output), None, failure)
+                db.commit()
+            except Exception as record_exc:  # pragma: no cover - secondary diagnostic
+                db.rollback()
+                print(f"could not record failed publication: {record_exc}", file=sys.stderr)
+        exc.records.append({"publication_id": pub_id, "snapshot_sha256": finalization["snapshot_sha256"],
+                            "bundle": str(directory), "prior_output_retained": before_html and output.exists(),
+                            "prior_receipt_retained": before_receipt and receipt_path.exists()})
+        raise exc
+    return {**publication, "snapshot_sha256": finalization["snapshot_sha256"], "build_receipt": build_receipt,
+            "build_receipt_path": str(receipt_path), "reused": False}
 
 
 def _replace_file(staged: Path, destination: Path):
@@ -777,4 +1027,4 @@ def publish_report(db: Database, *, projection: dict, output, release: bool = Fa
 
 
 __all__ = ["FRAGMENT_FIELDS", "RENDERER", "display_fragments", "mechanical_acceptance", "publish_report",
-           "render_html", "render_input"]
+           "render_html", "render_input", "render_payload", "frozen_render_input", "publish_frozen", "presentation_identity"]

@@ -32,6 +32,8 @@ OBLIGATION_KINDS = PROOF_CHECK_KINDS + ("global_consistency", "adversarial", "me
                                         "source_fidelity", "reconciliation")
 
 COVERAGE_CAUSES = {
+    "proof_boundary_required": ("The written proof has no complete current source-boundary review.",
+                                "Review the full proof and record its current source-boundary selection before routine review."),
     "missing_coverage": ("No coverage row accounts for these proof spans.",
                          "Classify the spans and add coverage with the responsible primary work, or use an authoring packet if no checks remain."),
     "missing_anchor": ("The required proof anchor is unavailable.",
@@ -589,6 +591,8 @@ class _AuditScope:
             record = snap.get(target)
             if record is not None and record.collection == "items" and record.body["kind"] in INTERMEDIATE_KINDS:
                 self.problems.append(f"audit target {key_of(target)} is an intermediate result")
+                self.scope_diagnostics.append({"code": "invalid_scope_target", "target_refs": [target],
+                    "message": self.problems[-1], "required": True})
             else:
                 pending.append((target, True))
         if audit.body["mode"] == "full":
@@ -624,6 +628,8 @@ class _AuditScope:
             statement = snap.get(ref)
             if statement is None:
                 self.problems.append(f"required target {skey} is not live at revision {snap.revision}")
+                self.scope_diagnostics.append({"code": "missing_scope_target", "target_refs": [ref],
+                    "message": self.problems[-1], "required": True})
                 continue
             if statement.collection not in ("items", "parts"):
                 continue
@@ -1207,6 +1213,8 @@ class _Derivation(_AuditScope):
                         selections[argument.id] = boundary_spans
                         if boundary_spans is None:
                             problems.append(f"proof boundary for {argument.id}: complete current source-boundary review required")
+                            self.coverage_diagnostics.append({"code": "proof_boundary_required",
+                                "argument_ids": [argument.id], "target_ref": ref_of(argument)})
                         else:
                             for anchor in boundary_spans:
                                 requirements[(argument.id, anchor)] = {argument.id}

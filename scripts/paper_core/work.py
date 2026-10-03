@@ -175,7 +175,7 @@ def _draft_signature(snap, info):
                    "records": mathematical, "memberships": memberships})
 
 
-def build_work(derivation, assessment, *, focus=None):
+def build_work(derivation, assessment, *, focus=None, diagnostic_limit=100):
     """Reuse an already assessed snapshot, including for projection and status."""
     snap, audit = derivation.snap, derivation.audit
     if audit is None:
@@ -508,7 +508,7 @@ def build_work(derivation, assessment, *, focus=None):
     owners = {key_of(task["owner"]) for task in tasks.values() if task["owner"]}
     coverage_facts = [row for row in derivation.coverage_diagnostics if focus is None or
                       arguments.intersection(row["argument_ids"]) or row.get("owner") in owners or
-                      (focus["collection"] == "anchors" and row["anchor_id"] == focus["id"]) or
+                      (focus["collection"] == "anchors" and row.get("anchor_id") == focus["id"]) or
                       (focus["collection"] == "coverage" and row.get("coverage_ref", {}).get("id") == focus["id"])]
     # Keep prerequisite causes, but show the requested argument before them in
     # bounded examples so a long prerequisite cannot hide the focused repair.
@@ -539,8 +539,9 @@ def build_work(derivation, assessment, *, focus=None):
             "focus": focus, "progress": assessment["progress"],
             "tasks": sorted(tasks.values(), key=lambda task: (task_order[task["id"]], task["id"])),
             "units": sorted(units.values(), key=lambda unit: (min(task_order[t] for t in unit["obligation_ids"]), unit["id"])),
-            "coordinator_actions": actions[:100], "diagnostic_count": len(actions),
-            "diagnostics_truncated": len(actions) > 100,
+            "coordinator_actions": actions if diagnostic_limit is None else actions[:diagnostic_limit],
+            "diagnostic_count": len(actions),
+            "diagnostics_truncated": diagnostic_limit is not None and len(actions) > diagnostic_limit,
             "task_contexts": {oid: sorted(contexts) for oid, contexts in task_contexts.items() if oid in tasks}}
 
 
@@ -589,6 +590,35 @@ def list_work(db, *, audit_id, focus=None, revision=None, limit=20, cursor=None,
     return result
 
 
+def selection_guidance(work, requested_task_ids, assigned_task_ids):
+    """Explain explicit requests against the actual packet, without changing selection."""
+    tasks = {task["id"]: task for task in work["tasks"]}
+    assigned = set(assigned_task_ids)
+    rows = []
+    for task_id in sorted(set(requested_task_ids)):
+        task = tasks[task_id]
+        if not task["required"]:
+            rows.append({"requested_task_id": task_id, "state": "not_required", "required": False,
+                         "assigned": False, "assigned_prerequisite_task_ids": [],
+                         "remaining_prerequisite_task_ids": [],
+                         "message": "This task is not required for the declared audit scope."})
+            continue
+        predecessors, pending = set(), list(task["prerequisite_ids"])
+        while pending:
+            predecessor = pending.pop()
+            if predecessor in predecessors or predecessor == task_id or predecessor not in tasks:
+                continue
+            predecessors.add(predecessor)
+            pending.extend(tasks[predecessor]["prerequisite_ids"])
+        rows.append({"requested_task_id": task_id, "state": task["state"], "required": True,
+                     "assigned": task_id in assigned,
+                     "assigned_prerequisite_task_ids": sorted(predecessors & assigned),
+                     "remaining_prerequisite_task_ids": sorted(
+                         p for p in predecessors - assigned if tasks[p]["state"] != "satisfied")})
+    return {"requested_task_ids": sorted(set(requested_task_ids)),
+            "assigned_task_ids": list(assigned_task_ids), "requests": rows}
+
+
 def select_assignment(work, request, limits=None):
     """Choose a ready seed, then grow through compatible local successors.
 
@@ -609,6 +639,10 @@ def select_assignment(work, request, limits=None):
     tasks = {task["id"]: task for task in work["tasks"]}
     units = {unit["id"]: unit for unit in work["units"]}
     requested, excluded = set(request.get("task_ids", ())), set(request.get("exclude_task_ids", ()))
+    # Requested IDs are starting tasks whose prerequisites may be selected.
+    # A stage allowlist is instead a strict constraint on complete work units.
+    supplied_candidates = request.get("candidate_task_ids")
+    stage_candidates = None if supplied_candidates is None else set(supplied_candidates)
     unknown = (requested | excluded) - tasks.keys()
     if unknown:
         raise InvalidRequest("unknown or out-of-focus task IDs", code="WORK_TASK", records=sorted(unknown))
@@ -618,6 +652,12 @@ def select_assignment(work, request, limits=None):
     deferred, candidates = [], []
     for unit in work["units"]:
         if unit["role"] != role or not unit["pending_obligation_ids"]:
+            continue
+        members = set(unit["obligation_ids"])
+        if stage_candidates is not None and not members <= stage_candidates:
+            if members & stage_candidates:
+                deferred.append({"unit_id": unit["id"], "reason": "outside_stage_unit",
+                                 "outside_candidate_task_ids": sorted(members - stage_candidates)})
             continue
         if set(unit["pending_obligation_ids"]) & excluded:
             deferred.append({"unit_id": unit["id"], "reason": "already_assigned"})
@@ -630,9 +670,11 @@ def select_assignment(work, request, limits=None):
             "deferred": deferred, "coordinator_actions": work["coordinator_actions"],
             "units": [], "tasks": [], "context": {"owner": None, "argument": None}}
     if not work["analysis_complete"]:
+        if requested:
+            base["task_selection"] = selection_guidance(work, requested, ())
         return base
     if requested:
-        allowed = {unit_of[oid] for oid in requested}
+        allowed = {unit_of[oid] for oid in requested if tasks[oid]["required"]}
         pending = list(allowed)
         # Explicitly requested work may recommend prerequisites, never unrelated filler.
         while pending:
@@ -732,6 +774,8 @@ def select_assignment(work, request, limits=None):
         task["prerequisite_judgment_refs"] = [ref for pid in task["prerequisite_ids"]
             for ref in tasks[pid]["judgment_refs"] if tasks[pid]["state"] == "satisfied"]
         base["tasks"].append(task)
+    if requested:
+        base["task_selection"] = selection_guidance(work, requested, assigned)
     return base
 
 

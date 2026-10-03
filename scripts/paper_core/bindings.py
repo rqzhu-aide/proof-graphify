@@ -21,6 +21,7 @@ class _Builder:
         self.relations = {}
         self.statements_seen = set()
         self.scopes_seen = set()
+        self.global_proof_selections = {}
 
     def add(self, collection, id, facet, *, version=None):
         if id is None:
@@ -199,6 +200,10 @@ class _Builder:
     def result(self, packet):
         records = [{"ref": {"collection": c, "id": i, "version": v}, "facet": f, "digest": d}
                    for (c, i, v, f), d in sorted(self.records.items())]
+        for row in records:
+            key = row["ref"]["collection"], row["ref"]["id"]
+            if row["facet"] == "proof" and key in self.global_proof_selections:
+                row["global_proof_selection_digest"] = self.global_proof_selections[key]
         relations = [{"relation": r, "key": {"collection": c, "id": i}, "digest": d}
                      for (r, c, i), d in sorted(self.relations.items())]
         manifest = (packet or {}).get("manifest") or {}
@@ -227,6 +232,13 @@ def _bind_check(b: _Builder, body: dict):
                                  b.state.relation_members("audit_scope", target)]
             for audit_target in audit_targets:
                 b.statement(audit_target)
+                from .packets import global_proof_selection
+                selected = global_proof_selection(b.state, audit_target)
+                for record in selected["statements"] + selected["arguments"]:
+                    b.add_ref(record.ref, "proof")
+                if selected["statements"]:
+                    b.global_proof_selections[(audit_target["collection"], audit_target["id"])] = selected["digest"]
+                b.anchors(selected["anchor_ids"], "source")
                 b.relation("arguments_for_target", audit_target)
                 b.relation("incoming_uses", audit_target)
     b.anchors(body["evidence_refs"])
@@ -277,10 +289,13 @@ def binding_changes(state, binding: dict) -> dict:
         ref = entry["ref"]
         live = state.live(ref["collection"], ref["id"])
         actual = None
-        expected = entry.get("proof_span_selection_digest", entry.get("setup_digest", entry["digest"]))
+        expected = entry.get("global_proof_selection_digest", entry.get("proof_span_selection_digest", entry.get("setup_digest", entry["digest"])))
         if live is not None:
             facets = facet_digests(live.collection, live.body)
-            if "proof_span_selection_digest" in entry:
+            if "global_proof_selection_digest" in entry:
+                from .packets import global_proof_selection
+                actual = global_proof_selection(state, live.ref)["digest"]
+            elif "proof_span_selection_digest" in entry:
                 from .proof_spans import boundary_selection_digest
                 actual = boundary_selection_digest(state, live)
             else:
@@ -353,6 +368,10 @@ def record_binding_changes(state, record, binding):
     Saved bindings and original response bytes are never rewritten.
     """
     changes = binding_changes(state, binding)
+    if record.collection == "checks" and record.body["target"]["collection"] == "audits":
+        historical = _legacy_global_selection_changes(state, record.body["target"], binding)
+        changes["records"].extend(historical["records"])
+        changes["relations"].extend(historical["relations"])
     coverage_changed = any(row["ref"]["collection"] == "coverage" for row in changes["records"]) \
         or any(row["relation"] == "coverage_in_argument" for row in changes["relations"])
     # Do not introduce new review gates where this correction grants no exemption.
@@ -372,6 +391,32 @@ def record_binding_changes(state, record, binding):
             # Missing/insufficient original provenance cannot recover old credit.
             return changes
     return changes
+
+
+def _legacy_global_selection_changes(state, target, binding, *, manifest=None):
+    """Compare old global inputs read-only, using the existing bounded historical adapter."""
+    if any("global_proof_selection_digest" in row for row in binding["records"]):
+        return {"records": [], "relations": []}
+    from .packets import MAX_WORK_BYTES, _ContextLimit, _legacy_extension_setup
+    original = state.db.packet(binding.get("packet_id")) if binding.get("packet_id") else None
+    manifest = manifest or (original["manifest"] if original else None)
+    unknown = {"ref": target, "facet": "global_proof_selection", "expected": "captured proof selection",
+               "actual": None, "reason": "historical global proof selection is unknown; inspect saved assignment provenance"}
+    if manifest is None or type(manifest.get("base_revision")) is not int:
+        return {"records": [unknown], "relations": []}
+    # The adapter reads only the original audit's shallow consumed closure. It
+    # neither loads worker blobs nor changes the original binding or receipt.
+    task = {"target": target, "kind": "global_consistency", "role": "primary", "action": "check"}
+    historical_manifest = {**manifest, "work": {"tasks": [task],
+        "limits": {"max_bytes": manifest.get("work", {}).get("limits", {}).get("max_bytes", MAX_WORK_BYTES)}}}
+    try:
+        inputs, relations = _legacy_extension_setup(state.db, historical_manifest, state, verify=False)
+        if not any("global_proof_selection_digest" in row for row in inputs):
+            return {"records": [unknown], "relations": []}
+        return binding_changes(state, {"records": inputs, "relations": relations, "semantic_memberships": relations})
+    except (_ContextLimit, InvalidRequest) as exc:
+        unknown["reason"] += f" ({getattr(exc, 'code', 'WORK_CONTEXT_LIMIT')})"
+        return {"records": [unknown], "relations": []}
 
 
 def task_binding(state, task: dict) -> dict:
@@ -451,6 +496,10 @@ def task_binding_changes(state, task: dict, *, evidence_refs=(), packet=None) ->
         binding["records"].append({"ref": pin, "facet": facet,
                                    "digest": facet_digests("anchors", original.body)[facet]})
     result = binding_changes(state, binding)
+    if task["target"]["collection"] == "audits":
+        historical = _legacy_global_selection_changes(state, task["target"], binding, manifest=manifest)
+        result["records"].extend(historical["records"])
+        result["relations"].extend(historical["relations"])
     revision = manifest.get("base_revision")
     if revision is not None and hasattr(state, "db"):
         changed_relations = []

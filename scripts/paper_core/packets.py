@@ -63,6 +63,39 @@ def _ref(record):
     return {"collection": record.collection, "id": record.id}
 
 
+def global_proof_selection(state, ref):
+    """The shallow proof selection shared by global delivery and freshness."""
+    from .semantics import boundaries
+    from .proof_spans import boundary_selection_digest
+    statements, arguments, selected_boundaries, anchors = [], [], {}, set()
+    record = state.live(ref["collection"], ref["id"])
+    while record is not None and not record.retired:
+        statements.append(record)
+        proof = [passage["anchor_id"] for passage in record.body["passages"]
+                 if passage["role"] in ("proof", "evidence")]
+        anchors.update(proof)
+        if proof or record.collection != "parts":
+            break
+        record = state.live("items", record.body["item_id"])
+    for _, argument_id, _ in state.relation_members("arguments_for_target", ref):
+        argument = state.live("arguments", argument_id)
+        if argument is None or argument.retired or argument.body["lifecycle"] != "registered":
+            continue
+        arguments.append(argument)
+        anchors.update(argument.body["evidence_refs"])
+        for boundary in boundaries(state, argument_id):
+            selected_boundaries[boundary.key] = boundary
+            anchors.update(pin["id"] for pin in boundary.body["anchor_refs"])
+    selected_boundaries = [selected_boundaries[key] for key in sorted(selected_boundaries)]
+    arguments.sort(key=lambda record: record.key)
+    selection_digest = digest({
+        "statements": [[record.ref, facet_digests(record.collection, record.body)["proof"]] for record in statements],
+        "arguments": [[record.ref, facet_digests(record.collection, record.body)["proof"]] for record in arguments],
+        "boundaries": [[record.ref, boundary_selection_digest(state, record)] for record in selected_boundaries]})
+    return {"statements": statements, "arguments": arguments, "boundaries": selected_boundaries,
+            "anchor_ids": sorted(anchors), "digest": selection_digest}
+
+
 class _Closure:
     def __init__(self, db: Database, mode: str):
         self.db, self.mode = db, mode
@@ -925,6 +958,32 @@ class _LocalClosure(_Closure):
         if not anchors and record.collection == "parts":
             self.borrowed_proof({"collection": "items", "id": record.body["item_id"]})
 
+    def global_proof_source(self, ref):
+        """Supply selected proof sources, without expanding their inference/check graph."""
+        if not self.once("global_proof_source", ref["collection"], ref["id"]):
+            return
+        selected = global_proof_selection(self.state, ref)
+        for record in selected["statements"] + selected["arguments"]:
+            self.add(record)
+        self.anchors(selected["anchor_ids"])
+        self.guard("arguments_for_target", ref["collection"], ref["id"])
+        for boundary in selected["boundaries"]:
+            # The packet carries live records. Never substitute a newer review
+            # or anchor for the boundary's explicit historical provenance.
+            for pin in [boundary.body["source_review_ref"], *boundary.body["anchor_refs"]]:
+                live = self.record(pin["collection"], pin["id"])
+                if live is None or live.version != pin["version"]:
+                    raise InvalidRequest(
+                        "primary global proof context cannot carry this boundary pin as a live record; "
+                        "inspect the boundary and captured source provenance before preparing again",
+                        code="WORK_CONTEXT_PIN", records=[{"boundary_ref": boundary.pinned,
+                            "required_ref": pin, "current_ref": live.pinned if live else None}])
+            self.add(boundary)
+            self.add_ref(boundary.body["source_review_ref"])
+            # A review can cover other proofs. Only this boundary selects
+            # which reviewed anchors belong to the assigned proof context.
+            self.anchors(pin["id"] for pin in boundary.body["anchor_refs"])
+
     def assessments(self, collection, id):
         if self.mode not in ("primary", "reconcile"):
             return
@@ -1047,6 +1106,8 @@ class _LocalClosure(_Closure):
                            self.state.relation_members("audit_scope", target)]
             for ref in targets:
                 self.supplier(ref)
+                if self.mode == "primary":
+                    self.global_proof_source(ref)
         self.assessments(target["collection"], target["id"])
         for pin in task.get("draft_refs", []) + task.get("judgment_refs", []):
             self.add(self.state.version(pin["collection"], pin["id"], pin["version"]))
@@ -1677,12 +1738,6 @@ def extend_work_assignment(db: Database, *, packet_id: str, request: dict) -> di
             raise InvalidRequest("independent extension needs a valid current qualification", code="QUALIFICATION_INVALID")
         max_bytes = work["limits"]["max_bytes"]
         closure = _LocalClosure(db, "independent", audit.id, max_bytes)
-        for entry in prior["records"]:
-            pin = entry["ref"]
-            current = closure.record(pin["collection"], pin["id"])
-            if current is None or current.retired or current.version != pin["version"]:
-                raise ConflictError("previously delivered source context changed; prepare a renewed assignment", records=[pin])
-            closure.add(current)
         for task in work["tasks"]:
             changes = task_binding_changes(closure.state, task, packet=original)
             if changes["records"] or changes["relations"]:
@@ -1696,8 +1751,21 @@ def extend_work_assignment(db: Database, *, packet_id: str, request: dict) -> di
         changes = binding_changes(closure.state, neutral_binding)
         if changes["records"] or changes["relations"]:
             raise ConflictError("applicable source setup or registered inference changed; prepare a renewed assignment", records=[changes])
+        for entry in prior["records"]:
+            pin = entry["ref"]
+            current = closure.record(pin["collection"], pin["id"])
+            if current is None or current.retired:
+                raise ConflictError("previously delivered source context changed; prepare a renewed assignment", records=[pin])
+            if current.version != pin["version"]:
+                old_facets, current_facets = facet_digests(pin["collection"], entry["body"]), facet_digests(current.collection, current.body)
+                relevant = set(old_facets) & {"statement", "proof", "source"}
+                if any(old_facets[facet] != current_facets.get(facet) for facet in relevant or {"full"}):
+                    raise ConflictError("previously delivered source context changed; prepare a renewed assignment", records=[pin])
+            closure.add(current)
         for guard in original.get("membership_guards", []):
-            if membership_digest(closure.members(guard["relation"], guard["key"]["collection"], guard["key"]["id"])) != guard["digest"]:
+            live_members = closure.members(guard["relation"], guard["key"]["collection"], guard["key"]["id"])
+            old_members = relation_members(db.conn, guard["relation"], guard["key"], revision=original["base_revision"])
+            if membership_digest(live_members) != guard["digest"] and {(c, i) for c, i, _ in live_members} != {(c, i) for c, i, _ in old_members}:
                 raise ConflictError("reviewed source membership changed; prepare a renewed assignment", records=[guard])
         for pin in request["source_refs"]:
             record = closure.record(pin["collection"], pin["id"])
@@ -1723,7 +1791,10 @@ def extend_work_assignment(db: Database, *, packet_id: str, request: dict) -> di
         records = sorted(closure.records.values(), key=lambda r: r.key)
         manifest, packet = copy.deepcopy(original), copy.deepcopy(prior)
         common = {"packet_id": identity, "base_revision": revision, "extends": packet_id,
-                  "read_set": [r.pinned for r in records], "source_context_digest": source_context_digest(db)}
+                  "read_set": [r.pinned for r in records], "source_context_digest": source_context_digest(db),
+                  "membership_guards": [dict(guard, digest=membership_digest(closure.members(
+                      guard["relation"], guard["key"]["collection"], guard["key"]["id"])))
+                      for guard in original.get("membership_guards", [])]}
         manifest.update(common)
         packet.update(common)
         packet["records"] = [_packet_record(r, "independent") for r in records]

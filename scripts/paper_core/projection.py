@@ -1227,9 +1227,9 @@ def _find_cycle(nodes: list, outgoing: dict) -> list:
     return []
 
 
-def project(db: Database, *, revision: int | None = None, audit_id: str | None = None) -> tuple:
+def project(db: Database, *, revision: int | None = None, audit_id: str | None = None, derived=None) -> tuple:
     """Build the projection and a report ``{problems, counts}`` for one snapshot."""
-    derivation, result = derive_full(db, revision=revision, audit_id=audit_id)
+    derivation, result = derived if derived is not None else derive_full(db, revision=revision, audit_id=audit_id)
     projection, report = _Projector(db, derivation, result).build()
     if derivation.audit is not None:
         from .work import build_work

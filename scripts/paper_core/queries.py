@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import Counter
 
 from . import CONTRACT_NAME, CONTRACT_VERSION, CORE_VERSION, PROJECTION_VERSION, STORAGE_FORMAT
-from .assessment import Snapshot, derive_full
+from .assessment import Snapshot, TraversalLimit, derive_full
 from .bindings import BOUND_COLLECTIONS, record_binding_changes
 from .contract import extract_refs, validate_body
 from .ids import COLLECTIONS
@@ -33,7 +33,7 @@ def _ref_text(record) -> str:
     return f"{record.collection}:{record.id}@{record.version}"
 
 
-def validate_snapshot(db: Database, *, revision=None) -> dict:
+def validate_snapshot(db: Database, *, revision=None, check_projection=True) -> dict:
     """Check one snapshot: body shapes, reference resolution, coverage, bindings, projection, integrity.
 
     Returns ``{revision, ok, records, errors, warnings, stale_bindings, projection_problems, integrity}``.
@@ -105,7 +105,7 @@ def validate_snapshot(db: Database, *, revision=None) -> dict:
     problems = []
     if errors:
         warnings.append("projection skipped because the snapshot has contract violations")
-    else:
+    elif check_projection:
         try:
             _, report = project(db, revision=revision)
             problems.extend({"audit_id": None, "problem": p} for p in report["problems"])
@@ -148,11 +148,15 @@ def _pick_audit(db: Database, revision, audit_id):
     return sorted(audits, key=lambda a: (a.revision or 0, a.id))[-1]
 
 
-def status(db: Database, *, audit_id=None, revision=None) -> dict:
+def status(db: Database, *, audit_id=None, revision=None, derived=None, include_stages=False) -> dict:
     """Progress and presentation state of one snapshot; never fails for an incomplete assessment."""
     revision = _revision(db, revision)
     audit = _pick_audit(db, revision, audit_id)
-    derivation, result = derive_full(db, revision=revision, audit_id=None if audit is None else audit.id)
+    selected_audit = None if audit is None else audit.id
+    derivation, result = derived if derived is not None else derive_full(
+        db, revision=revision, audit_id=selected_audit)
+    if result["revision"] != revision or result["audit_id"] != selected_audit:
+        raise InvalidRequest("provided assessment does not match the requested audit snapshot")
     snap = derivation.snap
     papers = snap.all("papers")
     paper = papers[0] if len(papers) == 1 else None
@@ -164,7 +168,7 @@ def status(db: Database, *, audit_id=None, revision=None) -> dict:
     publications = [{"publication_id": p["id"], "revision": p["revision"], "kind": p["kind"], "state": p["state"],
                      "output_path": p["output_path"], "created_at": p["created_at"]}
                     for p in db.publications() if p["revision"] <= revision]
-    return {
+    response = {
         "revision": revision,
         "head_revision": db.max_revision(),
         "storage": {"storage_format": int(db.metadata["storage_format"]), "contract_version": CONTRACT_VERSION,
@@ -197,6 +201,24 @@ def status(db: Database, *, audit_id=None, revision=None) -> dict:
         "coverage_diagnostic_count": result["coverage_diagnostic_count"],
         "coverage_diagnostics_truncated": result["coverage_diagnostics_truncated"],
     }
+    if include_stages and audit is not None:
+        from .stages import assess_stages
+        from .work import build_work
+        try:
+            stage_work = build_work(derivation, result, diagnostic_limit=None)
+        except TraversalLimit as exc:
+            # The mathematical assessment succeeded. A bounded scheduling
+            # traversal can still fail, so retain its canonical facts and
+            # report unknown stage readiness at this same revision.
+            stage_result = dict(result, analysis_complete=False,
+                limit={"bound": exc.bound, "maximum": exc.maximum, "context": exc.context})
+            stage_work = {"revision": revision, "audit_id": audit.id, "analysis_complete": False,
+                "progress": result["progress"], "coordinator_actions": [
+                    {"code": exc.code, "message": exc.message, "required": True}]}
+            response["stages"] = assess_stages(None, stage_result, stage_work)
+        else:
+            response["stages"] = assess_stages(derivation, result, stage_work)
+    return response
 
 
 def changes(db: Database, *, since: int, limit: int = 200, offset: int = 0) -> dict:

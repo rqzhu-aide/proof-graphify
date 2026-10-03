@@ -15,11 +15,11 @@ from .errors import CoreError, ConflictError, InvalidRequest
 from .ids import new_id, valid_id
 from .packets import (independent_context_changes, load_packet, prepare_assignment,
                       prepare_route_assignment, source_context_digest)
-from .review import _check_body, plan_review_submission
+from .review import _check_body, packet_pairing_recovery, plan_review_submission
 from .refs import facet_digests
 from .storage import Database
 from .validation import State
-from .work import derive_work, list_work, select_assignment
+from .work import derive_work, list_work, select_assignment, selection_guidance
 
 ENVELOPE_LIMIT = 65536
 RESPONSE_LIMIT = 2097152
@@ -120,6 +120,22 @@ def _validate_rebase(original, active):
                 "rebase cannot claim newly delivered evidence", code="NEW_CONTEXT_RESPONSE_REQUIRED")
 
 
+def _validate_submission_rebase(original, active, response_bytes):
+    try:
+        _validate_rebase(original, active)
+    except CoreError as exc:
+        # Preserve pre-intake rejection semantics, but do not prescribe a new
+        # examination against a packet whose pairing has not been established.
+        try:
+            worker = _parse(response_bytes, "worker response")
+        except CoreError:
+            worker = None
+        if (isinstance(worker, dict) and valid_id(worker.get("packet_id"))
+                and worker["packet_id"] != original["packet_id"]):
+            exc.retry = packet_pairing_recovery(original["packet_id"], worker["packet_id"])
+        raise
+
+
 def _pinned_in(ref, manifest):
     return ref in manifest["read_set"]
 
@@ -138,7 +154,12 @@ def _reference(ref, manifest, *, pinned=False, where="reference"):
                       "preserve unaffected saved reasoning. work extend is for independent source context.")
         raise InvalidRequest(f"{where} is outside the supplied context", code="WRITE_SCOPE", records=[ref],
                              retry={"field": where, "reason": "wrong_version" if versions else "missing_context",
-                                    "available_versions": versions, "action": action})
+                                    "available_versions": versions, "action": action,
+                                    "operation": "author_response_correction" if versions else
+                                        "extend_neutral_source" if manifest["mode"] == "independent" else
+                                        "obtain_assignment_context",
+                                    "reason_code": "WRONG_REFERENCE_VERSION" if versions else "MISSING_CONTEXT",
+                                    "message": action})
 
 
 def _edit(collection, body, replaces=None):
@@ -359,15 +380,20 @@ def _reconcile_plan(db, envelope, manifest, worker):
 
 
 def _freshness(original, active, plan):
+    def changed(message, *, records=()):
+        return ConflictError(message, records=records, retry={
+            "operation": "renew_affected_work", "reason_code": "SCIENTIFIC_INPUTS_CHANGED",
+            "message": "Inspect changed scientific inputs and reexamine affected work; preserve unaffected saved reasoning."})
+
     def check(db, manifest, _planned):
         if original["source_context_digest"] != source_context_digest(db):
-            raise ConflictError("source context changed; review sources before reusing this response")
+            raise changed("source context changed; review sources before reusing this response")
         old_tasks, fresh_tasks = _task_map(original), _task_map(active)
         state = State(db, [])
         neutral_changes = independent_context_changes(state, original)
         if neutral_changes["records"] or neutral_changes["relations"]:
-            raise ConflictError("independent source or setup changed; prepare renewed source-only work",
-                                records=[neutral_changes])
+            raise changed("independent source or setup changed; prepare renewed source-only work",
+                          records=[neutral_changes])
         audit_ref = original["work"].get("audit_ref") or next(
             (r for r in original["read_set"] if r["collection"] == "audits"
              and r["id"] == original["work"]["audit_id"]), None)
@@ -390,20 +416,20 @@ def _freshness(original, active, plan):
         if (old_audit is None or live_audit is None or live_audit.retired
                 or {k: v for k, v in old_audit.body.items() if k not in ignored_audit_fields}
                 != {k: v for k, v in live_audit.body.items() if k not in ignored_audit_fields}):
-            raise ConflictError("audit scope or checking protocol changed")
+            raise changed("audit scope or checking protocol changed")
         for tid in plan["task_ids"]:
             if tid not in old_tasks or tid not in fresh_tasks:
                 raise InvalidRequest("the acceptance packet does not authorize this task", code="TASK_SCOPE")
             task, fresh = old_tasks[tid], fresh_tasks[tid]
             if any(task[k] != fresh[k] for k in ("target", "kind", "role", "action")):
-                raise ConflictError("assignment task changed", records=[{"task_id": tid}])
+                raise changed("assignment task changed", records=[{"task_id": tid}])
             changes = task_binding_changes(state, task, evidence_refs=plan["evidence"].get(tid, ()),
                                            packet=original)
             if changes["records"] or changes["relations"]:
-                raise ConflictError("consumed mathematical inputs changed", records=[{"task_id": tid, **changes}])
+                raise changed("consumed mathematical inputs changed", records=[{"task_id": tid, **changes}])
             current = task_binding_changes(state, fresh, packet=active)
             if current["records"] or current["relations"]:
-                raise ConflictError("acceptance context changed", records=[{"task_id": tid, **current}])
+                raise changed("acceptance context changed", records=[{"task_id": tid, **current}])
         original_pins = {_key(r): r for r in original["read_set"]}
         for ref in plan.get("auxiliary", []):
             _reference(ref, active, where="auxiliary evidence acceptance context")
@@ -419,14 +445,15 @@ def _freshness(original, active, plan):
                     or facet_digests(ref["collection"], before.body)[facet]
                     != facet_digests(ref["collection"], now.body)[facet]
                     or ("version" in ref and now.version != ref["version"])):
-                raise ConflictError("auxiliary evidence changed", records=[ref])
+                raise changed("auxiliary evidence changed", records=[ref])
         # The explicit task comparison above replaces whole-assignment version guards.
         # The acceptance kernel still checks write versions and the original source digest.
         return {**manifest, "read_set": [], "membership_guards": []}
     return check
 
 
-def _failure(exc, *, request_id=None, stored=False, prior_submission=False, other_command=False):
+def _failure(exc, *, request_id=None, stored=False, prior_submission=False, other_command=False,
+             input_part=None):
     if prior_submission:
         actions = ["inspect the earlier work submission for this request ID; use a new request ID for changed input"]
     elif other_command:
@@ -436,25 +463,62 @@ def _failure(exc, *, request_id=None, stored=False, prior_submission=False, othe
                    "identical input with the same request ID returns this saved receipt; use a new request ID for corrected input or a rebase"]
     else:
         actions = ["correct setup or bounded input; this call did not reserve a new request ID"]
+    recovery = None
+    if not prior_submission and not other_command:
+        if isinstance(exc.retry, dict) and exc.retry.get("operation"):
+            recovery = exc.retry
+        elif input_part == "envelope":
+            recovery = {"operation": "correct_envelope", "reason_code": exc.code,
+                        "message": "Correct the coordinator envelope; preserve worker response bytes and actual provenance."}
+        elif input_part == "provenance":
+            recovery = {"operation": "verify_provenance", "reason_code": exc.code,
+                        "message": "Verify the actual reviewer, qualification and exposure; do not change identity merely to pass validation."}
+        elif input_part == "assignment":
+            recovery = {"operation": "inspect_assignment", "reason_code": exc.code,
+                        "message": "Inspect the named assignment and authorization before changing the submission."}
+        elif isinstance(exc, ConflictError):
+            recovery = {"operation": "inspect_changed_inputs", "reason_code": exc.code,
+                        "message": "Inspect the changed inputs or write versions; preserve unaffected reasoning and renew only affected examinations."}
+        elif input_part in ("worker_response", "acceptance"):
+            recovery = {"operation": "author_response_correction", "reason_code": exc.code,
+                        "message": "Have the response author address the named issue using the supplied guidance; preserve the original response."}
+        if recovery:
+            actions[0] = recovery["message"] + " " + actions[0]
     return {"request_id": request_id, "stored": stored,
             "state": "conflict" if isinstance(exc, ConflictError) else "needs_revision",
             "committed_revision": None, "receipt": None, "record_map": {}, "remaining_task_ids": [],
             "diagnostics": exc.records[:DIAGNOSTIC_LIMIT] or [exc.message],
             "next_actions": actions,
+            "recovery": [dict(recovery, request_id=request_id)] if recovery else [],
             "exit_code": exc.exit_code, **exc.to_json()}
+
+
+def _pairing_failure(exc, envelope, response_bytes):
+    """Retain neutral supplied identities even when provenance rejects first."""
+    if not isinstance(envelope, dict) or not valid_id(envelope.get("packet_id")):
+        return
+    try:
+        worker = _parse(response_bytes, "worker response")
+    except CoreError:
+        return
+    if isinstance(worker, dict) and valid_id(worker.get("packet_id")) and worker["packet_id"] != envelope["packet_id"]:
+        exc.retry = packet_pairing_recovery(envelope["packet_id"], worker["packet_id"])
 
 
 def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
     """Retain input, then atomically register this explicit subset. Never dispatch or retry."""
     envelope = None
     prior_submission = other_command = False
+    input_part = "envelope"
     try:
         if not db.write:
             raise InvalidRequest("work submission needs a writable database")
         for name, raw, limit in (("envelope", envelope_bytes, ENVELOPE_LIMIT),
                                  ("response", response_bytes, RESPONSE_LIMIT)):
+            input_part = "envelope" if name == "envelope" else "worker_response"
             if not isinstance(raw, bytes) or len(raw) > limit:
                 raise InvalidRequest(f"{name} must be bytes within {limit} bytes", code="INPUT_TOO_LARGE")
+        input_part = "envelope"
         envelope = _parse(envelope_bytes, "envelope")
         _shape(WORK_SUBMISSION, envelope, "coordinator envelope")
         if not valid_id(envelope["request_id"]):
@@ -477,11 +541,14 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                 if db.commit_by_request(request_id) is not None:
                     other_command = True
                     raise InvalidRequest("request ID belongs to another command", code="REQUEST_ID_REUSED")
+                input_part = "assignment"
                 original = _packet(db, envelope["packet_id"])["manifest"]
+                input_part = "provenance"
                 _provenance(db, envelope, original)
                 if envelope["rebase_packet_id"]:
+                    input_part = "assignment"
                     active = _packet(db, envelope["rebase_packet_id"])["manifest"]
-                    _validate_rebase(original, active)
+                    _validate_submission_rebase(original, active, response_bytes)
                 db.insert_work_submission(request_id=request_id, request_digest=request_digest,
                                           packet_id=envelope["packet_id"], audit_id=original["work"]["audit_id"],
                                           role=original["mode"], envelope_bytes=envelope_bytes,
@@ -491,10 +558,13 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
             db.rollback()
             raise
     except CoreError as exc:
+        if not prior_submission and not other_command and isinstance(response_bytes, bytes) and len(response_bytes) <= RESPONSE_LIMIT:
+            _pairing_failure(exc, envelope, response_bytes)
         return _failure(exc, request_id=envelope.get("request_id") if isinstance(envelope, dict) else None,
-                        prior_submission=prior_submission, other_command=other_command)
+                        prior_submission=prior_submission, other_command=other_command, input_part=input_part)
 
     try:
+        input_part = "worker_response"
         worker = _parse(response_bytes, "worker response")
         db.begin_immediate()
         try:
@@ -503,12 +573,18 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                 result = _stored_result(previous)
                 db.rollback()
                 return result
+            input_part = "assignment"
             original = _packet(db, envelope["packet_id"])["manifest"]
             active = _packet(db, envelope["rebase_packet_id"] or envelope["packet_id"])["manifest"]
-            _validate_rebase(original, active)
+            _validate_submission_rebase(original, active, response_bytes)
+            input_part = "provenance"
             _provenance(db, envelope, original)
-            if not isinstance(worker, dict) or worker.get("packet_id") != envelope["packet_id"]:
-                raise InvalidRequest("worker response must name its original packet", code="PACKET_MISMATCH")
+            input_part = "worker_response"
+            if not isinstance(worker, dict) or not valid_id(worker.get("packet_id")):
+                raise InvalidRequest("worker response must be an object naming a valid original packet ID")
+            if worker["packet_id"] != envelope["packet_id"]:
+                raise InvalidRequest("submission and worker response name different packets", code="PACKET_MISMATCH",
+                                     retry=packet_pairing_recovery(envelope["packet_id"], worker["packet_id"]))
             mode = original["mode"]
             if mode == "primary":
                 plan = _primary_plan(db, envelope, original, active, worker)
@@ -516,6 +592,7 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                 plan = _review_plan(db, envelope, original, worker, response_bytes)
             else:
                 plan = _reconcile_plan(db, envelope, original, worker)
+            input_part = "acceptance"
             receipt = accept_in_transaction(
                 db, request_id=request_id, request_digest=request_digest, packet_id=active["packet_id"],
                 edits=plan["edits"], command=plan["command"], blobs=plan["blobs"],
@@ -539,8 +616,18 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
                       "next_actions": ["prepare current remaining work"] if remaining else ["inspect next work"],
                       "exit_code": 0}
             if mode == "independent":
+                from .review import mapping_input_changes, response_recovery
                 result.update(response_id=plan["response_id"],
-                              pending=[{"judgment_index": i, "reason": r} for i, r in plan["pending"]])
+                              pending=[{"judgment_index": i, "reason": r} for i, r in plan["pending"]],
+                              judgment_diagnostics=plan["judgment_diagnostics"][:DIAGNOSTIC_LIMIT],
+                              diagnostic_details=plan["diagnostic_details"][:DIAGNOSTIC_LIMIT])
+                recovery_facts = {**plan, "packet_id": original["packet_id"]}
+                if plan["pending"]:
+                    recovery_facts["mapping_input_changes"] = mapping_input_changes(db, original)
+                result["recovery"] = response_recovery(recovery_facts,
+                                                       complete=True, limit=DIAGNOSTIC_LIMIT)
+                if result["recovery"]:
+                    result["next_actions"] = [entry["message"] for entry in result["recovery"]]
             db.finalize_work_submission(request_id, state=result["state"], result=result,
                                         committed_revision=receipt["revision"])
             db.commit()
@@ -549,7 +636,8 @@ def submit_work(db, *, envelope_bytes: bytes, response_bytes: bytes) -> dict:
             db.rollback()
             raise
     except CoreError as exc:
-        result = _failure(exc, request_id=request_id, stored=True)
+        _pairing_failure(exc, envelope, response_bytes)
+        result = _failure(exc, request_id=request_id, stored=True, input_part=input_part)
         db.begin_immediate()
         try:
             previous = db.work_submission(request_id)
@@ -598,7 +686,7 @@ def response_scaffold(manifest):
 
 
 def _assignment_assistance(db, result, *, assessed=None):
-    from .assistance import coordinator_guidance, skeleton, worker_guidance
+    from .assistance import coordinator_guidance, primary_task_table, skeleton, worker_guidance
     manifest = result["manifest"]
     mode = manifest["mode"]
     result["initial_request_id"] = initial_request_id(manifest)
@@ -608,6 +696,8 @@ def _assignment_assistance(db, result, *, assessed=None):
     result["submission_envelope_template"] = envelope
     result["worker_guidance"] = worker_guidance(mode, composition=any(
         task["kind"] == "composition" for task in manifest.get("work", {}).get("tasks", ())))
+    if mode == "primary":
+        result["worker_guidance"]["task_table"] = primary_task_table(db, manifest)
     result["coordinator_guidance"] = coordinator_guidance(db, manifest, assessed=assessed)
     result["worker_delivery_files"] = ["worker-packet.json", "response-scaffold.json", "worker-guidance.json"]
     if mode == "reconcile":
@@ -642,31 +732,141 @@ def prepare_work(db, *, audit_id, mode, focus=None, task_ids=(), exclude_task_id
         prepared = prepare_route_assignment(db, audit_id=audit_id, route_id=route_id, max_bytes=max_bytes)
         return _assist(db, prepared)
     view, assessed = derive_work(db, audit_id=audit_id, focus=focus, include_assessment=True)
+    return prepare_assessed_work(db, audit_id=audit_id, mode=mode, view=view, assessed=assessed,
+        focus=focus, task_ids=task_ids, exclude_task_ids=exclude_task_ids, max_units=max_units,
+        max_bytes=max_bytes, allow_provisional=allow_provisional)
+
+
+def prepare_assessed_work(db, *, audit_id, mode, view, assessed, focus=None, task_ids=(), exclude_task_ids=(),
+                          candidate_task_ids=None, max_units=5, max_bytes=131072, allow_provisional=False):
+    """Prepare using the same assessed revision that supplied a scheduling boundary."""
+    if mode not in ("primary", "independent", "reconcile"):
+        raise InvalidRequest("unknown assignment mode")
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 1048576:
+        raise InvalidRequest("max_bytes must be between 1 and 1048576")
     selection = select_assignment(view, {"mode": mode, "focus": focus, "task_ids": list(task_ids),
                                         "exclude_task_ids": list(exclude_task_ids), "max_units": max_units,
+                                        "candidate_task_ids": candidate_task_ids,
                                         "allow_provisional": allow_provisional})
     if not selection.get("prepared"):
         return {"revision": view["revision"], "audit_id": audit_id, "mode": mode, **selection}
     prepared = prepare_assignment(db, audit_id=audit_id, mode=mode, selection=selection, max_bytes=max_bytes)
+    if task_ids:
+        prepared["task_selection"] = selection_guidance(view, task_ids, prepared.get("assigned_task_ids", ()))
     return _assist(db, prepared, assessed=assessed)
+
+
+def _rejected_current(db, row, current):
+    """Assess the original assignment without reviving its historical rejection."""
+    manifest = _packet(db, row["packet_id"])["manifest"]
+    original = _task_map(manifest)
+    audit_id = manifest["work"]["audit_id"]
+    audit = db.latest_at("audits", audit_id, current["revision"])
+    audit_pin = manifest["work"].get("audit_ref") or next(
+        (ref for ref in manifest["read_set"] if ref["collection"] == "audits" and ref["id"] == audit_id), None)
+    before = db.version("audits", audit_id, audit_pin["version"]) if audit_pin else None
+    scope_fields = ("paper_id", "mode", "targets", "exclusions", "protocol_version", "independent_required", "global_tasks")
+    same_scope = bool(before and audit and not audit.retired and
+                      all(before.body[key] == audit.body[key] for key in scope_fields))
+    view = derive_work(db, audit_id=audit_id, revision=current["revision"]) if audit and not audit.retired else {
+        "analysis_complete": False, "tasks": []}
+    live_tasks = {task["id"]: task for task in view["tasks"]}
+    tasks, remaining, unknown = [], [], []
+    for tid, assigned in original.items():
+        live = live_tasks.get(tid)
+        relevant = bool(live and live["required"] and all(
+            live[key] == assigned[key] for key in ("target", "kind", "role", "action")))
+        if not relevant:
+            unknown.append(tid)
+        elif live["state"] != "satisfied":
+            remaining.append(tid)
+        tasks.append({"task_id": tid, "target": assigned["target"], "kind": assigned["kind"],
+            "role": assigned["role"], "state": live["state"] if live else None,
+            "required": live["required"] if live else None, "current_relevance_known": relevant,
+            "freshness": live.get("freshness") if live else None, "outcome": live.get("outcome") if live else None,
+            "judgment_refs": live.get("judgment_refs", [])[:DIAGNOSTIC_LIMIT] if live else [],
+            "judgment_count": len(live.get("judgment_refs", [])) if live else 0,
+            "blocker_ids": live.get("blocker_ids", [])[:DIAGNOSTIC_LIMIT] if live else [],
+            "blocker_count": len(live.get("blocker_ids", [])) if live else 0,
+            "recovery": live.get("recovery", []) if live else [],
+            "next_action": live.get("next_action") if live else None})
+    current.update(assigned_tasks=tasks[:DIAGNOSTIC_LIMIT], assigned_task_count=len(tasks),
+                   assigned_tasks_truncated=len(tasks) > DIAGNOSTIC_LIMIT,
+                   analysis_complete=view["analysis_complete"], assignment_scope_current=same_scope,
+                   remaining_task_ids=remaining[:DIAGNOSTIC_LIMIT], remaining_task_count=len(remaining),
+                   unknown_task_ids=unknown[:DIAGNOSTIC_LIMIT], unknown_task_count=len(unknown))
+    # Old receipts can predate typed pairing advice. Inspect only this attempt's
+    # retained identity, never infer scientific conclusions from rejected prose.
+    try:
+        worker = _parse(db.get_blob(row["response_sha256"]), "stored worker response")
+    except CoreError:
+        worker = None
+    if isinstance(worker, dict) and valid_id(worker.get("packet_id")) and worker["packet_id"] != row["packet_id"]:
+        current["recovery"] = [packet_pairing_recovery(row["packet_id"], worker["packet_id"])]
+        return
+    if not view["analysis_complete"]:
+        operation, reason = "inspect_current_evidence", "CURRENT_ANALYSIS_INCOMPLETE"
+        message = "Current work analysis is incomplete; inspect its blockers before deciding whether this saved attempt needs correction."
+    elif not same_scope or unknown or not tasks:
+        operation, reason = "inspect_current_evidence", "ASSIGNMENT_RELEVANCE_UNKNOWN"
+        message = "Inspect the original assignment against current scope and task identities; missing or changed obligations do not establish completion."
+    elif remaining:
+        operation, reason = "inspect_current_evidence", "CURRENT_ASSIGNED_WORK_REMAINS"
+        message = ("Follow the current remaining tasks and their blockers or recovery guidance; work list exposes the full current inventory. "
+                   "Use the retained diagnostics to correct saved output only where still needed; "
+                   "renew changed examination and preserve unaffected work.")
+    else:
+        operation, reason = "inspect_remaining_work", "CURRENT_ASSIGNED_WORK_SATISFIED"
+        message = ("Current evidence satisfies the original assigned required work. This historical rejection alone does not require another examination; "
+                   "inspect remaining audit work.")
+    current["recovery"] = [{"operation": operation, "reason_code": reason, "request_id": row["request_id"],
+        "message": message + " Preserve the original response and compare any unresolved scientific concerns; task completion does not resolve rejected prose."}]
 
 
 def _current(db, row):
     current = {"revision": db.max_revision()}
     result = _stored_result(row) if row["state"] != "received" else {}
+    envelope = _parse(db.get_blob(row["envelope_sha256"]), "stored envelope")
+    current["provenance"] = {key: envelope.get(key) for key in (
+        "reviewer", "qualification_id", "exposure", "exposure_note")}
+    current["recovery"] = []
     if result.get("response_id"):
+        from .review import inspect_response
         record = db.head("responses", result["response_id"])
-        current["response"] = None if record is None else {"ref": record.pinned, "state": record.body["state"]}
+        current["response"] = None if record is None else {
+            **inspect_response(db, response_id=record.id), "ref": record.pinned, "state": record.body["state"]}
+        if current["response"]:
+            current["recovery"] = current["response"].get("recovery", [])
+    elif row["state"] == "received":
+        current["recovery"] = [{"operation": "replay_saved_submission", "request_id": row["request_id"],
+            "reason_code": "INTAKE_INTERRUPTED",
+            "message": "Recover and replay the unchanged saved envelope and response with the same request ID."}]
+    elif result.get("receipt"):
+        manifest = _packet(db, row["packet_id"])["manifest"]
+        view = derive_work(db, audit_id=manifest["work"]["audit_id"])
+        states = {task["id"]: task["state"] for task in view["tasks"]}
+        tasks = [{"task_id": tid, "state": states.get(tid)} for tid in _task_map(manifest)]
+        current["assigned_tasks"] = tasks[:DIAGNOSTIC_LIMIT]
+        current["assigned_tasks_truncated"] = len(tasks) > DIAGNOSTIC_LIMIT
+        current["analysis_complete"] = view["analysis_complete"]
+        current["recovery"] = [{"operation": "inspect_remaining_work", "reason_code": "CURRENT_WORK",
+            "message": "Use current work and changed-input guidance for remaining examinations; the saved receipt remains historical."}]
+    else:
+        _rejected_current(db, row, current)
     current["written_records"] = [
         {"ref": r, "live_version": (head.version if (head := db.head(r["collection"], r["id"])) else None)}
         for r in result.get("receipt", {}).get("changed", [])
     ] if result.get("receipt") else []
+    current["next_actions"] = [entry["message"] for entry in current["recovery"]]
     return current
 
 
-def inspect_work(db, *, request_id=None, packet_id=None, audit_id=None, limit=20, cursor=None):
-    if sum(v is not None for v in (request_id, packet_id, audit_id)) != 1:
-        raise InvalidRequest("inspect needs exactly one request, packet or audit")
+def inspect_work(db, *, request_id=None, packet_id=None, response_id=None, audit_id=None, limit=20, cursor=None):
+    if sum(v is not None for v in (request_id, packet_id, response_id, audit_id)) != 1:
+        raise InvalidRequest("inspect needs exactly one request, packet, response or audit")
+    if response_id:
+        from .review import inspect_response
+        return inspect_response(db, response_id=response_id, limit=limit)
     if request_id:
         row = db.work_submission(request_id)
         if row is None:

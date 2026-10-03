@@ -18,7 +18,7 @@ from .canonical import digest, load_json_bytes, sha256_bytes
 from .contract import (BATCH, CHECK_TARGETS, EDIT_CREATE, INTERMEDIATE_KINDS, MAPPING_REQUEST, SUBMISSION, WORKER_RESPONSE, Arr, Const, RequestVersion,
                        Hash, Obj, Str, validate_body, validate_shape)
 from .errors import ConflictError, InvalidRequest
-from .ids import new_id
+from .ids import new_id, valid_id
 from .packets import independent_context_changes, load_packet
 from .storage import Database
 from .semantics import application
@@ -41,34 +41,99 @@ def _in_scope(target: dict, scope_targets: list, db_or_packet_parts) -> bool:
     return False
 
 
-def classify_judgments(manifest: dict, response: dict, packet_records: dict) -> tuple[list, list]:
-    """Split judgments into resolved (index, Ref) and pending (index, reason) per the packet read set."""
+def judgment_diagnostics(manifest: dict, response: dict, packet_records: dict) -> list:
+    """Describe every pending cause where it is detected, without parsing human-readable reasons."""
     read_set = {(r["collection"], r["id"]) for r in manifest["read_set"]}
-    resolved, pending = [], []
+    pending = []
     for index, judgment in enumerate(response["judgments"]):
         target = judgment["target"]
         problems = []
+        def problem(category, reason, **details):
+            problems.append({"category": category, "reason": reason, **details})
         if "source_anchor_id" in target:
-            problems.append(f"SourceTarget on anchor {target['source_anchor_id']} awaits mapping: "
-                            f"{target['description']}")
+            problem("source_target_mapping", f"SourceTarget on anchor {target['source_anchor_id']} awaits mapping: "
+                    f"{target['description']}")
+            if ("anchors", target["source_anchor_id"]) not in read_set:
+                problem("missing_neutral_source", f"source target anchor {target['source_anchor_id']} is not in "
+                        "the packet read set", anchor_id=target["source_anchor_id"], source_target=True)
         else:
             if target["collection"] not in CHECK_TARGETS[judgment["kind"]]:
-                problems.append(f"kind {judgment['kind']} cannot target {target['collection']}")
+                problem("wrong_target_kind", f"kind {judgment['kind']} cannot target {target['collection']}")
             if (target["collection"], target["id"]) not in read_set:
-                problems.append(f"target {target['collection']}:{target['id']} is not in the packet read set")
+                problem("target_not_in_packet", f"target {target['collection']}:{target['id']} is not in the packet read set")
             if manifest.get("review_basis") == "route_provided":
                 assigned = {(t["target"]["collection"], t["target"]["id"], t["kind"])
                             for t in manifest.get("work", {}).get("tasks", [])}
                 if (target["collection"], target["id"], judgment["kind"]) not in assigned:
-                    problems.append("target is outside the exact supplied-route assignment")
+                    problem("outside_route_assignment", "target is outside the exact supplied-route assignment")
         for anchor_id in judgment["evidence_refs"]:
             if ("anchors", anchor_id) not in read_set:
-                problems.append(f"evidence anchor {anchor_id} is not in the packet read set")
+                problem("missing_neutral_source", f"evidence anchor {anchor_id} is not in the packet read set",
+                        anchor_id=anchor_id)
         if problems:
-            pending.append((index, "; ".join(problems)))
-        else:
-            resolved.append((index, target))
+            pending.append({"judgment_index": index, "reason": "; ".join(p["reason"] for p in problems),
+                            "problems": problems})
+    return pending
+
+
+def classify_judgments(manifest: dict, response: dict, packet_records: dict) -> tuple[list, list]:
+    """Keep the historical ``(resolved, pending)`` tuple interface for callers."""
+    details = judgment_diagnostics(manifest, response, packet_records)
+    # A missing SourceTarget anchor is extra advice; this judgment was already
+    # pending for correspondence. Preserve the legacy explanation and policy.
+    pending = [(row["judgment_index"], "; ".join(p["reason"] for p in row["problems"]
+                if not p.get("source_target"))) for row in details]
+    indexes = {i for i, _ in pending}
+    resolved = [(i, row["target"]) for i, row in enumerate(response["judgments"]) if i not in indexes]
     return resolved, pending
+
+
+def _covered_scope_diagnostics(db, packet, worker, details):
+    """Add scope advice even when another problem already prevents resolution."""
+    scope = (packet.get("declared_scope") or {}).get("targets") or packet["targets"]
+    parts = _packet_parts(packet)
+    by_index = {row["judgment_index"]: row for row in details}
+    for index, judgment in enumerate(worker["judgments"]):
+        target = judgment["target"]
+        if "source_anchor_id" in target or _target_statement(db, target) is None:
+            continue
+        if _target_in_scope(db, target, scope, parts) and _target_in_scope(
+                db, target, worker["covered_targets"], parts):
+            continue
+        problem = {"category": "judgment_out_of_covered_scope",
+                   "reason": "target is outside the independent review's covered scope; the worker must resubmit"}
+        row = by_index.setdefault(index, {"judgment_index": index, "reason": "", "problems": []})
+        row["problems"].append(problem)
+        row["reason"] = "; ".join(p["reason"] for p in row["problems"])
+    return [by_index[index] for index in sorted(by_index)]
+
+
+def _review_judgment_facts(db, packet, worker):
+    """Use the same complete pending identities at intake, mapping and inspection."""
+    details = _covered_scope_diagnostics(db, packet, worker,
+        judgment_diagnostics(packet["_manifest"], worker, packet))
+    pending = []
+    for row in details:
+        problems = [problem for problem in row["problems"] if not problem.get("source_target")]
+        # Preserve the historical explanation when correspondence already failed,
+        # while retaining the additional scope cause in the complete facts.
+        ordinary = [problem for problem in problems if problem["category"] != "judgment_out_of_covered_scope"]
+        pending.append((row["judgment_index"], "; ".join(problem["reason"] for problem in ordinary or problems)))
+    indexes = {index for index, _ in pending}
+    resolved = [(index, judgment["target"]) for index, judgment in enumerate(worker["judgments"])
+                if index not in indexes]
+    return resolved, pending, details
+
+
+def mapping_input_changes(db, manifest):
+    """Current original-packet guards enforced by response mapping."""
+    from .acceptance import _guard_changes, _read_set_conflicts
+    from .packets import source_context_digest
+    changes = {"records": [], "relations": [], "source_context_changed": False}
+    _read_set_conflicts(db, manifest, changes["records"])
+    changes["relations"] = _guard_changes(db, manifest)
+    changes["source_context_changed"] = manifest["source_context_digest"] != source_context_digest(db)
+    return changes
 
 
 def _check_body(audit_id: str, protocol_version: str, reviewer: str, judgment: dict, target: dict,
@@ -140,6 +205,38 @@ def _audit_for(db: Database, packet: dict):
     return audit, scope
 
 
+def _worker_diagnostics(response_bytes, packet):
+    """Parse immutable worker bytes and retain independent causes in structured form."""
+    details, worker, parsed = [], None, None
+    try:
+        parsed = load_json_bytes(response_bytes)
+    except ValueError as exc:
+        details.append({"category": "worker_response_invalid_json", "reason": f"response is not valid JSON: {exc}"})
+    else:
+        errors = validate_shape(WORKER_RESPONSE, parsed)
+        if errors:
+            details.extend({"category": "worker_response_invalid_shape", "reason": f"response shape: {e}"}
+                           for e in errors)
+        else:
+            worker = parsed
+    if (isinstance(parsed, dict) and valid_id(parsed.get("packet_id"))
+            and parsed["packet_id"] != packet["packet_id"]):
+        details.append({"category": "worker_packet_mismatch",
+            "envelope_packet_id": packet["packet_id"], "worker_packet_id": parsed["packet_id"],
+            "reason": f"worker response names packet {parsed['packet_id']} but the submission names {packet['packet_id']}"})
+    if worker is not None:
+        if not valid_id(worker["packet_id"]):
+            details.append({"category": "worker_response_invalid_shape",
+                "reason": "response packet_id is not a valid identifier"})
+        scope = (packet.get("declared_scope") or {}).get("targets") or packet["targets"]
+        parts = _packet_parts(packet)
+        for target in worker["covered_targets"]:
+            if not _in_scope(target, scope, parts):
+                details.append({"category": "covered_target_out_of_scope", "target": target,
+                    "reason": f"covered target {target['collection']}:{target['id']} lies outside the declared scope"})
+    return worker, details
+
+
 def plan_review_submission(db: Database, *, submission: dict, response_bytes: bytes) -> dict:
     """Derive the existing independent intake edits without owning a transaction."""
     errors = validate_shape(SUBMISSION, submission)
@@ -174,43 +271,19 @@ def plan_review_submission(db: Database, *, submission: dict, response_bytes: by
                              f"protocol {audit.body['protocol_version']}", code="PROTOCOL_MISMATCH")
     blob_sha = sha256_bytes(response_bytes)
     request_digest = digest({"submission": submission, "response_sha256": blob_sha})
-    diagnostics, worker, resolved, pending = [], None, [], []
+    worker, diagnostic_details = _worker_diagnostics(response_bytes, packet)
+    diagnostics = [row["reason"] for row in diagnostic_details]
+    resolved, pending, judgment_details = [], [], []
     covered, coverage_note, worker_exposure = [], "", {"status": "possible_exposure", "note": "response unreadable"}
-    try:
-        parsed = load_json_bytes(response_bytes)
-    except ValueError as exc:
-        diagnostics.append(f"response is not valid JSON: {exc}")
-    else:
-        shape_errors = validate_shape(WORKER_RESPONSE, parsed)
-        if shape_errors:
-            diagnostics.extend(f"response shape: {e}" for e in shape_errors)
-        else:
-            worker = parsed
     if worker is not None:
-        if worker["packet_id"] != submission["packet_id"]:
-            diagnostics.append(f"worker response names packet {worker['packet_id']} but the submission names "
-                               f"{submission['packet_id']}")
         parts = _packet_parts(packet)
         scope_targets = scope.get("targets") or packet["targets"]
-        for target in worker["covered_targets"]:
-            if not _in_scope(target, scope_targets, parts):
-                diagnostics.append(f"covered target {target['collection']}:{target['id']} lies outside the declared "
-                                   "scope")
         covered = [t for t in worker["covered_targets"] if _in_scope(t, scope_targets, parts)]
         coverage_note = worker["coverage_note"]
         worker_exposure = worker["exposure_report"]
+        facts_resolved, facts_pending, judgment_details = _review_judgment_facts(db, packet, worker)
         if not diagnostics:
-            resolved, pending = classify_judgments(manifest, worker, packet)
-            scoped = []
-            for index, target in resolved:
-                if (_target_in_scope(db, target, scope_targets, parts)
-                        and _target_in_scope(db, target, covered, parts)):
-                    scoped.append((index, target))
-                else:
-                    pending.append((index, "target is outside the independent review's covered scope; "
-                                           "the worker must resubmit"))
-            resolved = scoped
-            pending.sort(key=lambda entry: entry[0])
+            resolved, pending = facts_resolved, facts_pending
     review_basis = manifest.get("review_basis", "source_only")
     if submission["exposure"] == review_basis and worker_exposure["status"] == "none_known":
         exposure, exposure_note = review_basis, submission["exposure_note"]
@@ -240,7 +313,8 @@ def plan_review_submission(db: Database, *, submission: dict, response_bytes: by
     warnings = list(diagnostics) + [f"judgment {i}: {reason}" for i, reason in pending]
     return {"request_digest": request_digest, "edits": edits, "blobs": [response_bytes],
             "annotations": annotations, "warnings": warnings, "response_id": response_id,
-            "state": state, "exposure": exposure, "pending": pending, "diagnostics": diagnostics}
+            "state": state, "exposure": exposure, "pending": pending, "diagnostics": diagnostics,
+            "judgment_diagnostics": judgment_details, "diagnostic_details": diagnostic_details}
 
 
 def submit_review(db: Database, *, submission: dict, response_bytes: bytes) -> dict:
@@ -260,7 +334,8 @@ def submit_review(db: Database, *, submission: dict, response_bytes: bytes) -> d
     return {"receipt": receipt, "response_id": response_id, "state": stored.body["state"] if stored else state,
             "exposure": stored.body["exposure"] if stored else exposure, "checks": check_list,
             "pending": [{"judgment_index": i, "reason": r} for i, r in pending],
-            "diagnostics": diagnostics}
+            "diagnostics": diagnostics, "judgment_diagnostics": planned["judgment_diagnostics"],
+            "diagnostic_details": planned["diagnostic_details"]}
 
 
 def _mapped_indexes(db: Database, response_id: str) -> set:
@@ -273,6 +348,222 @@ def _mapped_indexes(db: Database, response_id: str) -> set:
             if match and entry["new_refs"]:
                 mapped.add(int(match.group(1)))
     return mapped
+
+
+def inspect_response(db: Database, *, response_id: str, limit: int = 100) -> dict:
+    """Read current recovery facts without modifying receipts, responses or evidence.
+
+    Detailed rows are bounded. Category counts summarize all pending judgments,
+    so a blocker beyond the displayed page cannot turn into mapping-only advice.
+    """
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise InvalidRequest("response inspection limit must be between 1 and 100")
+    def bounded_changes(changes):
+        if changes is None:
+            return None
+        records, relations = changes.get("records", []), changes.get("relations", [])
+        return {**changes, "records": records[:limit], "relations": relations[:limit],
+                "record_count": len(records), "relation_count": len(relations),
+                "truncated": len(records) > limit or len(relations) > limit}
+    response = db.head("responses", response_id)
+    if response is None or response.retired:
+        raise InvalidRequest(f"response {response_id} is not a live record", code="RESPONSE_UNKNOWN")
+    body = response.body
+    packet = load_packet(db, body["packet_id"])
+    raw = db.get_blob(body["original_blob"])
+    if raw is None:
+        worker, details = None, [{"category": "worker_response_unavailable", "reason": "Original worker bytes are missing."}]
+    else:
+        worker, details = _worker_diagnostics(raw, packet)
+    judgment_rows = [] if worker is None else _review_judgment_facts(db, packet, worker)[2]
+    original = db.versions_of("responses", response_id)[0]
+    original_commit = db.conn.execute("SELECT request_id FROM commits WHERE revision = ?", (original.revision,)).fetchone()
+    mapped, check_rows = _mapped_indexes(db, response_id), []
+    check_indexes = {}
+    # Judgment annotations are immutable receipt facts, including automatically
+    # resolved judgments and later mappings. Never infer an index from prose.
+    receipts = {}
+    for row in db.conn.execute("""SELECT id, MIN(revision) AS revision FROM record_versions
+            WHERE collection = 'checks' AND json_extract(body_json, '$.response_id') = ? GROUP BY id""", (response_id,)):
+        if row["revision"] not in receipts:
+            saved = db.conn.execute("SELECT receipt_json FROM commits WHERE revision = ?", (row["revision"],)).fetchone()
+            receipts[row["revision"]] = load_json_bytes(saved[0].encode("utf-8"))
+        indexes = [changed["judgment_index"] for changed in receipts[row["revision"]]["changed"]
+                   if changed["collection"] == "checks" and changed["id"] == row["id"]
+                   and "judgment_index" in changed]
+        check_indexes[row["id"]] = indexes[0] if indexes else None
+        mapped.update(indexes)
+    from .assessment import derive_full, key_of
+    from .validation import State
+    derivation, assessed = derive_full(db, audit_id=body["audit_id"])
+    current_obligations = {row["id"]: row for row in assessed["obligations"]}
+    assigned_tasks = []
+    for task in packet["_manifest"].get("work", {}).get("tasks", []):
+        current = current_obligations.get(task["id"])
+        assigned_tasks.append({"task_id": task["id"], "target": task["target"], "kind": task["kind"],
+            "role": task["role"], "current": None if current is None else
+                {key: current[key] for key in ("required", "state", "satisfied", "freshness", "outcome", "check_refs")}})
+    context_changes = independent_context_changes(State(db, []), packet["_manifest"])
+    stale_refs = []
+    for check_id, index in check_indexes.items():
+        check = db.head("checks", check_id)
+        if check is None or check.retired:
+            check_rows.append({"check_id": check_id, "judgment_index": index, "retired": True,
+                               "eligible_independent_evidence": False})
+            continue
+        info = dict(derivation.judgment_info(check))
+        changes = derivation.judgment_changes.get(key_of(check.pinned))
+        basis_usable = derivation.independent_usable(info)
+        eligible = (info["state"] == "complete" and info["substantive"] and info["freshness"] == "current"
+                    and not info["superseded"] and basis_usable)
+        if changes and not info["superseded"]:
+            stale_refs.append(check.pinned)
+        check_rows.append({**info, "judgment_index": index, "changes": bounded_changes(changes),
+                           "independence_basis_usable": basis_usable, "eligible_independent_evidence": eligible})
+    pending = [row for row in judgment_rows if row["judgment_index"] not in mapped]
+    pending_indexes = sorted(set(range(len(worker["judgments"]))) - mapped) if worker else []
+    mapping_changes = {"records": [], "relations": [], "source_context_changed": False}
+    if pending_indexes:
+        # Mapping still enforces the original packet's raw guards, including
+        # older direct-review packets with no neutral work-context binding.
+        mapping_changes = mapping_input_changes(db, packet["_manifest"])
+    categories = {}
+    for row in pending:
+        for problem in row["problems"]:
+            categories.setdefault(problem["category"], set()).add(row["judgment_index"])
+    qualification = db.head("qualifications", body["qualification_id"])
+    info = {"revision": db.max_revision(), "response_id": response_id, "response_ref": response.pinned,
+        "packet_id": body["packet_id"], "audit_id": body["audit_id"], "state": body["state"],
+        "original_request_id": original_commit["request_id"], "original_response_ref": original.pinned,
+        "original_blob_sha256": body["original_blob"], "reviewer": body["reviewer"],
+        "qualification_id": body["qualification_id"],
+        "qualification": None if qualification is None or qualification.retired else
+            {"ref": qualification.pinned, **qualification.body},
+        "exposure": body["exposure"], "exposure_note": body["exposure_note"],
+        "judgment_count": 0 if worker is None else len(worker["judgments"]),
+        "mapped_judgment_indexes": sorted(mapped)[:limit], "mapped_judgment_count": len(mapped),
+        "pending_judgment_indexes": pending_indexes[:limit], "pending_judgment_count": len(pending_indexes),
+        "judgment_diagnostics": pending[:limit], "diagnostic_details": details[:limit],
+        "diagnostic_categories": sorted({row["category"] for row in details}),
+        "problem_summary": [{"category": category, "judgment_indexes": sorted(indexes)[:limit],
+                             "judgment_count": len(indexes)} for category, indexes in sorted(categories.items())],
+        "context_changes": bounded_changes(context_changes), "mapping_input_changes": bounded_changes(mapping_changes),
+        "stale_check_refs": stale_refs[:limit],
+        "stale_check_count": len(stale_refs), "checks": check_rows[:limit], "check_count": len(check_rows),
+        "eligible_independent_check_count": sum(row["eligible_independent_evidence"] for row in check_rows),
+        "assigned_task_statuses": assigned_tasks[:limit], "assigned_task_count": len(assigned_tasks),
+        "details_limit": limit, "details_truncated": any(len(rows) > limit for rows in
+            (mapped, pending_indexes, pending, details, check_rows, stale_refs, assigned_tasks))}
+    # Recovery needs complete overlapping causes. Public rows above are only a
+    # bounded view and cannot establish that a displayed candidate has no blocker.
+    info["recovery"] = response_recovery({
+        **{key: info[key] for key in ("packet_id", "response_id", "state", "exposure",
+                                     "stale_check_count", "eligible_independent_check_count")},
+        "judgment_diagnostics": pending, "diagnostic_details": details,
+        "context_changes": context_changes, "mapping_input_changes": mapping_changes,
+    }, complete=True, limit=limit)
+    return info
+
+
+def packet_pairing_recovery(envelope_packet_id, worker_packet_id) -> dict:
+    """A pair of valid, conflicting identities does not identify the faulty input."""
+    return {"operation": "inspect_assignment", "reason_code": "PACKET_MISMATCH",
+        "envelope_packet_id": envelope_packet_id, "worker_packet_id": worker_packet_id,
+        "message": "Compare the saved assignment, delivery artifacts and actual provenance to resolve the conflicting packet identities. "
+                   "If the envelope is wrong, correct it with a fresh request ID and preserve worker bytes; "
+                   "if the authored response is wrong, obtain its author's correction. Do not choose a packet by folder name or recency."}
+
+
+def response_recovery(info: dict, *, complete: bool = False, limit: int = 100) -> list:
+    """Derive remedies only from explicitly complete facts, then bound their display.
+
+    Intake plans and internal inspection facts are complete. Public inspection
+    rows may be shortened; callers must not reconstruct eligibility from them.
+    Advice never grants evidence eligibility.
+    """
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise InvalidRequest("recovery limit must be between 1 and 100")
+    if complete is not True or info.get("details_truncated"):
+        return [{"operation": "inspect_saved_response", "reason_code": "incomplete_recovery_facts",
+            "message": "Inspect the saved response for recovery based on complete current facts; shortened diagnostics do not establish safe mapping indexes.",
+            "judgment_indexes": [], "judgment_count": 0, "judgment_indexes_truncated": False,
+            **{key: info[key] for key in ("packet_id", "response_id") if key in info}}]
+    actions = []
+    summary = {row["category"]: {**row, "judgment_indexes": list(row["judgment_indexes"])}
+               for row in info.get("problem_summary", [])}
+    categories = set(summary) | set(info.get("diagnostic_categories", ()))
+    categories.update(row["category"] for row in info.get("diagnostic_details", []))
+    # Also accept unbounded intake diagnostics before a response has been stored.
+    for row in info.get("judgment_diagnostics", []):
+        for problem in row["problems"]:
+            category = problem["category"]
+            categories.add(category)
+            if category not in summary:
+                summary[category] = {"judgment_indexes": []}
+            if row["judgment_index"] not in summary[category]["judgment_indexes"]:
+                summary[category]["judgment_indexes"].append(row["judgment_index"])
+    def action(operation, reason_code, message, causes=(), *, indexes=None):
+        if indexes is None:
+            indexes = sorted({index for category in causes for index in summary.get(category, {}).get("judgment_indexes", [])})
+        actions.append({"operation": operation, "reason_code": reason_code, "message": message,
+            "judgment_indexes": indexes[:limit], "judgment_count": len(indexes),
+            "judgment_indexes_truncated": len(indexes) > limit,
+            **{key: info[key] for key in ("packet_id", "response_id") if key in info}})
+    mapping = {"source_target_mapping", "target_not_in_packet"} & categories
+    pairing = next((row for row in info.get("diagnostic_details", [])
+                    if row["category"] == "worker_packet_mismatch"), None)
+    pairing_unresolved = "worker_packet_mismatch" in categories
+    if pairing_unresolved:
+        pair = packet_pairing_recovery((pairing or {}).get("envelope_packet_id", info.get("packet_id")),
+                                       (pairing or {}).get("worker_packet_id"))
+        action(pair.pop("operation"), pair.pop("reason_code"), pair.pop("message"))
+        actions[-1].update({key: value for key, value in pair.items() if valid_id(value)})
+    corrections = categories & {"wrong_target_kind", "worker_response_invalid_json", "worker_response_invalid_shape"}
+    if not pairing_unresolved:
+        corrections |= categories & {"outside_route_assignment", "judgment_out_of_covered_scope", "covered_target_out_of_scope"}
+    changes = info.get("context_changes") or {}
+    changed = bool(changes.get("records") or changes.get("relations") or info.get("stale_check_count"))
+    mapping_changes = info.get("mapping_input_changes") or {}
+    mapping_blocked = bool(mapping_changes.get("records") or mapping_changes.get("relations")
+                           or mapping_changes.get("source_context_changed"))
+    if changed and not pairing_unresolved:
+        action("inspect_current_evidence", "changed_scientific_inputs",
+            "Inspect current obligations and applicable replacement reviews first. Renew affected examination only where current required evidence is still missing; preserve and compare unresolved concerns in this saved response.")
+    elif mapping_blocked and not pairing_unresolved:
+        action("inspect_current_evidence", "original_mapping_inputs_changed",
+            "Inspect original packet changes, current obligations and applicable replacement reviews. Existing guards prevent mapping this unchanged response; renew affected examination only where current required evidence is still missing.")
+    if corrections:
+        action("author_response_correction", "worker_authored_response_problem",
+            "Obtain an authored correction for the identified response fields or scope; retain the original response.", corrections)
+    if "missing_neutral_source" in categories and not pairing_unresolved:
+        action("extend_neutral_source", "missing_neutral_source",
+            "Capture the missing source and extend the neutral context; the examiner must examine it and author a response for the extended packet.",
+            ("missing_neutral_source",))
+    if info.get("exposure") == "compromised":
+        action("obtain_independent_review", "compromised_independence",
+            "Preserve this response and obtain a genuinely separate independent examination with actual provenance.")
+    if "worker_response_unavailable" in categories:
+        action("recover_original_response", "worker_response_unavailable", "Recover the exact original worker bytes before further integration.")
+    global_blockers = {row["category"] for row in info.get("diagnostic_details", [])} | set(info.get("diagnostic_categories", ()))
+    blocked_indexes = {index for category in corrections | {"missing_neutral_source"}
+                       for index in summary.get(category, {}).get("judgment_indexes", [])}
+    mappable = sorted({index for category in mapping for index in summary.get(category, {}).get("judgment_indexes", [])}
+                      - blocked_indexes)
+    if mappable and not pairing_unresolved and not changed and not mapping_blocked and not global_blockers:
+        action("map_saved_response", "source_target_correspondence",
+            "Map these saved unchanged judgments to their source-backed targets. Other unresolved judgments keep the whole response pending.",
+            indexes=mappable)
+    if not actions and info.get("state") == "accepted":
+        if info.get("eligible_independent_check_count", 0):
+            action("inspect_reconciliation", "current_independent_evidence",
+                "Compare the current independent evidence with primary work and inspect required reconciliation and remaining audit work.")
+        else:
+            action("inspect_remaining_work", "accepted_response_not_completion",
+                "Inspect remaining audit work and check eligibility; response acceptance alone does not establish a current completed examination.")
+    elif not actions and info.get("state") == "needs_revision":
+        action("inspect_saved_response", "unresolved_saved_response",
+            "Inspect the retained response and its current diagnostics before commissioning more work.")
+    return actions
 
 
 def map_response(db: Database, *, mapping: dict) -> dict:
@@ -325,7 +616,7 @@ def map_response(db: Database, *, mapping: dict) -> dict:
         raise InvalidRequest("the original response's packet or covered scope is invalid; the worker must resubmit",
                              code="RESPONSE_SCOPE")
     mapping_read_set = {(r["collection"], r["id"]) for r in packet_row["manifest"]["read_set"]}
-    _, pending = classify_judgments(original_packet["_manifest"], worker, original_packet)
+    resolved, pending, _ = _review_judgment_facts(db, original_packet, worker)
     pending_indexes = {i for i, _ in pending}
     already = _mapped_indexes(db, response.id)
     mapped_targets = set()
@@ -335,7 +626,7 @@ def map_response(db: Database, *, mapping: dict) -> dict:
                 match = JUDGMENT_KEY_RE.match(entry["old"])
                 if match:
                     mapped_targets.update((int(match.group(1)), r["collection"], r["id"]) for r in entry["new_refs"])
-    for index, target in classify_judgments(original_packet["_manifest"], worker, original_packet)[0]:
+    for index, target in resolved:
         mapped_targets.add((index, target["collection"], target["id"]))
     audit = db.head("audits", response.body["audit_id"])
     if audit is None:
@@ -470,5 +761,5 @@ def record_qualification(db: Database, *, receipt: dict) -> dict:
                   edits=receipt["edits"], command="qualification", blobs=blobs)
 
 
-__all__ = ["QUALIFICATION_REQUEST", "classify_judgments", "compare", "map_response", "reconcile",
-           "record_qualification", "submit_review"]
+__all__ = ["QUALIFICATION_REQUEST", "classify_judgments", "judgment_diagnostics", "inspect_response", "response_recovery", "packet_pairing_recovery",
+           "compare", "map_response", "reconcile", "record_qualification", "submit_review"]
