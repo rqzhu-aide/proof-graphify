@@ -1,0 +1,7 @@
+{
+  "canary_id": "bounded-drift",
+  "argument_status": "invalid",
+  "statement_status": "refuted",
+  "defect_lines": [14, 15, 16],
+  "justification": "The iterated bound in lines 12-13 is valid, but the sentence in lines 14-16 incorrectly infers bounded partial products from factors tending to one. Here the product is exactly (2/1)(3/2)...((m+1)/m) = m+1, so it exceeds 2 when m >= 2 and is unbounded. The exact counterexample x_n = n has x_1 = 1 and satisfies 0 <= x_{n+1} = (1 + 1/n)x_n for every n, yet x_3 = 3 and its supremum is infinite. This refutes the stated bound as well as the written argument."
+}

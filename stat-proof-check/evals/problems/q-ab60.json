@@ -1,0 +1,15 @@
+{
+  "case_id": "q-ab60",
+  "title": "Proof audit exercise",
+  "source": "Lemma L1, conclusion L1.C001.\nIf x is real and |x|<=1, then x^2<=1.\nProof. Squaring the nonnegative inequality |x|<=1 gives |x|^2<=1, and |x|^2=x^2.\nTheorem T1, conclusion T1.C001.\nFor every real x, x^2<=1.\nProof. Apply Lemma L1 to this arbitrary real x; its conclusion is exactly the desired assertion.",
+  "conclusions": [
+    {
+      "conclusion_id": "L1.C001",
+      "claim": "If |x|<=1 then x^2<=1"
+    },
+    {
+      "conclusion_id": "T1.C001",
+      "claim": "For every real x, x^2<=1"
+    }
+  ]
+}

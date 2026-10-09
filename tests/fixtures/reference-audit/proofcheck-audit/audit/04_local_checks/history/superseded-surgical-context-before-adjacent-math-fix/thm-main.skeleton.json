@@ -1,0 +1,259 @@
+{
+  "schema_version": 5,
+  "evidence_contract_version": 5,
+  "unit_id": "thm:main",
+  "source": {
+    "file": "../00_sources/project/paper.tex",
+    "start_line": 26,
+    "end_line": 30,
+    "unit_sha256": "5308916e39da1b6e4cc0d2dae699c8cbb2d6db1e31fb03774b9611bb24553b28",
+    "coverage_mode": "proof_with_separate_statement",
+    "separate_statement_reason": "The theorem statement occupies lines 20-24 while its proof environment occupies lines 26-30; the statement span is locked separately as the contract anchor."
+  },
+  "source_lines": [
+    {
+      "line": 26,
+      "sha256": "876233b8a03f24d0857a26d052957e71a7978dbe28514f9de6cd46217ef0121b",
+      "text": "\\begin{proof}"
+    },
+    {
+      "line": 27,
+      "sha256": "449e3725a54dcb02c9928cbf3d8ab8cdefc5fe48155ce83d9b3b128717ec60b8",
+      "text": "By Lemma~\\ref{lem:growing-max},"
+    },
+    {
+      "line": 28,
+      "sha256": "a95a53f6c76759cce7809a87966d578790b441a84cd1c3448af02df65e72b536",
+      "text": "$\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability."
+    },
+    {
+      "line": 29,
+      "sha256": "7c50e26061b9b5c4822bda7dcf0f04d06df37fb0d4e410e846737ffe0cb6aa57",
+      "text": "Hence $\\hat\\theta_n - \\theta_0 \\to 0$ in probability, which is the claim."
+    },
+    {
+      "line": 30,
+      "sha256": "923e6f2ceee70dab30fb38391d0660b7e80b6c7e8d2669b45bbc7fd4cb93aaa4",
+      "text": "\\end{proof}"
+    }
+  ],
+  "source_units": [
+    {
+      "id": "U001",
+      "lines": [
+        26,
+        26
+      ],
+      "kind": "non_substantive",
+      "source_sha256": "876233b8a03f24d0857a26d052957e71a7978dbe28514f9de6cd46217ef0121b",
+      "partition_evidence": "The locked line is blank, comment-only, or a proof wrapper."
+    },
+    {
+      "id": "U002",
+      "lines": [
+        27,
+        27
+      ],
+      "kind": "one_line",
+      "source_sha256": "449e3725a54dcb02c9928cbf3d8ab8cdefc5fe48155ce83d9b3b128717ec60b8",
+      "partition_evidence": "This source unit is exactly one locked physical line."
+    },
+    {
+      "id": "U003",
+      "lines": [
+        28,
+        28
+      ],
+      "kind": "one_line",
+      "source_sha256": "a95a53f6c76759cce7809a87966d578790b441a84cd1c3448af02df65e72b536",
+      "partition_evidence": "This source unit is exactly one locked physical line."
+    },
+    {
+      "id": "U004",
+      "lines": [
+        29,
+        29
+      ],
+      "kind": "one_line",
+      "source_sha256": "7c50e26061b9b5c4822bda7dcf0f04d06df37fb0d4e410e846737ffe0cb6aa57",
+      "partition_evidence": "This source unit is exactly one locked physical line."
+    },
+    {
+      "id": "U005",
+      "lines": [
+        30,
+        30
+      ],
+      "kind": "non_substantive",
+      "source_sha256": "923e6f2ceee70dab30fb38391d0660b7e80b6c7e8d2669b45bbc7fd4cb93aaa4",
+      "partition_evidence": "The locked line is blank, comment-only, or a proof wrapper."
+    }
+  ],
+  "obligation": {
+    "statement_spans": [
+      {
+        "file": "../00_sources/project/paper.tex",
+        "start_line": 20,
+        "end_line": 24,
+        "sha256": "40e3e3d37f8f13e9b4182e2934e13babfe05135f87a2b67dc8d66f18659985a6"
+      }
+    ],
+    "quantified_variables": [
+      {
+        "symbol": "n",
+        "type": "positive integer",
+        "domain": "n >= 1, n -> infinity",
+        "quantifier": "forall"
+      },
+      {
+        "symbol": "j",
+        "type": "positive integer index",
+        "domain": "1 <= j <= m_n",
+        "quantifier": "forall"
+      },
+      {
+        "symbol": "X_{n,j}",
+        "type": "real random variable",
+        "domain": "triangular array inherited from Lemma 1",
+        "quantifier": "fixed"
+      },
+      {
+        "symbol": "m_n",
+        "type": "positive integer sequence",
+        "domain": "m_n -> infinity",
+        "quantifier": "fixed"
+      },
+      {
+        "symbol": "theta_0",
+        "type": "real number",
+        "domain": "fixed true parameter",
+        "quantifier": "fixed"
+      },
+      {
+        "symbol": "hat{theta}_n",
+        "type": "real random variable",
+        "domain": "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|",
+        "quantifier": "fixed"
+      }
+    ],
+    "quantifier_scope": "For every eps > 0, the tail P(|hat{theta}_n - theta_0| > eps) tends to 0 as n -> infinity, with the estimator built from the maximum over the growing range 1 <= j <= m_n.",
+    "probability_model": "The single probability space of Lemma 1 carries the array {X_{n,j}} and hence hat{theta}_n; convergence in probability uses its measure P.",
+    "hypotheses": [
+      "The conditions of Lemma 1 hold: for each fixed j, X_{n,j} -> 0 in probability, and m_n -> infinity.",
+      "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|."
+    ],
+    "definitions": [
+      "Convergence in probability: hat{theta}_n -> theta_0 iff for every eps > 0, P(|hat{theta}_n - theta_0| > eps) -> 0."
+    ],
+    "conclusion": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+    "conclusions": [
+      {
+        "id": "C001",
+        "claim": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+        "source_spans": [
+          {
+            "file": "../00_sources/project/paper.tex",
+            "start_line": 23,
+            "end_line": 24,
+            "sha256": "8f5149d2085856785fbe08fcd3fa84fb1a2169e855c89305266294682e0bc353"
+          }
+        ],
+        "applies_under": [
+          "/quantifier_scope",
+          "/probability_model",
+          "/hypotheses/0",
+          "/hypotheses/1",
+          "/definitions/0"
+        ],
+        "normalization": {
+          "status": "checked",
+          "evidence": "The normalized claim is exactly the displayed convergence of hat{theta}_n to theta_0 in probability on lines 23-24, under Lemma 1's conditions and the displayed definition of hat{theta}_n."
+        }
+      }
+    ],
+    "uniformity": "uniform",
+    "regime": "asymptotic",
+    "constant_dependencies": [
+      "none"
+    ],
+    "context_spans": [],
+    "normalization_checks": [
+      {
+        "aspect": "quantifiers_and_domains",
+        "status": "checked",
+        "evidence": "The statement inherits Lemma 1's array indices and adds the fixed parameter theta_0 and estimator hat{theta}_n defined on lines 21-23."
+      },
+      {
+        "aspect": "probability_model",
+        "status": "checked",
+        "evidence": "The estimator is a function of the same triangular array on the same space; one measure P serves the whole statement."
+      },
+      {
+        "aspect": "hypotheses",
+        "status": "checked",
+        "evidence": "Lines 20-22 assume exactly the conditions of Lemma 1 by reference plus the displayed definition of hat{theta}_n; nothing stronger is stated."
+      },
+      {
+        "aspect": "definitions",
+        "status": "checked",
+        "evidence": "Convergence in probability carries its standard meaning; hat{theta}_n is defined explicitly in the statement."
+      },
+      {
+        "aspect": "conclusion",
+        "status": "checked",
+        "evidence": "The conclusion is exactly the displayed convergence on lines 23-24."
+      },
+      {
+        "aspect": "uniformity",
+        "status": "checked",
+        "evidence": "Through hat{theta}_n the conclusion requires control of the maximum over the growing range 1..m_n, the same uniform demand as Lemma 1's conclusion."
+      },
+      {
+        "aspect": "regime",
+        "status": "checked",
+        "evidence": "The claim is asymptotic in n; no finite-sample bound is stated."
+      },
+      {
+        "aspect": "constant_dependencies",
+        "status": "not_applicable",
+        "evidence": "The exact shift by the fixed theta_0 introduces no hidden constant."
+      }
+    ]
+  },
+  "review": {
+    "unit_status": "not_checked",
+    "conclusion_step_id": "",
+    "conclusion_results": [],
+    "contract_fidelity": "not_checked",
+    "argument_status": "not_checked",
+    "statement_status": "not_assessed",
+    "dependency_closure": "not_checked",
+    "explicit_assumptions": [],
+    "inherited_assumptions": [],
+    "direct_dependencies": [],
+    "source_reference_dispositions": [],
+    "candidate_dependency_dispositions": [],
+    "citation_dispositions": [],
+    "use_sites": [],
+    "verification_basis": [],
+    "reviewer_notes": []
+  },
+  "independent_check": {
+    "required": false,
+    "status": "not_required",
+    "independence_level": "none",
+    "challenger_verdict": "not_checked",
+    "reconciled_verdict": "not_checked",
+    "artifact": "",
+    "covered_issue_ids": [],
+    "source_snapshot_sha256": "",
+    "challenged_ledger_sha256": "",
+    "challenge_context_sha256": "",
+    "challenge_artifact_sha256": "",
+    "issue_assessments": [],
+    "generated_utc": "",
+    "disagreements": [],
+    "resolution": ""
+  },
+  "steps": []
+}

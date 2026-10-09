@@ -1,0 +1,7 @@
+{
+  "canary_id": "bounded-drift",
+  "argument_status": "invalid",
+  "statement_status": "refuted",
+  "defect_lines": [14, 15, 16],
+  "justification": "The product of (1 + 1/n) over n = 1..m telescopes to m + 1 and diverges, so the claim that it stays near 1 because the factors tend to 1 is false as written. The statement itself is refuted by the admissible equality sequence x_n = n: it satisfies x_1 = 1 and 0 <= x_{n+1} <= (1 + 1/n) x_n with equality, yet sup_n x_n is infinite rather than at most 2."
+}

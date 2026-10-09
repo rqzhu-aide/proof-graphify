@@ -1,0 +1,271 @@
+{
+  "calibration_schema_version": 2,
+  "canary_bundle": {
+    "canary_bundle_schema_version": 1,
+    "files": [
+      {
+        "file": "bounded-drift.key.json",
+        "sha256": "a9a99ef1fcc46db70ebf795e7bf332127855e0e2d38cbf594170608793df3720"
+      },
+      {
+        "file": "bounded-drift.tex",
+        "sha256": "21cb1db37353579f98db76346e32e90db6d12b5aff7b964d8a11c7d801e515b7"
+      },
+      {
+        "file": "chebyshev.key.json",
+        "sha256": "78764d6e9220f38c2ce1aaad8b557ebb5d9a7380a69fee4f1f6b62b89e6d22de"
+      },
+      {
+        "file": "chebyshev.tex",
+        "sha256": "3b557ce2869f9be249a428582ce40a34ccd0099c23ef47b4c4d74c09d3e230b8"
+      },
+      {
+        "file": "continuous-mapping.key.json",
+        "sha256": "0239dfac506b07ddf2d609478e827e9e8a032c3756cd1f3115bf26b1821ecde4"
+      },
+      {
+        "file": "continuous-mapping.tex",
+        "sha256": "28070457217d0507b90d4481442d4befcac468f3299db030f5983a3d3e0fc3f9"
+      },
+      {
+        "file": "finite-max.key.json",
+        "sha256": "3207d89bfc8b92065c26690c24f8fc81f43bc6f180bd6f14096312b9582a6b01"
+      },
+      {
+        "file": "finite-max.tex",
+        "sha256": "26995fbf9c8748a222994d4e2b0b7a991798d308125b27c3c30dbf968e999ae8"
+      },
+      {
+        "file": "index.json",
+        "sha256": "aff70e3522759adda79daf720bc20e81c13d725b46279900bedcb3876d998721"
+      },
+      {
+        "file": "signed-markov.key.json",
+        "sha256": "ac3153f7741f5d8edaa1485fa9c0d3a8f025faf77d486275ce5ac0350faf895f"
+      },
+      {
+        "file": "signed-markov.tex",
+        "sha256": "b9d7f94469371ea609221d47efd7eafb7e550ee4bb19c6a7d6b825480442fae9"
+      }
+    ],
+    "sha256": "615ccc5689483aef06c8ce9a9381a10e6b5faa738325beec6d02fda1fec5d51e"
+  },
+  "sessions": [
+    {
+      "session_id": "cal-001",
+      "graded_utc": "2026-08-29T16:04:15+00:00",
+      "checker_binding": {
+        "checker_profile_id": "reference-strong-checker",
+        "checker_configuration_id": "reference-proofcheck-configuration",
+        "checker_context_id": "reference-fresh-context-cal-001",
+        "reviewed": true,
+        "scope": "prospective_local_proof_checks",
+        "automatic_identity_verification": false,
+        "limitation": "Checker profile, configuration, and context identifiers are reviewed coordinator declarations; proofcheck.py cannot independently verify runtime checker identity. Calibration currency is the declared profile and configuration; the context identifier records only the canary-run context. A profile or configuration change requires a new balanced calibration before further local checking."
+      },
+      "audit_binding": {
+        "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+        "validator_sha256": "8511cf31533c4a7efc6b06db416af70dbc7ccf98b0d8747ba828b1f60c8850d6",
+        "preexisting_proof_artifacts": []
+      },
+      "results": [
+        {
+          "canary_id": "bounded-drift",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "bounded-drift",
+            "argument_status": "invalid",
+            "statement_status": "refuted",
+            "defect_lines": [
+              14,
+              15,
+              16
+            ],
+            "justification": "The product of (1 + 1/n) over n = 1..m telescopes to m + 1 and diverges, so the claim that it stays near 1 because the factors tend to 1 is false as written. The statement itself is refuted by the admissible equality sequence x_n = n: it satisfies x_1 = 1 and 0 <= x_{n+1} <= (1 + 1/n) x_n with equality, yet sup_n x_n is infinite rather than at most 2."
+          },
+          "response_sha256": "353900c8bb62d56beeeb9f7e0ea7b65995f4ca374036f10d80da1533de0d1a92"
+        },
+        {
+          "canary_id": "finite-max",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "finite-max",
+            "argument_status": "valid",
+            "statement_status": "established",
+            "defect_lines": [],
+            "justification": "With K fixed, the union bound over the K events {|X_{n,j}| > eps} is exact and each summand vanishes by the per-j hypothesis, so the finite sum vanishes for every eps > 0; the arbitrary eps then closes convergence in probability of the maximum. No step promotes pointwise control over a growing index set."
+          },
+          "response_sha256": "42425830544413ed008dd5576a2ae2edfa7cad3a8423d52203b9a4cccad4af66"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "session_id": "cal-reference-1.4-primary-20260904",
+      "graded_utc": "2026-09-05T01:54:01.399390+00:00",
+      "checker_binding": {
+        "checker_profile_id": "gpt-6-astra",
+        "checker_configuration_id": "proofcheck-1.4-primary",
+        "checker_context_id": "existing-context-rigor-audit-maintenance",
+        "reviewed": true,
+        "scope": "prospective_local_proof_checks",
+        "automatic_identity_verification": false,
+        "limitation": "Checker profile, configuration, and context identifiers are reviewed coordinator declarations; proofcheck.py cannot independently verify runtime checker identity. Calibration currency is the declared profile and configuration; the context identifier records only the canary-run context. A profile or configuration change requires a new balanced calibration before further local checking."
+      },
+      "audit_binding": {
+        "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+        "validator_sha256": "64fb74b608cff13236cd900c883b59cc49c4ece94f86405c53347ddd71bc1237",
+        "preexisting_proof_artifacts": [
+          {
+            "file": "audit/04_local_checks/lem-growing-max.ledger.json",
+            "sha256": "1b3614d6e1161481ca07bb1d38e937c38fd39b62651bc7916d28e15423efb393"
+          },
+          {
+            "file": "audit/04_local_checks/thm-main.ledger.json",
+            "sha256": "0d02385ce0975e381a293e6069daf143f6b5022b85bf3f881b948fd1c8d6707f"
+          }
+        ]
+      },
+      "results": [
+        {
+          "canary_id": "finite-max",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "finite-max",
+            "argument_status": "valid",
+            "statement_status": "established",
+            "defect_lines": [],
+            "justification": "For every fixed positive epsilon the event that the finite maximum exceeds epsilon is the union of K tail events. Its probability is at most their sum. Because K is fixed and each summand tends to zero, that sum tends to zero. This holds for every epsilon and is precisely convergence in probability. Independence is unnecessary."
+          },
+          "response_sha256": "38a9d2175715274d7b18429c050a5bc6a03e7d8fae4ffb7e7e74c39b482ca4cb"
+        },
+        {
+          "canary_id": "bounded-drift",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "bounded-drift",
+            "argument_status": "invalid",
+            "statement_status": "refuted",
+            "defect_lines": [
+              14,
+              15,
+              16
+            ],
+            "justification": "At lines 14-16 the proof treats convergence of individual factors to one as boundedness of the growing product. In fact the product from n=1 to m of (n+1)/n telescopes to m+1. The admissible sequence x_n=n starts at one and satisfies the recursion with equality, so its supremum is infinite and the stated bound two is false."
+          },
+          "response_sha256": "e6ff43fd8bf89a6ec8dd3ad9e37e6dc55d3dbdeca707228d6e8662142b0154b7"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "session_id": "reference-1.5-2026-09-08-fresh-qualification",
+      "graded_utc": "2026-09-08T01:21:11.285548+00:00",
+      "checker_binding": {
+        "checker_profile_id": "gpt-6-astra-inherited",
+        "checker_configuration_id": "proofcheck-1.5-inherited-settings",
+        "checker_context_id": "/root/reference_qualification",
+        "reviewed": true,
+        "scope": "prospective_local_proof_checks",
+        "automatic_identity_verification": false,
+        "limitation": "Checker profile, configuration, and context identifiers are reviewed coordinator declarations; proofcheck.py cannot independently verify runtime checker identity. Calibration currency is the declared profile and configuration; the context identifier records only the canary-run context. A profile or configuration change requires a new balanced calibration before further local checking."
+      },
+      "audit_binding": {
+        "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+        "validator_sha256": "f4bbaefb85171a6f9698d81385416e8800e1e0ee2bff9555d1e67469ab7d4bc5",
+        "preexisting_proof_artifacts": [
+          {
+            "file": "audit/04_local_checks/lem-growing-max.ledger.json",
+            "sha256": "1f1be8d6a58052e1688b3d7287ed45f034b654159afa69950fb17fae6c3683a3"
+          },
+          {
+            "file": "audit/04_local_checks/thm-main.ledger.json",
+            "sha256": "f1c6a0c89b7c15b1b9c635d29e359e2fbc0b549864ce158905a3cff2959f0ad7"
+          }
+        ]
+      },
+      "results": [
+        {
+          "canary_id": "bounded-drift",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "bounded-drift",
+            "argument_status": "invalid",
+            "statement_status": "refuted",
+            "defect_lines": [
+              14,
+              15,
+              16
+            ],
+            "justification": "The iterated bound in lines 12-13 is valid, but the sentence in lines 14-16 incorrectly infers bounded partial products from factors tending to one. Here the product is exactly (2/1)(3/2)...((m+1)/m) = m+1, so it exceeds 2 when m >= 2 and is unbounded. The exact counterexample x_n = n has x_1 = 1 and satisfies 0 <= x_{n+1} = (1 + 1/n)x_n for every n, yet x_3 = 3 and its supremum is infinite. This refutes the stated bound as well as the written argument."
+          },
+          "response_sha256": "4d8c04b94bf1461dfc2c8e245d2bfeb15e656dfc5a8dd7e9de48169fb642aafc"
+        },
+        {
+          "canary_id": "chebyshev",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "chebyshev",
+            "argument_status": "valid",
+            "statement_status": "established",
+            "defect_lines": [],
+            "justification": "The zero-mean hypothesis makes the centered deviation X_n - E[X_n] equal X_n, so Chebyshev's inequality yields exactly the bound in lines 13-14. For every fixed epsilon > 0, the variance hypothesis makes that upper bound tend to zero. The resulting vanishing tail probabilities are precisely the definition of convergence to zero in probability, establishing the stated lemma."
+          },
+          "response_sha256": "fdc42676210a4ed23b5a39a11613322739f7caa52238e32fff375414fd04a47f"
+        },
+        {
+          "canary_id": "continuous-mapping",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "continuous-mapping",
+            "argument_status": "invalid",
+            "statement_status": "not_established",
+            "defect_lines": [
+              12,
+              13,
+              14
+            ],
+            "justification": "The sentence in lines 12-14 falsely infers uniform continuity on all of R from continuity, so its single delta valid for every pair of real inputs is unjustified. For the allowed continuous map f(t) = t^2 and epsilon = 1, every delta > 0 admits a = 1/delta and b = a + delta, for which |a-b| = delta but |f(b)-f(a)| = 2 + delta^2 > 1. Thus the written proof has an invalid general assertion and does not establish its subsequent probability bound under the exact hypotheses. This example refutes the assertion about uniform continuity, not the lemma's convergence conclusion, so the statement is not established by this proof rather than refuted."
+          },
+          "response_sha256": "f06728b7cd1ddb0364a2f848f91bdb29d963a7b55cb5cb8a33cb0d87190c4ab8"
+        },
+        {
+          "canary_id": "finite-max",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "finite-max",
+            "argument_status": "valid",
+            "statement_status": "established",
+            "defect_lines": [],
+            "justification": "For each positive epsilon, the event that the maximum exceeds epsilon is the union of the K events {|X_{n,j}| > epsilon}, so the bound in lines 14-16 is valid without any independence assumption. Each probability on the right tends to zero by the stated coordinatewise convergence in probability, and the fixed finite value of K makes their sum tend to zero. Lines 19-20 therefore give exactly the stated convergence in probability."
+          },
+          "response_sha256": "faf8c25f2198e5505c558362796b2c8196b6751e9b8ef5db08b3243aef0cee0b"
+        },
+        {
+          "canary_id": "signed-markov",
+          "passed": true,
+          "reasons": [],
+          "got": {
+            "canary_id": "signed-markov",
+            "argument_status": "invalid",
+            "statement_status": "refuted",
+            "defect_lines": [
+              12
+            ],
+            "justification": "Line 12 incorrectly uses the signed expectation E[X_n] to bound the tail of |X_n|; the required nonnegative quantity would be |X_n| and its expectation is not controlled by the hypothesis. On the two-point probability space with equal probabilities, let X_n equal 1 on one point and -1 on the other for every n. Then E[X_n] = 0 for every n, but P(|X_n| > 1/2) = 1 for every n, which both violates line 12 and refutes the exact convergence conclusion."
+          },
+          "response_sha256": "78e727f659ad95bff361598366ee47c05c24d68c06e546435dbffcb5425a5e2b"
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

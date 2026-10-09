@@ -1,0 +1,11 @@
+{
+  "case_id": "q-f305",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nLet p_n be positive integers with p_n/n -> 0. Suppose real random variables R_n satisfy R_n=O_p(p_n/sqrt(n)).\nThen R_n=o_p(1).\nProof. Since p_n/n -> 0, we also have p_n/sqrt(n) -> 0.\nA stochastically bounded factor times this deterministic vanishing factor converges to zero in probability.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "R_n=o_p(1)"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "canary_id": "continuous-mapping",
+  "argument_status": "invalid",
+  "statement_status": "not_established",
+  "defect_lines": [12, 13, 14],
+  "justification": "The sentence in lines 12-14 falsely infers uniform continuity on all of R from continuity, so its single delta valid for every pair of real inputs is unjustified. For the allowed continuous map f(t) = t^2 and epsilon = 1, every delta > 0 admits a = 1/delta and b = a + delta, for which |a-b| = delta but |f(b)-f(a)| = 2 + delta^2 > 1. Thus the written proof has an invalid general assertion and does not establish its subsequent probability bound under the exact hypotheses. This example refutes the assertion about uniform continuity, not the lemma's convergence conclusion, so the statement is not established by this proof rather than refuted."
+}

@@ -1,0 +1,15 @@
+{
+  "case_id": "q-52fd",
+  "title": "Proof audit exercise",
+  "source": "Lemma L1, conclusion L1.C001.\nFor every real x, x^2>=0.\nProof. Every real x is nonnegative; multiplying x by x therefore gives x^2>=0.\nTheorem T1, conclusion T1.C001.\nFor every real x, x^2+1>=1.\nProof. By Lemma L1, x^2>=0. Adding one proves the theorem.",
+  "conclusions": [
+    {
+      "conclusion_id": "L1.C001",
+      "claim": "For every real x, x^2>=0"
+    },
+    {
+      "conclusion_id": "T1.C001",
+      "claim": "For every real x, x^2+1>=1"
+    }
+  ]
+}

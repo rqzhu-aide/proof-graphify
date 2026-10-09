@@ -1,0 +1,11 @@
+{
+  "case_id": "q-40e9",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nObserve one X distributed as Bernoulli(theta), with theta in [0,1]. Let T:{0,1}->R be any estimator.\nThen inf_T sup_{theta in [0,1]} E_theta|T(X)-theta| >= 1/16.\nProof. Choose theta_a=1/4 and theta_b=3/4; both belong to the parameter space and their Bernoulli laws have total variation distance 1/2.\nClassify T(X) by the midpoint 1/2. On a classification error, absolute estimation error is at least 1/4.\nThe sum of the two classification error probabilities is at least 1-TV=1/2.\nThus the maximum of the two risks is at least (1/4)(1/2)(1/2)=1/16, proving the lower bound.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "inf_T sup_{theta in [0,1]} E_theta|T(X)-theta| >= 1/16"
+    }
+  ]
+}

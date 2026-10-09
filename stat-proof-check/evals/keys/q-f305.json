@@ -1,0 +1,27 @@
+{
+  "case_id": "q-f305",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "refuted"
+      ],
+      "statement_truth": "false",
+      "defect_lines": [
+        4
+      ],
+      "rationale": "The ratio p_n/n may vanish while p_n/sqrt(n) diverges. Take p_n=ceil(n^(3/4)) and deterministic R_n=p_n/sqrt(n). The stated O_p relation holds exactly, but R_n tends to infinity.",
+      "repair": "Strengthen the dimension regime to p_n/sqrt(n)->0 or improve the remainder bound. State the resulting restriction on admissible dimension growth.",
+      "counterexample": "p_n=ceil(n^(3/4)), R_n=p_n/sqrt(n) gives p_n/n->0 but R_n>=n^(1/4)->infinity."
+    }
+  ]
+}

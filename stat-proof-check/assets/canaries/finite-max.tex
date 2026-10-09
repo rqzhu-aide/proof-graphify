@@ -1,0 +1,23 @@
+\documentclass{article}
+\newtheorem{lemma}{Lemma}
+\begin{document}
+
+\begin{lemma}\label{lem:finite-max}
+Fix an integer $K \ge 1$. Let $X_{n,1}, \dots, X_{n,K}$ be real random
+variables with $X_{n,j} \to 0$ in probability as $n \to \infty$ for each
+$j = 1, \dots, K$. Then $\max_{1 \le j \le K} |X_{n,j}| \to 0$ in
+probability.
+\end{lemma}
+
+\begin{proof}
+Fix $\varepsilon > 0$.
+The union bound gives
+$P(\max_{1 \le j \le K} |X_{n,j}| > \varepsilon)
+\le \sum_{j=1}^{K} P(|X_{n,j}| > \varepsilon)$.
+Each of the $K$ summands tends to zero as $n \to \infty$, and $K$ is fixed,
+so the finite sum tends to zero.
+Since $\varepsilon > 0$ was arbitrary, the maximum tends to zero in
+probability.
+\end{proof}
+
+\end{document}

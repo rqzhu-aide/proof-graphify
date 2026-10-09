@@ -1,0 +1,27 @@
+{
+  "case_id": "q-217c",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "refuted"
+      ],
+      "statement_truth": "false",
+      "defect_lines": [
+        5
+      ],
+      "rationale": "Nonnegative eigenvalues may equal zero. The one-dimensional zero matrix satisfies symmetry and positive semidefiniteness but is singular.",
+      "repair": "Require strict positive definiteness or a positive lower eigenvalue bound. Treat singular directions separately if the application permits them.",
+      "counterexample": "Take d=1 and A=[0]. Its only eigenvalue and determinant are zero."
+    }
+  ]
+}

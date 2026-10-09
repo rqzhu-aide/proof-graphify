@@ -1,0 +1,25 @@
+{
+  "case_id": "q-04d7",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "valid"
+      ],
+      "statement_status": [
+        "established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [],
+      "rationale": "The expansion point is one, where absolute value is differentiable with derivative one. Alternatively, for each finite realization of Z, 1+Z/sqrt(n)>0 eventually and the normalized difference then equals Z exactly.",
+      "repair": "No repair is needed. Nondifferentiability at zero is irrelevant to this expansion point.",
+      "counterexample": null
+    }
+  ]
+}

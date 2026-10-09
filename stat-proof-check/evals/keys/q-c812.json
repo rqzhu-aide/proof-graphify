@@ -1,0 +1,27 @@
+{
+  "case_id": "q-c812",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "not_established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [
+        4
+      ],
+      "rationale": "The proposed negative Bernoulli parameter is outside [0,1] and does not define a probability law. This invalidates the two-point argument, but does not refute the lower bound. The lower bound is in fact true using alternatives 1/4 and 3/4; that is a replacement proof, not the submitted derivation.",
+      "repair": "Replace the alternatives by admissible interior points and recompute separation and total variation. In this example 1/4 and 3/4 preserve the stated constant.",
+      "counterexample": null
+    }
+  ]
+}

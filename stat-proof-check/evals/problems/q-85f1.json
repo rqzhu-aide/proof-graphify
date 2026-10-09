@@ -1,0 +1,11 @@
+{
+  "case_id": "q-85f1",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nLet X and Y be square-integrable real random variables, and assume E[Y|X]=0 almost surely.\nThen E[(X+Y)^2]=E[X^2]+E[Y^2].\nProof. Expanding the square and applying the tower property eliminates the cross term, giving the displayed equality.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "E[(X+Y)^2]=E[X^2]+E[Y^2]"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "case_id": "q-3ce8",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "refuted"
+      ],
+      "statement_truth": "false",
+      "defect_lines": [
+        5
+      ],
+      "rationale": "Integrability at each n does not bound |X_n| by one on the tail event. For U uniform on [0,1], X_n=n 1{U<=1/n} converges to zero in probability but E|X_n|=1.",
+      "repair": "Add uniform integrability with a valid truncation argument, or an explicit common bound that justifies this displayed inequality.",
+      "counterexample": "X_n=n 1{U<=1/n}, with E|X_n|=1 and P(|X_n|>epsilon)=1/n for n>epsilon."
+    }
+  ]
+}

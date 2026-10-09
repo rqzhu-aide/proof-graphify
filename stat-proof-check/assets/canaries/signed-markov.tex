@@ -1,0 +1,18 @@
+\documentclass{article}
+\newtheorem{lemma}{Lemma}
+\begin{document}
+
+\begin{lemma}\label{lem:signed-markov}
+Let $(X_n)_{n \ge 1}$ be real random variables with $E[X_n] \to 0$ as
+$n \to \infty$. Then $X_n \to 0$ in probability.
+\end{lemma}
+
+\begin{proof}
+Fix $\varepsilon > 0$.
+By Markov's inequality, $P(|X_n| > \varepsilon) \le E[X_n] / \varepsilon$.
+The right-hand side tends to zero by hypothesis, so
+$P(|X_n| > \varepsilon) \to 0$.
+Since $\varepsilon > 0$ was arbitrary, $X_n \to 0$ in probability.
+\end{proof}
+
+\end{document}

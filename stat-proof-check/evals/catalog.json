@@ -1,0 +1,116 @@
+{
+  "corpus_version": 1,
+  "name": "Proofcheck release pilot",
+  "expert_review_status": "pending",
+  "notes": "Candidate ground truth authored and self-reviewed during implementation. No human expert adjudication has been performed. Catalog and keys are evaluator-only.",
+  "cases": [
+    {
+      "case_id": "q-7b42",
+      "pair_id": "maxima",
+      "variant": "correct",
+      "split": "development"
+    },
+    {
+      "case_id": "q-d190",
+      "pair_id": "maxima",
+      "variant": "flawed",
+      "split": "development"
+    },
+    {
+      "case_id": "q-3ce8",
+      "pair_id": "expectations",
+      "variant": "flawed",
+      "split": "development"
+    },
+    {
+      "case_id": "q-a057",
+      "pair_id": "expectations",
+      "variant": "correct",
+      "split": "development"
+    },
+    {
+      "case_id": "q-ec61",
+      "pair_id": "adaptive_concentration",
+      "variant": "correct",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-58a3",
+      "pair_id": "adaptive_concentration",
+      "variant": "flawed",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-bf29",
+      "pair_id": "boundary_delta",
+      "variant": "flawed",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-04d7",
+      "pair_id": "boundary_delta",
+      "variant": "correct",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-9a76",
+      "pair_id": "matrix_domain",
+      "variant": "correct",
+      "split": "development"
+    },
+    {
+      "case_id": "q-217c",
+      "pair_id": "matrix_domain",
+      "variant": "flawed",
+      "split": "development"
+    },
+    {
+      "case_id": "q-f305",
+      "pair_id": "joint_rates",
+      "variant": "flawed",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-6db0",
+      "pair_id": "joint_rates",
+      "variant": "correct",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-40e9",
+      "pair_id": "lower_bound_class",
+      "variant": "correct",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-c812",
+      "pair_id": "lower_bound_class",
+      "variant": "flawed",
+      "split": "heldout"
+    },
+    {
+      "case_id": "q-85f1",
+      "pair_id": "omitted_algebra",
+      "variant": "correct",
+      "split": "development"
+    },
+    {
+      "case_id": "q-1eb4",
+      "pair_id": "omitted_algebra",
+      "variant": "flawed",
+      "split": "development"
+    },
+    {
+      "case_id": "q-ab60",
+      "pair_id": "chain_applicability",
+      "variant": "chain",
+      "split": "development"
+    },
+    {
+      "case_id": "q-52fd",
+      "pair_id": "chain_argument_truth",
+      "variant": "chain",
+      "split": "heldout"
+    }
+  ]
+}

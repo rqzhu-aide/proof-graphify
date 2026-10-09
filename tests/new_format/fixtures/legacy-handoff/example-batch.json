@@ -1,0 +1,277 @@
+{
+  "contract_version": 3,
+  "request_id": "req_example",
+  "packet_id": "pkt_example",
+  "edits": [
+    {
+      "op": "create",
+      "collection": "scopes",
+      "id": "scp_example",
+      "expected_version": null,
+      "body": {
+        "argument_id": null,
+        "parent_id": null,
+        "assumptions": [
+          {
+            "collection": "items",
+            "id": "itm_event_a"
+          },
+          {
+            "collection": "items",
+            "id": "itm_event_b"
+          }
+        ],
+        "binders": [
+          {
+            "symbol": "\\delta",
+            "domain": "(0,1/2)",
+            "quantifier": "fixed"
+          }
+        ],
+        "conditions": [
+          "A and B are events on one probability space."
+        ],
+        "evidence_refs": []
+      }
+    },
+    {
+      "op": "create",
+      "collection": "items",
+      "id": "itm_event_a",
+      "expected_version": null,
+      "body": {
+        "kind": "assumption",
+        "label": "Assumption A",
+        "caption": "Probability of A",
+        "statement": {
+          "form": "synopsis",
+          "text": "\\Pr(A)\\geq 1-\\delta"
+        },
+        "passages": [],
+        "aliases": [],
+        "uncertainty": "Synthetic interface fixture; no source review or proof check is recorded.",
+        "origin": "reconstruction",
+        "owner_id": null,
+        "scope_id": "scp_example"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "items",
+      "id": "itm_event_b",
+      "expected_version": null,
+      "body": {
+        "kind": "assumption",
+        "label": "Assumption B",
+        "caption": "Probability of B",
+        "statement": {
+          "form": "synopsis",
+          "text": "\\Pr(B)\\geq 1-\\delta"
+        },
+        "passages": [],
+        "aliases": [],
+        "uncertainty": "Synthetic interface fixture; no source review or proof check is recorded.",
+        "origin": "reconstruction",
+        "owner_id": null,
+        "scope_id": "scp_example"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "items",
+      "id": "itm_joint",
+      "expected_version": null,
+      "body": {
+        "kind": "intermediate_result",
+        "label": "Joint bound",
+        "caption": "Union-bound consequence",
+        "statement": {
+          "form": "synopsis",
+          "text": "\\Pr(A\\cap B)\\geq 1-2\\delta"
+        },
+        "passages": [],
+        "aliases": [],
+        "uncertainty": "Synthetic interface fixture; no source review or proof check is recorded.",
+        "origin": "reconstruction",
+        "owner_id": "itm_target",
+        "scope_id": "scp_example"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "items",
+      "id": "itm_target",
+      "expected_version": null,
+      "body": {
+        "kind": "theorem",
+        "label": "Example target",
+        "caption": "Final composition remains to be checked",
+        "statement": {
+          "form": "synopsis",
+          "text": "\\Pr(A\\cap B)\\geq 1-\\delta"
+        },
+        "passages": [],
+        "aliases": [],
+        "uncertainty": "Synthetic interface fixture; no source review or proof check is recorded.",
+        "origin": "reconstruction",
+        "owner_id": null,
+        "scope_id": "scp_example"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "arguments",
+      "id": "arg_joint",
+      "expected_version": null,
+      "body": {
+        "target": {
+          "collection": "items",
+          "id": "itm_joint"
+        },
+        "label": "Derive the joint bound",
+        "origin": "reconstruction",
+        "scope_id": "scp_example",
+        "final_group_id": "grp_joint",
+        "evidence_refs": [],
+        "lifecycle": "draft"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "arguments",
+      "id": "arg_target",
+      "expected_version": null,
+      "body": {
+        "target": {
+          "collection": "items",
+          "id": "itm_target"
+        },
+        "label": "Examine the claimed final bound",
+        "origin": "reconstruction",
+        "scope_id": "scp_example",
+        "final_group_id": "grp_target",
+        "evidence_refs": [],
+        "lifecycle": "draft"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "groups",
+      "id": "grp_joint",
+      "expected_version": null,
+      "body": {
+        "argument_id": "arg_joint",
+        "conclusion": {
+          "collection": "items",
+          "id": "itm_joint"
+        },
+        "kind": "joint",
+        "scope_id": "scp_example",
+        "case_scope_ids": [],
+        "discharges": [],
+        "rationale": "Apply the union bound to A^c and B^c.",
+        "evidence_refs": []
+      }
+    },
+    {
+      "op": "create",
+      "collection": "groups",
+      "id": "grp_target",
+      "expected_version": null,
+      "body": {
+        "argument_id": "arg_target",
+        "conclusion": {
+          "collection": "items",
+          "id": "itm_target"
+        },
+        "kind": "joint",
+        "scope_id": "scp_example",
+        "case_scope_ids": [],
+        "discharges": [],
+        "rationale": "This separate obligation asks whether the recorded joint bound establishes the exact target.",
+        "evidence_refs": []
+      }
+    },
+    {
+      "op": "create",
+      "collection": "uses",
+      "id": "use_a_joint",
+      "expected_version": null,
+      "body": {
+        "from": {
+          "collection": "items",
+          "id": "itm_event_a"
+        },
+        "to": {
+          "collection": "items",
+          "id": "itm_joint"
+        },
+        "type": "dependency",
+        "group_id": "grp_joint",
+        "reason": "Bound the failure probability of A.",
+        "needed_form": {
+          "form": "synopsis",
+          "text": "\\Pr(A^c)\\leq\\delta"
+        },
+        "substitutions": [],
+        "evidence_refs": [],
+        "regime": null,
+        "uncertainty": null
+      }
+    },
+    {
+      "op": "create",
+      "collection": "uses",
+      "id": "use_b_joint",
+      "expected_version": null,
+      "body": {
+        "from": {
+          "collection": "items",
+          "id": "itm_event_b"
+        },
+        "to": {
+          "collection": "items",
+          "id": "itm_joint"
+        },
+        "type": "dependency",
+        "group_id": "grp_joint",
+        "reason": "Bound the failure probability of B.",
+        "needed_form": {
+          "form": "synopsis",
+          "text": "\\Pr(B^c)\\leq\\delta"
+        },
+        "substitutions": [],
+        "evidence_refs": [],
+        "regime": null,
+        "uncertainty": null
+      }
+    },
+    {
+      "op": "create",
+      "collection": "uses",
+      "id": "use_joint_target",
+      "expected_version": null,
+      "body": {
+        "from": {
+          "collection": "items",
+          "id": "itm_joint"
+        },
+        "to": {
+          "collection": "items",
+          "id": "itm_target"
+        },
+        "type": "dependency",
+        "group_id": "grp_target",
+        "reason": "Compare the supplied joint guarantee with the final claimed probability.",
+        "needed_form": {
+          "form": "synopsis",
+          "text": "\\Pr(A\\cap B)\\geq 1-\\delta"
+        },
+        "substitutions": [],
+        "evidence_refs": [],
+        "regime": null,
+        "uncertainty": "Application and final composition have not been checked."
+      }
+    }
+  ]
+}

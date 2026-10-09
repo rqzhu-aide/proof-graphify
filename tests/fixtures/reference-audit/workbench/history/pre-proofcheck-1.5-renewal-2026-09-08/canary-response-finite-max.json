@@ -1,0 +1,7 @@
+{
+  "canary_id": "finite-max",
+  "argument_status": "valid",
+  "statement_status": "established",
+  "defect_lines": [],
+  "justification": "For every fixed positive epsilon the event that the finite maximum exceeds epsilon is the union of K tail events. Its probability is at most their sum. Because K is fixed and each summand tends to zero, that sum tends to zero. This holds for every epsilon and is precisely convergence in probability. Independence is unnecessary."
+}

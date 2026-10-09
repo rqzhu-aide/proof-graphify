@@ -1,0 +1,25 @@
+{
+  "case_id": "q-a057",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "valid"
+      ],
+      "statement_status": [
+        "established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [],
+      "rationale": "On the first event the integrand is at most epsilon, and on the second it is at most one. Thus limsup E|X_n| <= epsilon for every epsilon>0, and nonnegativity proves the limit.",
+      "repair": "No repair is needed. Convergence almost surely is not required.",
+      "counterexample": null
+    }
+  ]
+}

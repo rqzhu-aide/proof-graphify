@@ -1,0 +1,19 @@
+\documentclass{article}
+\newtheorem{lemma}{Lemma}
+\begin{document}
+
+\begin{lemma}\label{lem:continuous-mapping}
+Let $X_n \to X$ in probability and let $f : \mathbb{R} \to \mathbb{R}$ be
+continuous. Then $f(X_n) \to f(X)$ in probability.
+\end{lemma}
+
+\begin{proof}
+Fix $\varepsilon > 0$.
+Because $f$ is continuous on $\mathbb{R}$, it is uniformly continuous, so
+there is a $\delta > 0$ such that $|f(a) - f(b)| \le \varepsilon$ whenever
+$|a - b| \le \delta$.
+Hence $P(|f(X_n) - f(X)| > \varepsilon) \le P(|X_n - X| > \delta) \to 0$.
+Since $\varepsilon > 0$ was arbitrary, $f(X_n) \to f(X)$ in probability.
+\end{proof}
+
+\end{document}

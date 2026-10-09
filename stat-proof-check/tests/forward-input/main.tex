@@ -1,0 +1,36 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\begin{document}
+\title{Two elementary bounds for simultaneous events}
+\maketitle
+Let $(\Omega,\mathcal F,\mathbb P)$ be a probability space, and let
+$0<\delta<1/2$. All events below belong to $\mathcal F$.
+
+\begin{lemma}\label{lem:complement}
+If $\mathbb P(A)\ge1-\delta$, then $\mathbb P(A^c)\le\delta$.
+\end{lemma}
+\begin{proof}
+The complement identity gives $\mathbb P(A^c)=1-\mathbb P(A)\le\delta$.
+\end{proof}
+
+\begin{theorem}\label{thm:joint}
+If $\mathbb P(A)\ge1-\delta$ and $\mathbb P(B)\ge1-\delta$, then
+$\mathbb P(A\cap B)\ge1-\delta$.
+\end{theorem}
+\begin{proof}
+Apply Lemma~\ref{lem:complement} to $A$ and $B$.
+The remaining argument is Proposition 7 in the supplied supplement.
+\end{proof}
+
+\begin{theorem}\label{thm:conditional}
+If $\mathbb P(A)\ge1-\delta$ and $\mathbb P(B^c\mid A)=0$, then
+$\mathbb P(A\cap B)\ge1-\delta$.
+\end{theorem}
+\begin{proof}
+Here $\mathbb P(A)>0$. By the definition of conditional probability,
+$\mathbb P(A\cap B)=\mathbb P(A)\mathbb P(B\mid A)=\mathbb P(A)$.
+The claimed bound follows.
+\end{proof}
+\end{document}

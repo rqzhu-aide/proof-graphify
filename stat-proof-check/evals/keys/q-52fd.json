@@ -1,0 +1,43 @@
+{
+  "case_id": "q-52fd",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "L1.C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "not_established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [
+        3
+      ],
+      "rationale": "The assertion that every real x is nonnegative is false. The square-nonnegativity statement is true, but it is not established by that invalid argument. Negative x does not refute the conclusion because its square is still nonnegative.",
+      "repair": "Supply a valid argument covering both signs, or use x^2=|x|^2. This repairs the proof without changing the claim.",
+      "counterexample": null
+    },
+    {
+      "conclusion_id": "T1.C001",
+      "argument_status": [
+        "gap"
+      ],
+      "statement_status": [
+        "not_established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [
+        6
+      ],
+      "rationale": "The algebra of adding one is valid, but the sole cited prerequisite has an invalid submitted proof. Within the written proof chain its use remains unsupported. The theorem is true; an invalid prerequisite proof does not make it false.",
+      "repair": "Repair L1 or give an independent valid square-nonnegativity argument at the use site. No stronger assumption is needed.",
+      "counterexample": null
+    }
+  ]
+}

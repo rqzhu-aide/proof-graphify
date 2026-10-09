@@ -1,0 +1,27 @@
+{
+  "case_id": "q-bf29",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "refuted"
+      ],
+      "statement_truth": "false",
+      "defect_lines": [
+        5
+      ],
+      "rationale": "Absolute value is not differentiable at zero. For every n, sqrt(n)|theta_hat_n|=|Z| exactly, so its law is half-normal, not standard normal. In particular it is never negative.",
+      "repair": "State the half-normal limit, or change the expansion point to one where absolute value is differentiable. The repaired limit changes the distributional guarantee.",
+      "counterexample": "At every n the variable equals |Z|; its probability of being <=0 is zero, whereas the standard normal CDF at zero is 1/2."
+    }
+  ]
+}

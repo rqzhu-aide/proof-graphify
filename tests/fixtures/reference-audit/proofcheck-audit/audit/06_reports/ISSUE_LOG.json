@@ -1,0 +1,120 @@
+{
+  "schema_version": 5,
+  "issues": [
+    {
+      "id": "I-001",
+      "severity": "S1",
+      "confidence": "high",
+      "status": "open",
+      "finding_status": "defect",
+      "scope": "unit",
+      "load_bearing": true,
+      "origin_ref": {
+        "kind": "ledger_move",
+        "unit_id": "lem:growing-max",
+        "step_id": "S004",
+        "move_id": "M001"
+      },
+      "contract_refs": [
+        {
+          "kind": "conclusion",
+          "unit_id": "lem:growing-max",
+          "conclusion_id": "C001"
+        },
+        {
+          "kind": "conclusion",
+          "unit_id": "thm:main",
+          "conclusion_id": "C001"
+        },
+        {
+          "kind": "obligation_pointer",
+          "unit_id": "lem:growing-max",
+          "pointer": "/hypotheses/0"
+        },
+        {
+          "kind": "obligation_pointer",
+          "unit_id": "lem:growing-max",
+          "pointer": "/hypotheses/1"
+        },
+        {
+          "kind": "dependency_use",
+          "unit_id": "thm:main",
+          "use_id": "D001"
+        }
+      ],
+      "invalidation_kind": "statement_refuted",
+      "affected_result": "lem:growing-max",
+      "affected_results": [
+        "lem:growing-max",
+        "thm:main"
+      ],
+      "summary": "The proof promotes fixed-index convergence to a maximum over a growing range without valid uniform tail control. The lemma is refuted by the recorded Bernoulli array; an independently found deterministic moving-coordinate array also directly refutes the exact estimator theorem.",
+      "repair_search": {
+        "strategies": [
+          {
+            "name": "union_bound",
+            "attempt": "Bound P(max_{j<=m_n} |X_{n,j}| > eps) by m_n * sup_j P(|X_{n,j}| > eps) using only the stated per-fixed-j hypothesis.",
+            "outcome": "failed",
+            "evidence": "The hypothesis fixes no rate: sup_j P(|X_{n,j}| > eps) may decay arbitrarily slowly, so m_n times it need not vanish; the Bernoulli(1/n) array with m_n = n^2 realizes exactly this failure."
+          },
+          {
+            "name": "subsequence_argument",
+            "attempt": "Extract along subsequences of n to recover the maximum's convergence from per-fixed-j convergence.",
+            "outcome": "failed",
+            "evidence": "Along every subsequence the same growing union appears; the counterexample tail 1 - (1 - 1/n)^{n^2} tends to one along every subsequence."
+          },
+          {
+            "name": "strengthened_hypothesis_variant",
+            "attempt": "Add a uniform tail bound sup_j P(|X_{n,j}| > eps) <= a_n(eps) with m_n * a_n(eps) -> 0 for every eps > 0, then close the growing union with the union bound.",
+            "outcome": "survives_local_inspection",
+            "evidence": "Under the added uniform rate, P(max > eps) <= m_n * a_n(eps) -> 0 closes S004/M001 locally for every eps; the full affected-closure recheck remains required."
+          }
+        ],
+        "conclusion": "candidate_repair_exists"
+      },
+      "suggested_changes": [
+        {
+          "target_ref": {
+            "kind": "source_span",
+            "file": "audit/00_sources/project/paper.tex",
+            "start_line": 6,
+            "end_line": 11,
+            "sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a"
+          },
+          "action": "strengthen_assumption",
+          "proposal": "Add the hypothesis sup_{1<=j<=m_n} P(|X_{n,j}| > eps) <= a_n(eps) with m_n a_n(eps) -> 0 for every eps > 0, and derive line 16 from the union bound under it.",
+          "verification_status": "candidate",
+          "required_rechecks": [
+            "lem:growing-max",
+            "thm:main"
+          ],
+          "repair_scope": "unit_statement",
+          "assumption_cost": "adds_regularity_or_moment"
+        },
+        {
+          "target_ref": {
+            "kind": "source_span",
+            "file": "audit/00_sources/project/paper.tex",
+            "start_line": 6,
+            "end_line": 11,
+            "sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a"
+          },
+          "action": "weaken_claim",
+          "proposal": "Replace the growing range 1..m_n by a fixed finite range 1..K in the lemma and in every downstream use, so the finite union bound closes the step.",
+          "verification_status": "candidate",
+          "required_rechecks": [
+            "lem:growing-max",
+            "thm:main"
+          ],
+          "repair_scope": "unit_statement",
+          "assumption_cost": "none",
+          "claim_cost": "restricts_scope"
+        }
+      ],
+      "resolution_evidence_needed": [
+        "A revised statement or hypothesis set under which the growing-maximum step is provable.",
+        "Full rechecks of lem:growing-max, thm:main, the D001 dependency use, and both required challenges."
+      ]
+    }
+  ]
+}

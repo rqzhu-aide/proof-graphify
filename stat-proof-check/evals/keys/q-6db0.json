@@ -1,0 +1,25 @@
+{
+  "case_id": "q-6db0",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "valid"
+      ],
+      "statement_status": [
+        "established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [],
+      "rationale": "For each error probability choose a uniform-in-large-n stochastic bound M for sqrt(n)R_n/p_n. The deterministic scale times M eventually falls below any fixed epsilon, giving R_n->0 in probability.",
+      "repair": "No repair is needed. The O_p assertion supplies boundedness rather than convergence of the normalized factor.",
+      "counterexample": null
+    }
+  ]
+}

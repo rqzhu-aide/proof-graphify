@@ -1,0 +1,32 @@
+\documentclass{article}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\begin{document}
+
+\begin{lemma}\label{lem:growing-max}
+Let $\{X_{n,j} : 1 \le j \le m_n\}$ be random variables on one probability
+space such that $X_{n,j} \to 0$ in probability as $n \to \infty$ for each
+fixed $j$, and let $m_n \to \infty$. Then
+$\max_{1 \le j \le m_n} |X_{n,j}| \to 0$ in probability.
+\end{lemma}
+
+\begin{proof}
+Fix $\varepsilon > 0$.
+For each fixed $j$, $P(|X_{n,j}| > \varepsilon) \to 0$ by hypothesis.
+Therefore $P(\max_{1 \le j \le m_n} |X_{n,j}| > \varepsilon) \to 0$.
+Hence the maximum converges to zero in probability.
+\end{proof}
+
+\begin{theorem}\label{thm:main}
+Under the conditions of Lemma~\ref{lem:growing-max}, with
+$\hat\theta_n = \theta_0 + \max_{1 \le j \le m_n} |X_{n,j}|$,
+the estimator satisfies $\hat\theta_n \to \theta_0$ in probability.
+\end{theorem}
+
+\begin{proof}
+By Lemma~\ref{lem:growing-max},
+$\max_{1 \le j \le m_n} |X_{n,j}| \to 0$ in probability.
+Hence $\hat\theta_n - \theta_0 \to 0$ in probability, which is the claim.
+\end{proof}
+
+\end{document}

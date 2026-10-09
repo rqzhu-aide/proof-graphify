@@ -1,0 +1,485 @@
+{
+ "schema": "proofcheck-legacy-map/1",
+ "purpose": "Implementation handoff section 9: classify the retained proofcheck legacy tests affected by the shared core. This map does not retire proofcheck support. V3 overview tests are independent; the retired v1/v2 overview suites are outside this map.",
+ "treatments": {
+  "legacy_only": "The behaviour belongs to the legacy representation and is deliberately not carried forward. The legacy test stays in service and no new-format test replaces it.",
+  "ported": "An equivalent behaviour exists in the new representation and the named new-format test asserts it there. The legacy test stays in service for old-format execution.",
+  "shared": "The legacy test keeps asserting a rule the new core re-implements from the same rules or fixtures, or the legacy test was extended in place to also guard new-format material. Neither lane replaces the other."
+ },
+ "components": {
+  "overview record/source/revision code": "Validators and source behaviour extracted; full-snapshot edit/load persistence replaced by append-only versioned records; overview import and source observations preserved.",
+  "proofcheck_math.py, proofcheck_labels.py": "Compatible helpers and fixtures reused; one new-format math pipeline in paper_core.math_render.",
+  "proofcheck_sources.py, proofcheck_source_check.py": "Behaviour extracted behind paper_core.sources; the legacy namespace/import coupling prevents direct reuse.",
+  "proofcheck_authoring.py": "New database submission in paper_core.acceptance; atomicity, drafts and evidence guarantees retained, whole-ledger assembly dropped.",
+  "proofcheck_reconcile.py": "New response/reconciliation persistence in paper_core.review; original-response and disagreement behaviour retained.",
+  "proofcheck_report.py, proofcheck_release.py": "Publication and assessment guarantees ported onto snapshot/projection inputs in paper_core.projection and paper_core.publish.",
+  "proofcheck.py, proofcheck_graph.py": "Legacy execution only; the new core imports nothing from them.",
+  "proofcheck_usage.py": "Timing and event helpers extracted into paper_core.telemetry; neither the legacy importlib finalization import nor the subprocess target is reused."
+ },
+ "entries": [
+  {
+   "old_test": "stat-proof-check/tests/test_archive_renewal.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Archiving and re-finalizing a delivered audit folder in place, preserving delivered command bytes. The new format has no delivered-folder contract: release writes one immutable directory per completed audit and a superseding audit is a new release, so there is nothing to re-finalize."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_canaries.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Calibration canary assets, grading and session records gate legacy finalization. The pilot records reviewer competence with qualification record and ships no canary corpus, so there is no equivalent behaviour to port until the forward evaluation supplies one."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_challenge_evidence.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_review.py",
+   "reason": "Named behavioural port in handoff section 9. Blinded dispatch and permanent retention of the original independent response move to packets.get_packet(mode=independent) and review.submit_response, which stores the worker bytes unchanged and refuses to rewrite a judgment."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_command_records.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_telemetry.py",
+   "reason": "Command event records move from proofcheck_usage.py files to paper_core.telemetry rows keyed by --run-id. The new test asserts the same guarantees on the database: duplicate rejection, an unknown duration stored as null rather than zero, and a summary that invents no totals."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_compile_annotations.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Ledger compilation and annotation scaffolds, including the not-applicable risk-row shorthand the handoff names as legacy-only representation. The new format stores each check as a record authored against a packet, so there is no ledger to compile and no annotation file to rebind."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_context_protocol.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_storage.py",
+   "reason": "Retaining reviews across code upgrades while refusing a contract change without writes. paper_core.storage records storage format, contract version and required features at initialize and check_compatibility refuses an unreadable database before any write."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_core_portability_regressions.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Regressions in legacy discovery, doctor parity and legacy identifier generation. The new format registers items explicitly through packets instead of discovering them, and mints identifiers with paper_core.ids, so these code paths have no successor."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_display_spans.py",
+   "treatment": "shared",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "Delimiter, masking and escaping rules for display and inline math. The legacy test keeps asserting exact source span coverage for the ledger; paper_core.math_render re-implements the same delimiter rules and the new test asserts them on the typeset side."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_doctor_math.py",
+   "treatment": "shared",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "A missing or failing math converter must stay non-fatal and must not mask a source failure. The new renderer keeps unsupported LaTeX inspectable as a labelled literal instead of failing the page, so both lanes assert the same non-fatal rule against their own pipeline."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_gate_context_cache.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Reuse of a cached read-only finalization gate decision. The new format has no gate cache: status and validate are recomputed from the database on every call, so there is no cached decision to invalidate."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_graph_labels.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_projection.py",
+   "reason": "Reviewed numbering is optional display evidence and never a mathematical verdict. In the new format a node carries its label and its derived assessment as separate fields, and the projection test asserts that the assessment comes from recorded checks rather than from the label."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_graph_overview.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_projection.py",
+   "reason": "Grouping, repeated uses without double counting, and a visible fallback when the layout cannot be drawn. The new projection builds edges from use records, names the argument and group that consume each use, and falls back to the index layout while keeping every use."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_graph_report_integration.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "Report integration preserves source identity and mathematical judgments, and renderer identity binds the graph and label modules. The new publication test pins the build identity into the render input and requires every visible identity marker on the page to match the projection."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_graph_view.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_projection.py",
+   "reason": "A use colour depends on the exact application rather than the supplier verdict, distinct conclusions never merge, and an empty graph has an honest fallback. All three are properties of the new projection's connections and index-mode fallback."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_html_report.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "Handoff section 9 ports publication guarantees onto projection inputs. Source excerpts stay exact, a missing record never supplies a judgment, and unreviewed scope never invents a denominator; the new test asserts these against the projection the renderer consumes."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_issue_readiness.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_assessment.py",
+   "reason": "Pending independent review passes readiness but not completion, and incomplete global checks fail. The new format expresses both as obligations: required obligations are listed separately from the ones met, and the three global tasks are mandatory on a full or focused audit."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_maintenance_sources.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_sources.py",
+   "reason": "Recovering a moved source pair without touching reviewed records, and rejecting drift without changing existing locks. The new format captures a source revision per file and reports a changed file as a new revision, leaving anchors bound to the revision they were cut against."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_paper_environments.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Discovery of customized LaTeX theorem environments and the legacy FINAL gate over them. The new format never discovers environments: the coordinator registers each item through a packet, so environment classification has no successor code path."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_primary_reference_readiness.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Legacy candidate and registry readiness rules that run before dispatch. The new format replaces candidate matching with an explicit use record and replaces readiness with the packet write scope, so these rules have no new-format equivalent."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_primary_renewal.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Named legacy-only representation in handoff section 9: sibling renewal filenames and fresh skeletons are explicitly not ported."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_proofcheck.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Named legacy-only representation in handoff section 9: mandatory one-move rows, eight risk rows and mirrored dependency registries are explicitly not ported."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_proofcheck_usage.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_telemetry.py",
+   "reason": "Handoff section 9 requires new-format telemetry that does not import the monolith. The new test asserts the same measurement guarantees on paper_core.telemetry: null distinct from zero, a rejected bad event writing nothing, and a read-only summary."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_reader_summary.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_projection.py",
+   "reason": "The opening summary reuses reviewed facts and invents no release diagnosis or group completion. The new projection summary carries the progress block of the recorded process, and public_assessment drops every internal field rather than restating it as a verdict."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_reconciliation_submission.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_review.py",
+   "reason": "Handoff section 9 retains the original-response and disagreement behaviour of proofcheck_reconcile.py. The new test asserts that reconciliation pins the exact primary and independent versions it compared, preserves both judgments, and leaves unresolved disagreement visible."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_reference_audit.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "The shipped reference audit fixture and its finalization gate are frozen legacy artifacts. The new format reaches the same fixture only through import-legacy, which creates a separate database and marks the imported checks historical."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_release_evals.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "The eight-pair evaluation corpus, held-out split and scoring belong to the legacy release gate. The pilot ships no corpus; the forward evaluation in package P7 is the work that would supply one, and it has not been run."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_report_captions.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "A shortened caption or excerpt must never cut a formula in half and must fall back explicitly when it cannot fit. The new renderer keeps whole math in every fragment and labels unsupported LaTeX instead of truncating it."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_report_locations.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_projection.py",
+   "reason": "Reader navigation follows physical manuscript evidence rather than audit counters. The new projection gives every carried proof record exactly one reader location, derived from its anchor, and keeps record identifiers in the technical evidence."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_report_math.py",
+   "treatment": "shared",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "Handoff section 9 reuses compatible math helpers and their fixtures. The legacy test keeps asserting proofcheck_math.py; paper_core.math_render re-implements the same notation, grouping and exactness rules and the new test asserts them on the new pipeline."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_report_overview.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_projection.py",
+   "reason": "Unclear and unchecked material stays visible, identical titles never merge different units, and deriving or rendering a view leaves the projection unchanged. The new test asserts the same three properties by projecting one revision twice and comparing content."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_report_release.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "A failed publication leaves the original state, delivery is read-only, and changed HTML cannot be resealed by restamping a hash. The new test asserts that a failed render retains the prior page byte for byte and that a second release into the same directory is refused."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_semantic_reuse.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_queries.py",
+   "reason": "Named behavioural port in handoff section 9. A changed prerequisite must invalidate the judgments that consumed it; the new format answers this with changes --since REV, which lists the affected checks together with the reason each was affected."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_skill_structure.py",
+   "treatment": "shared",
+   "new_test": null,
+   "reason": "Extended in place rather than ported. The package structure test now also guards the pilot references, so its role context budgets were raised once with a recorded decision when the database-backed pilot row was added to the entrypoint role table."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_source_fragments.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_sources.py",
+   "reason": "Nested include expansion preserving every original line, and actionable errors for a missing include or a cycle. The new source capture reports the same limitations explicitly instead of silently widening coverage, and records them as parser output."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_source_layout_check.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_sources.py",
+   "reason": "Handoff section 9 extracts proofcheck_source_check.py behind a source interface. Read-only layout diagnostics never establish mathematical completeness; the new capture returns declaration and citation candidates labelled as parser output, with their own limitations."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_source_lookup_drafts.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_assessment.py",
+   "reason": "Read-only draft selection must not require completed mathematical judgments. In the new format a check is saved with state draft, a draft never counts toward completion, and a partial save does not depend on full proof coverage."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_statement_label_reuse.py",
+   "treatment": "legacy_only",
+   "new_test": null,
+   "reason": "Resolution of a reused statement label back to the establishing move inside the legacy step graph. The new format registers an explicit use record for each dependency instead of inferring one from a label, so label resolution has no successor."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_statement_support.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_assessment.py",
+   "reason": "Named behavioural port in handoff section 9. A repair is kept separate from the original defect: a strengthened assumption or restricted conclusion gets its own supported form with explicit conditions, and the original route is not turned green."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_transaction_publication.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_publication.py",
+   "reason": "Named behavioural port in handoff section 9. A failed publication must leave every prior view intact; the new test asserts a failed render records a failed publication row and retains the previously published page unchanged."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_unit_submission.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_acceptance.py",
+   "reason": "Handoff section 9 retains the atomicity, draft and evidence guarantees of proofcheck_authoring.py without whole-ledger assembly. The new test asserts a batch is all-or-nothing, a stale expected_version is a conflict rather than a merge, and existing evidence is never overwritten."
+  },
+  {
+   "old_test": "stat-proof-check/tests/test_workflow_efficiency.py",
+   "treatment": "ported",
+   "new_test": "tests/new_format/test_packets.py",
+   "reason": "Packets stay portable, minimal and blinded, fail closed on source drift, and refuse to carry audit output. The new test asserts the same on paper_core.packets, including that get_packet refuses to issue a packet whose contents would leak."
+  }
+ ],
+ "new_without_legacy_predecessor": [
+  {
+   "new_test": "tests/new_format/test_workflow_evidence_maintenance.py",
+   "reason": "Forward-only evidence maintenance checks preserved source consumption and conservative historical bindings; no legacy test is replaced."
+  },
+  {
+   "new_test": "tests/new_format/test_workflow_grounding_policy.py",
+   "reason": "Source-grounded stage readiness and consistent preparation policy add transition coverage without replacing legacy tests."
+  },
+  {
+   "new_test": "tests/new_format/test_workflow_intake_recovery.py",
+   "reason": "Useful partial intake, unchanged drafts and terminal-only renewal authorization add transition coverage without replacing legacy tests."
+  },
+  {
+   "new_test": "tests/new_format/test_workflow_preparation_entrypoints.py",
+   "reason": "Ordinary and exceptional preparation entry points share scientific eligibility while preserving private investigation metadata; no legacy test is replaced."
+  },
+  {
+   "new_test": "tests/new_format/test_coverage_diagnostics.py",
+   "reason": "Coverage diagnostics explain why current source and check evidence is insufficient for completion. These recovery messages extend the database assessment and have no legacy ledger predecessor."
+  },
+  {
+   "new_test": "tests/new_format/test_reader_projection.py",
+   "reason": "The detailed reader projects exact targets, contextual premises and saved inference routes from current records. This database-backed explanation layer has no equivalent legacy test module."
+  },
+  {
+   "new_test": "tests/new_format/test_reader_publication.py",
+   "reason": "Publication tests check that prominent reader explanations retain their pinned evidence and context after rendering. The current card projection did not exist in the legacy audit format."
+  },
+  {
+   "new_test": "tests/new_format/test_revision_guidance.py",
+   "reason": "Recovery guidance tests public mapping and exact-statement revision recipes without inventing scientific judgments. These controller interfaces were added after the legacy workflow."
+  },
+  {
+   "new_test": "tests/new_format/test_assistance.py",
+   "reason": "Contract-derived response and reconciliation assistance is new to the SQL controller. These tests protect scoped uncommitted templates, exact-target mapping and the absence of invented judgments; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_context_extension.py",
+   "reason": "Immutable source-only work extensions preserve the original task set, reviewer evidence and explicit source version pins while activating a compatibility feature atomically. These packet lifecycle tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_neutral_freshness.py",
+   "reason": "Neutral source and setup bindings must remain current through independent submission, later mapping and saved-check reuse without treating primary rationale as source evidence. These SQL binding regressions replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_probability_example.py",
+   "reason": "The shipped probability example is a self-contained SQL demonstration of reviewed proof routes, source-backed statements and honest support projection. Its executable public example has no legacy predecessor and replaces no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_recurring_diagnostics.py",
+   "reason": "Bounded recovery explanations, support diagnostics and reuse of one assessed snapshot are new controller assistance. These tests preserve scientific gates and independent blinding while checking the added guidance; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_revision_interfaces.py",
+   "reason": "Public template and context-extension commands, protected artifact paths and explicit UTF-8 coordinator I/O implement the recurring-issues revision. These interface regressions supplement the existing suites and replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_revision_recovery_trace.py",
+   "reason": "A stitched public-API recovery trace exercises source-only extension, independent response mapping and later reconciliation with synthetic reviewers. This new mechanical integration path makes no mathematical truth claim and replaces no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_source_comparison_context.py",
+   "reason": "Primary source-comparison assignments now include exact saved wording, prior wording after repair and the selected source passages within the packet size budget. These task-scoped context and blinding tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_sql_contract.py",
+   "reason": "The common SQL superset introduces separate exact specifications and applications, semantic reuse and migration writer barriers; these records and public compatibility boundaries have no legacy ledger equivalent."
+  },
+  {
+   "new_test": "tests/new_format/test_sql_overview.py",
+   "reason": "Both skills now continue on one SQL authority through selected shared fields, preserving audit extensions and native comparison contexts; the legacy overview database did not support these shared-writer operations."
+  },
+  {
+   "new_test": "tests/new_format/test_sql_support.py",
+   "reason": "Founded alternative-route support is qualified by exact scopes, reviewed boundaries and explicit conditions; these controls specify the SQL superset's scientific semantics separately from historical proofchecking evidence."
+  },
+  {
+   "new_test": "tests/new_format/test_sql_projection.py",
+   "reason": "The SQL superset reader exposes exact specifications, applications and refinements with one canonical body per record, and detects corruption of visible mathematical outcomes independently of metadata markers."
+  },
+  {
+   "new_test": "tests/new_format/test_superset_review.py",
+   "reason": "The route-review extension distinguishes initial source-only examination from later supplied mathematics, preserves original responses and routine mappings, and bounds part packets independently of unrelated siblings."
+  },
+  {
+   "new_test": "tests/new_format/test_reconciliation_completion.py",
+   "reason": "The live controller pilot exposed a mismatch between exact-target reconciliation rows and whole-result completion. These tests combine current rows while preserving missing, stale, unresolved and newly added review requirements; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_source_limit_context.py",
+   "reason": "Focused audits must retain source limitations on consumed setup, exact targets and proof-boundary segments while excluding unrelated context. These regressions verify blocked release and recovery after resolution; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_reviewed_proof_spans.py",
+   "reason": "Immutable reviewed PDF proof selections preserve whole-page evidence while bounding coverage to each argument and retaining source-only review freshness and historical compatibility. These regressions replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_work_origin_bindings.py",
+   "reason": "The live controller pilot exposed lost semantic binding policy when source-only independent work was mapped through a generic packet. These tests preserve controller origin without relaxing generic transaction checks and replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_reconciliation_recovery.py",
+   "reason": "The live controller pilot exposed a recovery dead end after preserved pending independent responses. These tests retain original evidence, allow accepted corrected reviews, and protect omission checks; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_work.py",
+   "reason": "Controller work derivation, ordering, bounded assignments and scoped assumptions are new behavior. These tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_workflow_audit_fixes.py",
+   "reason": "Observed source-audit failures motivate explicit coverage recovery, focused shared-prerequisite selection, coherent global tasks, and truthful deferral receipts. These regressions preserve partial submissions and separate mathematical obligations; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_work_packets.py",
+   "reason": "Controller packets preserve complete local inference context, source-only independent input and semantic reuse boundaries. These tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_work_storage.py",
+   "reason": "Format-3 migration and durable controller intake, atomic receipts and backup recovery introduce new operational storage. These tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_work_projection.py",
+   "reason": "The controller worklist projects exact obligations into the existing major-node reader with separate readiness and support. These tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_controller.py",
+   "reason": "Controller integration covers coherent multi-result assignments, atomic intake, explicit partial saves and resumed work. These tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_controller_adversarial.py",
+   "reason": "Adversarial controller cases protect private independent context, exact task scope and consumed-evidence freshness. These tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_ui_regressions.py",
+   "reason": "Implementation-audit counterexamples for hidden argument support, actual Archify viewer integration, and publication destination collisions. These protect the new audit projection and publication path and replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_audit_regressions.py",
+   "reason": "Independent implementation-audit counterexamples for missing source coverage, unrelated coverage claims/checks, unresolved current contradictions and target-specific independent disagreement. These exercise the new graph assessment contract and replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_empty_evidence.py",
+   "reason": "Blank captured text must not certify source fidelity or proof completeness. These regressions cover atomic rejection, valid secondary and PDF evidence, preserved history and repair in the shared database runtime; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_evidence_freshness.py",
+   "reason": "Implementation-audit regressions for supplier scope and statement evidence, borrowed proof content, finite scope cycles and reviewed exact relocation in generated evidence bindings. These binding records are new and replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_neutral_audit_metadata.py",
+   "reason": "Database binding regressions distinguish source-fidelity and qualification metadata from changed mathematical inputs, while preserving historical and independent review policies. The legacy format has no equivalent record bindings."
+  },
+  {
+   "new_test": "tests/new_format/test_cli.py",
+   "reason": "The command contract of handoff section 5 is new: one JSON object on stdout, diagnostics on stderr, and the exit code table. The legacy entry point has a different surface, so nothing is replaced."
+  },
+  {
+   "new_test": "tests/new_format/test_packaging.py",
+   "reason": "Generated identical bundles, a bundle manifest, thin wrappers and installed-root execution are introduced by handoff section 8. The legacy installer test in tools/ stays and covers the legacy package instead."
+  },
+  {
+   "new_test": "tests/new_format/test_races.py",
+   "reason": "Handoff section 4.4 names seven concurrency fixtures for the optimistic-concurrency protocol of section 4.3: unrelated drafts commit together, same-record updates conflict, an added incoming premise conflicts with final-composition submission, an added outgoing consumer leaves the supplier current, an added theorem part conflicts with whole-result completion, a response racing reconciliation is never silently dropped, and a repeated request returns one commit. The legacy ledger has no packet, no revision and no membership guard, so there is no old test to port."
+  },
+  {
+   "new_test": "tests/new_format/test_scaling.py",
+   "reason": "Handoff section 10 asks for generated large-record fixtures for get, apply, status and render input construction that detect accidental whole-store scans by comparing operation counts across store sizes. The legacy format loads one whole ledger by design, so the property being guarded here does not exist in the old suite and nothing is replaced."
+  },
+  {
+   "new_test": "tests/new_format/test_vertical_slice.py",
+   "reason": "Handoff section 11 defines the first usable milestone as one end-to-end slice: source capture, a joint inference, a hidden claim, an application check, a saved draft, resumed work, an independent response, reconciliation, one honest report, plus one harmless concurrent edit and one real conflict. It is an integration route across the whole new command surface rather than a behaviour carried over from any single legacy module, so no legacy test is replaced."
+  },
+  {
+   "new_test": "tests/new_format/test_overview_bridge.py",
+   "reason": "Schema-v3 revision W1 extends migrate-overview to schema-3 snapshots, carrying use groups as provenance groups, owned intermediate rows, regimes, aliases, all locator shapes and the full append-only observation history under the overview-bridge/1 feature gate. The module builds both legacy formats with the shipped v1/v2 overview CLIs before migrating; no legacy test covers the bridge, so nothing is replaced."
+  },
+  {
+   "new_test": "tests/new_format/test_export_migration.py",
+   "reason": "Native v3 overview behavior is tested independently of the retired overview versions. This module remains active without requiring the v1 or v2 runtime or tests."
+  },
+  {
+   "new_test": "tests/new_format/test_qualification_packer.py",
+   "reason": "The documented qualification packer now requires explicit calibration isolation alongside balanced passing cases. These tests execute that recipe and preserve evidence bytes under the existing contract; they replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_targeted_workflow.py",
+   "reason": "The targeted reliability lifecycle combines current controller scaffolds, retained-byte recovery, qualification, source-target mapping, explicit reconciliation and complete or incomplete reports through the existing CLI. It preserves all legacy tests."
+  },
+  {
+   "new_test": "tests/new_format/test_mechanical_improvements.py",
+   "reason": "Transport, receipt and recovery regressions cover the existing packet workflow, while bounded display diagnostics preserve scientific records and completion. These tests replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_review_recovery.py",
+   "reason": "Current response inspection distinguishes typed mapping, source, authorship and freshness problems while preserving independent eligibility, historical receipts and original bytes. These additive workflow regressions replace no legacy test."
+  },
+  {
+   "new_test": "tests/new_format/test_stages.py",
+   "reason": "Derived stage boundaries and coherent assignment selection preserve canonical scientific credit and add no legacy workflow replacement."
+  },
+  {
+   "new_test": "tests/new_format/test_stage_cli.py",
+   "reason": "Public stage commands, executable retries and frozen delivery continuation extend the existing CLI while keeping its low-level paths."
+  },
+  {
+   "new_test": "tests/new_format/test_finalization.py",
+   "reason": "Consistent scientific snapshots and separate rendering preserve current record contracts and publication guarantees."
+  },
+  {
+   "new_test": "tests/new_format/test_release_resume_adversarial.py",
+   "reason": "Interrupted compatibility release must recover its frozen revision and preserve unrelated or changed artifacts."
+  },
+  {
+   "new_test": "tests/new_format/test_three_stage_reliability.py",
+   "reason": "Pending judgment accounting, selected global context, neutral extension and recovery diagnostics are prerequisites for reliable staged scheduling."
+  }
+ ]
+}

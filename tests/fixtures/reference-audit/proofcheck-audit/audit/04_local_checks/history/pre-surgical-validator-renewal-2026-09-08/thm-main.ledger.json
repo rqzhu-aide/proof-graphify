@@ -1,0 +1,564 @@
+{
+  "schema_version": 5,
+  "evidence_contract_version": 5,
+  "unit_id": "thm:main",
+  "source": {
+    "file": "../00_sources/project/paper.tex",
+    "start_line": 26,
+    "end_line": 30,
+    "unit_sha256": "5308916e39da1b6e4cc0d2dae699c8cbb2d6db1e31fb03774b9611bb24553b28",
+    "coverage_mode": "proof_with_separate_statement",
+    "separate_statement_reason": "The theorem statement occupies lines 20-24 while its proof environment occupies lines 26-30; the statement span is locked separately as the contract anchor."
+  },
+  "source_lines": [
+    {
+      "line": 26,
+      "sha256": "876233b8a03f24d0857a26d052957e71a7978dbe28514f9de6cd46217ef0121b",
+      "text": "\\begin{proof}"
+    },
+    {
+      "line": 27,
+      "sha256": "449e3725a54dcb02c9928cbf3d8ab8cdefc5fe48155ce83d9b3b128717ec60b8",
+      "text": "By Lemma~\\ref{lem:growing-max},"
+    },
+    {
+      "line": 28,
+      "sha256": "a95a53f6c76759cce7809a87966d578790b441a84cd1c3448af02df65e72b536",
+      "text": "$\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability."
+    },
+    {
+      "line": 29,
+      "sha256": "7c50e26061b9b5c4822bda7dcf0f04d06df37fb0d4e410e846737ffe0cb6aa57",
+      "text": "Hence $\\hat\\theta_n - \\theta_0 \\to 0$ in probability, which is the claim."
+    },
+    {
+      "line": 30,
+      "sha256": "923e6f2ceee70dab30fb38391d0660b7e80b6c7e8d2669b45bbc7fd4cb93aaa4",
+      "text": "\\end{proof}"
+    }
+  ],
+  "source_units": [
+    {
+      "id": "U001",
+      "lines": [
+        26,
+        26
+      ],
+      "kind": "non_substantive",
+      "source_sha256": "876233b8a03f24d0857a26d052957e71a7978dbe28514f9de6cd46217ef0121b",
+      "partition_evidence": "Locked line 26 is mechanically non-substantive."
+    },
+    {
+      "id": "U002",
+      "lines": [
+        27,
+        28
+      ],
+      "kind": "continued_sentence",
+      "source_sha256": "fd8b60465c58be57d9cc7980f0fa378a326a9b529ff0da60ecc6a990551661e8",
+      "partition_evidence": "Lines 27-28 form one sentence: the invocation clause 'By Lemma 1,' on line 27 continues into the displayed claim on line 28 and shares one period."
+    },
+    {
+      "id": "U003",
+      "lines": [
+        29,
+        29
+      ],
+      "kind": "one_line",
+      "source_sha256": "7c50e26061b9b5c4822bda7dcf0f04d06df37fb0d4e410e846737ffe0cb6aa57",
+      "partition_evidence": "This source unit is exactly locked physical line 29."
+    },
+    {
+      "id": "U004",
+      "lines": [
+        30,
+        30
+      ],
+      "kind": "non_substantive",
+      "source_sha256": "923e6f2ceee70dab30fb38391d0660b7e80b6c7e8d2669b45bbc7fd4cb93aaa4",
+      "partition_evidence": "Locked line 30 is mechanically non-substantive."
+    }
+  ],
+  "obligation": {
+    "statement_spans": [
+      {
+        "file": "../00_sources/project/paper.tex",
+        "start_line": 20,
+        "end_line": 24,
+        "sha256": "40e3e3d37f8f13e9b4182e2934e13babfe05135f87a2b67dc8d66f18659985a6"
+      }
+    ],
+    "quantified_variables": [
+      {
+        "symbol": "n",
+        "type": "positive integer",
+        "domain": "n >= 1, n -> infinity",
+        "quantifier": "forall"
+      },
+      {
+        "symbol": "j",
+        "type": "positive integer index",
+        "domain": "1 <= j <= m_n",
+        "quantifier": "forall"
+      },
+      {
+        "symbol": "X_{n,j}",
+        "type": "real random variable",
+        "domain": "triangular array inherited from Lemma 1",
+        "quantifier": "fixed"
+      },
+      {
+        "symbol": "m_n",
+        "type": "positive integer sequence",
+        "domain": "m_n -> infinity",
+        "quantifier": "fixed"
+      },
+      {
+        "symbol": "theta_0",
+        "type": "real number",
+        "domain": "fixed true parameter",
+        "quantifier": "fixed"
+      },
+      {
+        "symbol": "hat{theta}_n",
+        "type": "real random variable",
+        "domain": "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|",
+        "quantifier": "fixed"
+      }
+    ],
+    "quantifier_scope": "For every eps > 0, the tail P(|hat{theta}_n - theta_0| > eps) tends to 0 as n -> infinity, with the estimator built from the maximum over the growing range 1 <= j <= m_n.",
+    "probability_model": "The single probability space of Lemma 1 carries the array {X_{n,j}} and hence hat{theta}_n; convergence in probability uses its measure P.",
+    "hypotheses": [
+      "The conditions of Lemma 1 hold: for each fixed j, X_{n,j} -> 0 in probability, and m_n -> infinity.",
+      "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|."
+    ],
+    "definitions": [
+      "Convergence in probability: hat{theta}_n -> theta_0 iff for every eps > 0, P(|hat{theta}_n - theta_0| > eps) -> 0."
+    ],
+    "conclusion": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+    "conclusions": [
+      {
+        "id": "C001",
+        "claim": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+        "source_spans": [
+          {
+            "file": "../00_sources/project/paper.tex",
+            "start_line": 23,
+            "end_line": 24,
+            "sha256": "8f5149d2085856785fbe08fcd3fa84fb1a2169e855c89305266294682e0bc353"
+          }
+        ],
+        "applies_under": [
+          "/quantifier_scope",
+          "/probability_model",
+          "/hypotheses/0",
+          "/hypotheses/1",
+          "/definitions/0"
+        ],
+        "normalization": {
+          "status": "checked",
+          "evidence": "The normalized claim is exactly the displayed convergence of hat{theta}_n to theta_0 in probability on lines 23-24, under Lemma 1's conditions and the displayed definition of hat{theta}_n."
+        }
+      }
+    ],
+    "uniformity": "uniform",
+    "regime": "asymptotic",
+    "constant_dependencies": [
+      "none"
+    ],
+    "context_spans": [],
+    "normalization_checks": [
+      {
+        "aspect": "quantifiers_and_domains",
+        "status": "checked",
+        "evidence": "The statement inherits Lemma 1's array indices and adds the fixed parameter theta_0 and estimator hat{theta}_n defined on lines 21-23."
+      },
+      {
+        "aspect": "probability_model",
+        "status": "checked",
+        "evidence": "The estimator is a function of the same triangular array on the same space; one measure P serves the whole statement."
+      },
+      {
+        "aspect": "hypotheses",
+        "status": "checked",
+        "evidence": "Lines 20-22 assume exactly the conditions of Lemma 1 by reference plus the displayed definition of hat{theta}_n; nothing stronger is stated."
+      },
+      {
+        "aspect": "definitions",
+        "status": "checked",
+        "evidence": "Convergence in probability carries its standard meaning; hat{theta}_n is defined explicitly in the statement."
+      },
+      {
+        "aspect": "conclusion",
+        "status": "checked",
+        "evidence": "The conclusion is exactly the displayed convergence on lines 23-24."
+      },
+      {
+        "aspect": "uniformity",
+        "status": "checked",
+        "evidence": "Through hat{theta}_n the conclusion requires control of the maximum over the growing range 1..m_n, the same uniform demand as Lemma 1's conclusion."
+      },
+      {
+        "aspect": "regime",
+        "status": "checked",
+        "evidence": "The claim is asymptotic in n; no finite-sample bound is stated."
+      },
+      {
+        "aspect": "constant_dependencies",
+        "status": "not_applicable",
+        "evidence": "The exact shift by the fixed theta_0 introduces no hidden constant."
+      }
+    ]
+  },
+  "review": {
+    "unit_status": "incorrect",
+    "conclusion_step_id": "S003",
+    "conclusion_results": [
+      {
+        "conclusion_id": "C001",
+        "support": {
+          "step_id": "S003",
+          "move_id": "M001"
+        },
+        "contract_fidelity": "verified",
+        "argument_status": "invalid",
+        "statement_status": "refuted",
+        "dependency_closure": "incorrect",
+        "dependency_use_ids": [
+          "D001"
+        ],
+        "issue_ids": [
+          "I-001"
+        ]
+      }
+    ],
+    "contract_fidelity": "verified",
+    "argument_status": "invalid",
+    "statement_status": "refuted",
+    "dependency_closure": "incorrect",
+    "explicit_assumptions": [
+      "The conditions of Lemma 1 hold for the array {X_{n,j}} and m_n.",
+      "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|."
+    ],
+    "inherited_assumptions": [
+      "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity.",
+      "m_n -> infinity as n -> infinity."
+    ],
+    "direct_dependencies": [
+      {
+        "id": "lem:growing-max",
+        "use_id": "D001",
+        "kind": "internal_result",
+        "conclusion_id": "C001",
+        "status": "incorrect",
+        "needed_form": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+        "compatibility_check": "thm:main invokes the lemma conclusion verbatim for the same triangular array, measure, and asymptotic regime; no rescaling or transformation is applied."
+      }
+    ],
+    "source_reference_dispositions": [
+      {
+        "occurrence_id": "R-3bceb3ec3aa25815",
+        "target": "lem:growing-max",
+        "command": "ref",
+        "disposition": "non_load_bearing",
+        "evidence": "The theorem statement names the lemma only to identify inherited conditions; the proof's line-27 reference is the exact premise-bearing occurrence bound to D001."
+      },
+      {
+        "occurrence_id": "R-f9f87f3eae98ba46",
+        "target": "lem:growing-max",
+        "command": "ref",
+        "disposition": "internal_result",
+        "evidence": "The line-27 reference invokes Lemma 1's conclusion as the load-bearing premise of the proof, recorded as internal use D001.",
+        "premise_links": [
+          {
+            "step_id": "S003",
+            "premise_id": "P001"
+          }
+        ],
+        "dependency_use_id": "D001"
+      }
+    ],
+    "candidate_dependency_dispositions": [
+      {
+        "candidate_id": "lem:growing-max",
+        "path_ids": [
+          "CP001",
+          "CP002"
+        ],
+        "disposition": "internal_result",
+        "evidence": "Both parser paths point at Lemma 1: CP001 is the load-bearing proof invocation on line 27 and CP002 is the statement's inheritance of Lemma 1's conditions on line 21; the single registered use D001 carries the load.",
+        "dependency_use_id": "D001"
+      }
+    ],
+    "citation_dispositions": [],
+    "use_sites": [],
+    "verification_basis": [
+      "Line-by-line reconstruction of locked proof lines 26-30 against the normalized obligation.",
+      "Dependency closure through registry use D001 onto Lemma 1's refuted conclusion C001 (issue I-001).",
+      "Direct deterministic moving-coordinate counterexample checked against inherited conditions and the estimator definition at paper.tex:21-23; finite instances replayed with the shared Python interpreter."
+    ],
+    "reviewer_notes": [
+      "Primary source review on 2026-09-04 in existing maintenance context: reread every normalized condition and proof line, checked actual support inputs and the counterexample, and reconfirmed the judgments under proofcheck 1.4. This is primary review, not a fresh-context independent challenge.",
+      "The genuine initial fresh-context challenge supplied a direct counterexample to the theorem using its exact estimator definition. The primary reviewer verified the witness and upgraded the historical missing-premise assessment to a statement refutation. Earlier source and response records remain preserved.",
+      "After the final validator maintenance fix for unreadable shared style files, the primary reviewer reconfirmed these unchanged source spans and mathematical conditions. The current source-bound candidate was rebuilt and locally validated; this statement makes no claim of another independent review.",
+      "Primary renewal on 2026-09-07 in the existing implementation maintenance context: reread the exact manuscript, normalized conditions, every atomic annotation and registered dependency. Both direct counterexamples remain valid. This is a new primary review, not another independent challenge. Earlier annotations and complete independent checks remain preserved.",
+      "New primary review after the practical source and report repairs on 2026-09-07: reread the exact manuscript and declarations, every normalized condition, every source-locked inference and counterexample, and the D001 compatibility checks. Recompiled the unchanged mathematical judgments under the repaired validator. Historical conditional-versus-whole-argument disagreement remains preserved; this is primary review, not a new independent challenge.",
+      "Primary reconfirmation after the final unreadable auxiliary-context regression repair on 2026-09-07: reread the unchanged manuscript, complete obligations, all six source-locked moves, both counterexample programs and the eight D001 compatibility checks. Recompiled the unchanged mathematical judgments against a newly constructed current packet. The reference contains no unreadable or included source, so the repair changes validator context but no mathematical premise. This is an actual primary review; a fresh independent challenge is recorded separately and all earlier responses remain preserved.",
+      "Primary renewal completed 2026-09-08T01:24:19.718266+00:00 in /root/renew_release_reference. Fresh-scaffold primary review under the new five-canary qualification: checked the statement at lines 20 to 24, complete proof at lines 26 to 30, every normalized scalar, both substantive records, and exact D001 applicability. Lines 27 to 28 name the imported claim; line 29 consumes it through the registered dependency and exact estimator definition. The substitution is algebraically sound conditional on the premise, but the complete argument is invalid because the premise is refuted. The deterministic witness independently refutes the estimator statement. All eight risks, source-reference links, CP001/CP002 coverage, failure target, side-condition absences and C001 support were re-reviewed. Earlier disagreement history is retained; this is primary review, with a new independent response required separately."
+    ]
+  },
+  "independent_check": {
+    "required": true,
+    "status": "agreed",
+    "independence_level": "fresh_context_same_model",
+    "challenger_verdict": "incorrect",
+    "reconciled_verdict": "incorrect",
+    "artifact": "audit/05_adversarial/thm-main-challenge-1.5-2026-09-08.md",
+    "covered_issue_ids": [
+      "I-001"
+    ],
+    "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+    "challenged_ledger_sha256": "71157741f4b86e7c63f5b5cce752fa067d45c0f1ed37272e489ccd53035b5970",
+    "challenge_context_sha256": "4ba0c673742d3b2e982da1cb39b4bdf9c18d4aa09b8ea45cc34ecd288ab369cb",
+    "challenge_artifact_sha256": "b2cdee12413ebe0e3c8af7ac8acf63c1e1a304985824a5281cd5ad9124cd0c9b",
+    "issue_assessments": [
+      {
+        "issue_id": "I-001",
+        "assessment": "confirmed",
+        "target_assessment": "The inference from the fixed-$j$ tails at paper.tex line 15 to the growing-maximum tail at line 16 is invalid. On a one-point probability space, let $m_n=n$ and $X_{n,j}=\\mathbf{1}_{\\{j=n\\}}$. For every fixed $j$ and every $\\varepsilon>0$, the coordinate tail is eventually zero, while at $\\varepsilon=1/2$ the maximum tail equals one for every $n$. Thus the authenticated premises hold and the target conclusion fails. No uniformity or rate condition excluding this moving nonzero coordinate appears in the inherited lemma statement at lines 7-9.",
+        "downstream_assessment": "The theorem explicitly invokes the affected maximum conclusion at paper.tex lines 27-28. Its estimator definition at line 22 makes its error exactly that maximum, so the same independently checked array gives $\\hat\\theta_n-\\theta_0=1$ for every $n$. Consequently the issue invalidates the written theorem argument and directly refutes its stated consistency conclusion. The final subtraction step at line 29 is correct conditional on maximum convergence, but that premise is not supplied by the stated assumptions. The packet identifies no further downstream uses.",
+        "target_contract_sha256": "c6da022b7b938bcf793afd337416df3f8887d25065b094c6aec7c317368f7eb3"
+      }
+    ],
+    "generated_utc": "2026-09-08T01:31:49.417891Z",
+    "disagreements": [],
+    "resolution": "",
+    "initial_response": {
+      "artifact": "audit/05_adversarial/initial-7bdd85e78da77a40-5c15993b718482ec4455ea6d489509d27fc05951fb8dbba340cb5ad63ffeeb74.json",
+      "sha256": "27b27bc701a2248824db7863653b3ff4172b785d20c43c81deb65d85a94b9787",
+      "input_sha256": "5c15993b718482ec4455ea6d489509d27fc05951fb8dbba340cb5ad63ffeeb74"
+    }
+  },
+  "steps": [
+    {
+      "id": "S001",
+      "source_unit_id": "U001",
+      "kind": "other",
+      "status": "non_substantive",
+      "issue_ids": []
+    },
+    {
+      "id": "S002",
+      "source_unit_id": "U002",
+      "kind": "setup",
+      "goal": "Name the imported fact and its source before the deriving move consumes it.",
+      "restatement": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+      "premise_uses": [],
+      "dependencies": [],
+      "checks": {
+        "literal": "Lines 27-28 say exactly: By Lemma~\\ref{lem:growing-max}, $\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability.",
+        "atomicity": {
+          "status": "non_inferential",
+          "evidence": "The sentence names Lemma 1's conclusion as the fact the proof will use; the actual import and derivation happen on line 29 through use D001."
+        },
+        "adversarial": [
+          "The named form matches the registered needed form for D001 verbatim, so no silent rescaling or regime change is introduced by this sentence."
+        ]
+      },
+      "side_conditions": [],
+      "risk_checks": [
+        {
+          "aspect": "domain",
+          "status": "passed",
+          "evidence": "The named maximum of the measurable X_{n,j} over the finite range 1..m_n is a well-defined object on the inherited space."
+        },
+        {
+          "aspect": "dimension",
+          "status": "passed",
+          "evidence": "Scalar objects only; the sentence applies no operation."
+        },
+        {
+          "aspect": "sign",
+          "status": "passed",
+          "evidence": "Absolute values and probabilities are nonnegative; nothing sign-sensitive is asserted beyond the named form."
+        },
+        {
+          "aspect": "constant",
+          "status": "passed",
+          "evidence": "The sentence introduces no constant."
+        },
+        {
+          "aspect": "rate",
+          "status": "passed",
+          "evidence": "No rate is named; the imported form is a pure limit for max_{1<=j<=m_n} |X_{n,j}|."
+        },
+        {
+          "aspect": "probability",
+          "status": "passed",
+          "evidence": "The named statement uses the same measure P as the obligation; its correctness is assessed at the consuming move, not here."
+        },
+        {
+          "aspect": "quantifier",
+          "status": "passed",
+          "evidence": "The named form carries the growing range 1 <= j <= m_n explicitly, so the later move cannot silently change scope."
+        },
+        {
+          "aspect": "limit",
+          "status": "passed",
+          "evidence": "No limit operation is performed by this sentence."
+        }
+      ],
+      "conditions": [],
+      "status": "verified",
+      "issue_ids": [],
+      "inference": {
+        "moves": [],
+        "conclusion_move": null
+      }
+    },
+    {
+      "id": "S003",
+      "source_unit_id": "U003",
+      "kind": "conclusion",
+      "goal": "Derive the estimator's convergence from the imported lemma conclusion and the estimator's definition.",
+      "restatement": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+      "premise_uses": [
+        {
+          "id": "P001",
+          "role": "fact",
+          "claim": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+          "origin": {
+            "kind": "internal_result",
+            "reference": "D001"
+          },
+          "evidence": "The move consumes the lemma conclusion in exactly the registered needed form for the same array, measure, and regime.",
+          "source_reference_id": "lem:growing-max",
+          "source_reference_occurrence_id": "R-f9f87f3eae98ba46"
+        },
+        {
+          "id": "P002",
+          "role": "assumption",
+          "claim": "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|.",
+          "origin": {
+            "kind": "obligation",
+            "reference": "/hypotheses/1",
+            "anchor": {
+              "kind": "statement_span",
+              "index": 1
+            }
+          },
+          "evidence": "The stated definition hat{theta}_n = theta_0 + max_{1<=j<=m_n} |X_{n,j}| makes the substitution exact."
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "lem:growing-max",
+          "use_id": "D001",
+          "kind": "internal_result",
+          "conclusion_id": "C001",
+          "status": "incorrect",
+          "needed_form": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+          "compatibility_check": "thm:main invokes the lemma conclusion verbatim for the same triangular array, measure, and asymptotic regime; no rescaling or transformation is applied."
+        }
+      ],
+      "checks": {
+        "literal": "Line 29 says exactly: Hence $\\hat\\theta_n - \\theta_0 \\to 0$ in probability, which is the claim.",
+        "atomicity": {
+          "status": "single_move",
+          "evidence": "One move: consume Lemma 1's conclusion through use D001, substitute hat{theta}_n - theta_0 = max_{1<=j<=m_n} |X_{n,j}| from the stated definition, and fold the convergence-in-probability definition."
+        },
+        "adversarial": [
+          "The substitution hat{theta}_n - theta_0 = max_{1<=j<=m_n} |X_{n,j}| is exact from /hypotheses/1, so this move adds no analytic content; its only mathematical input is Lemma 1's refuted conclusion C001, and no independent control of the growing maximum exists in this proof.",
+          "The source-specific deterministic witness supplies a direct theorem refutation, rather than deriving falsity solely from the failed prerequisite.",
+          "Fresh 1.5 re-review: on the one-point space with $m_n=n$ and $X_{n,j}=\\mathbf{1}\\{j=n\\}$, every fixed $j$ is eventually present and then zero, while $\\Pr(|\\hat\\theta_n-\\theta_0|>1/2)=1$ for every $n$. This directly checks the exact conclusion independently of D001 availability."
+        ]
+      },
+      "side_conditions": [],
+      "risk_checks": [
+        {
+          "aspect": "domain",
+          "status": "passed",
+          "evidence": "hat{theta}_n is theta_0 plus a finite maximum of measurable variables, hence a well-defined random variable."
+        },
+        {
+          "aspect": "dimension",
+          "status": "passed",
+          "evidence": "Scalar identity; the shift by theta_0 is exact."
+        },
+        {
+          "aspect": "sign",
+          "status": "passed",
+          "evidence": "hat{theta}_n - theta_0 equals the nonnegative maximum max_{1<=j<=m_n} |X_{n,j}|; no sign subtlety arises."
+        },
+        {
+          "aspect": "constant",
+          "status": "passed",
+          "evidence": "theta_0 is fixed and cancels exactly; no hidden constant appears."
+        },
+        {
+          "aspect": "rate",
+          "status": "passed",
+          "evidence": "No rate is claimed for hat{theta}_n; the folded statement is a pure limit."
+        },
+        {
+          "aspect": "probability",
+          "status": "failed",
+          "evidence": "The event |hat{theta}_n - theta_0| > eps equals the event max_{1<=j<=m_n} |X_{n,j}| > eps under the same P, so the move inherits the uncontrolled growing union refuted in I-001."
+        },
+        {
+          "aspect": "quantifier",
+          "status": "passed",
+          "evidence": "Folding preserves the universal eps and the growing range 1 <= j <= m_n; the missing uniform control is inherited from the refuted C001, not introduced here."
+        },
+        {
+          "aspect": "limit",
+          "status": "passed",
+          "evidence": "The substitution is exact for each n; no limit exchange is performed by this move."
+        }
+      ],
+      "conditions": [],
+      "status": "incorrect",
+      "issue_ids": [
+        "I-001"
+      ],
+      "support_role": "derivation",
+      "inference": {
+        "moves": [
+          {
+            "id": "M001",
+            "claim": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+            "rule": "Internal-result consumption, exact substitution, and definition folding",
+            "premise_ids": [
+              "P001",
+              "P002"
+            ],
+            "prior_move_ids": [],
+            "justification": "The written implication is exact algebra conditional on the invoked maximum convergence, but that premise is unavailable. Independently, take m_n=n and X_{n,j}=1{j=n} on a one-point probability space. Every fixed j is eventually zero, while the row maximum is exactly one, so the prescribed estimator equals theta_0+1 for every n. This directly refutes the exact claimed convergence, beyond merely identifying an unsupported dependency.",
+            "failure": {
+              "kind": "counterexample",
+              "issue_id": "I-001",
+              "target": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+              "evidence": "On a one-point probability space take m_n=n and X_{n,j}=1{j=n} for 1<=j<=n. For each fixed j, X_{n,j}=0 whenever n>j, hence convergence in probability holds; m_n tends to infinity. The stated estimator definition gives hat{theta}_n-theta_0=max_j |X_{n,j}|=1 for every n. Thus P(|hat{theta}_n-theta_0|>1/2)=1 for every n, directly contradicting the exact theorem conclusion.",
+              "computation": {
+                "status": "instantiated",
+                "script_file": "../05_adversarial/moving-coordinate-counterexample.py",
+                "script_sha256": "e924b984c6ad701596f4df9d90231228a4ee17e7fcb0bcb6af8194228ee74496",
+                "command": "C:\\Users\\zrq\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe -B moving-coordinate-counterexample.py",
+                "output_excerpt": "n=1: row maximum=1, estimator error=1\nn=2: row maximum=1, estimator error=1\nn=5: row maximum=1, estimator error=1\nn=20: row maximum=1, estimator error=1\nFor each fixed j, X_nj=0 for every n>j; both claimed limits fail."
+              }
+            }
+          }
+        ],
+        "conclusion_move": "M001"
+      }
+    },
+    {
+      "id": "S004",
+      "source_unit_id": "U004",
+      "kind": "other",
+      "status": "non_substantive",
+      "issue_ids": []
+    }
+  ],
+  "work_context_sha256": "5e82ed22f2e277662d54e2b269ada3d7dba998c0fc0cd8747e4d0af419a5fbc3"
+}

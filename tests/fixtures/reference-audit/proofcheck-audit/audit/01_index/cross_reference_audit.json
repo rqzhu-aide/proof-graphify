@@ -1,0 +1,86 @@
+{
+  "schema_version": 5,
+  "root_file": "paper.tex",
+  "files": [
+    "paper.tex"
+  ],
+  "counts": {
+    "unique_labels": 2,
+    "unique_references": 1,
+    "broken_references": 0,
+    "orphan_labels": 1,
+    "duplicate_labels": 0
+  },
+  "broken_references": {},
+  "orphan_labels": {
+    "thm:main": [
+      {
+        "file": "paper.tex",
+        "line": 20,
+        "column": 16
+      }
+    ]
+  },
+  "duplicate_labels": {},
+  "labels": {
+    "lem:growing-max": [
+      {
+        "file": "paper.tex",
+        "line": 6,
+        "column": 14
+      }
+    ],
+    "thm:main": [
+      {
+        "file": "paper.tex",
+        "line": 20,
+        "column": 16
+      }
+    ]
+  },
+  "references": {
+    "lem:growing-max": [
+      {
+        "file": "paper.tex",
+        "line": 21,
+        "column": 31,
+        "command": "ref",
+        "occurrence_id": "R-3bceb3ec3aa25815"
+      },
+      {
+        "file": "paper.tex",
+        "line": 27,
+        "column": 10,
+        "command": "ref",
+        "occurrence_id": "R-f9f87f3eae98ba46"
+      }
+    ]
+  },
+  "occurrences": [
+    {
+      "occurrence_id": "R-3bceb3ec3aa25815",
+      "command": "ref",
+      "target": "lem:growing-max",
+      "file": "paper.tex",
+      "line": 21,
+      "column": 31,
+      "structural_context": "source",
+      "resolution_status": "unresolved",
+      "owner_unit_id": null,
+      "owner_region": null
+    },
+    {
+      "occurrence_id": "R-f9f87f3eae98ba46",
+      "command": "ref",
+      "target": "lem:growing-max",
+      "file": "paper.tex",
+      "line": 27,
+      "column": 10,
+      "structural_context": "source",
+      "resolution_status": "unresolved",
+      "owner_unit_id": null,
+      "owner_region": null
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,35 @@
+{
+  "canary_index_schema_version": 1,
+  "canaries": [
+    {
+      "id": "bounded-drift",
+      "title": "Bounded drift recursion",
+      "source": "bounded-drift.tex",
+      "key": "bounded-drift.key.json"
+    },
+    {
+      "id": "signed-markov",
+      "title": "Tail bound from a mean hypothesis",
+      "source": "signed-markov.tex",
+      "key": "signed-markov.key.json"
+    },
+    {
+      "id": "finite-max",
+      "title": "Maximum over a fixed finite index set",
+      "source": "finite-max.tex",
+      "key": "finite-max.key.json"
+    },
+    {
+      "id": "continuous-mapping",
+      "title": "Composition with a continuous map",
+      "source": "continuous-mapping.tex",
+      "key": "continuous-mapping.key.json"
+    },
+    {
+      "id": "chebyshev",
+      "title": "Vanishing variance and convergence",
+      "source": "chebyshev.tex",
+      "key": "chebyshev.key.json"
+    }
+  ]
+}

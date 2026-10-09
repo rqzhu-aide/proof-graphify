@@ -1,0 +1,215 @@
+{
+  "schema_version": 5,
+  "protocol": {
+    "skill_name": "stat-paper-proofcheck",
+    "skill_version": "1.5",
+    "evidence_contract_version": 5,
+    "artifact_schema_version": 5,
+    "method_interface_schema_version": 1,
+    "closure_contract_version": 4,
+    "validator_sha256": "61a9e2dc8646409a74b0e7353d40561f38a01d153a9503819bd04a4dd2d1c341",
+    "challenge_contract_version": 3
+  },
+  "paper_file": "audit/00_sources/project/paper.tex",
+  "input_provenance": {
+    "kind": "latex",
+    "authoritative_source": "audit/00_sources/project/paper.tex",
+    "portable_sources": true,
+    "original_locations": {
+      "authoritative": false,
+      "paper": "/tmp/refaudit/paper/paper.tex",
+      "project_root": "/tmp/refaudit/paper",
+      "additional_sources": [],
+      "fls": null,
+      "fls_sha256": null,
+      "publisher_pdf": null
+    },
+    "manual_inventory_required": false,
+    "publisher_pdf": null,
+    "visual_review": {
+      "status": "not_started",
+      "notes": "",
+      "reviewed_pages": [],
+      "completed_utc": null
+    }
+  },
+  "created_utc": "2026-08-29T15:53:39+00:00",
+  "inventory_file": "audit/01_index/theorem_inventory.json",
+  "dependency_registry": "audit/03_dependencies/DEPENDENCY_REGISTRY.json",
+  "method_interface_registry": "audit/03_dependencies/METHOD_INTERFACE_REGISTRY.json",
+  "finalization_record": "audit/06_reports/FINALIZATION.json",
+  "source_snapshot": {
+    "files": [
+      {
+        "file": "audit/00_sources/project/paper.tex",
+        "sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+      }
+    ],
+    "sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466"
+  },
+  "source_discovery": {
+    "additional_files": [],
+    "fls": null,
+    "portable_fixed_closure": true,
+    "recorded_warnings": []
+  },
+  "parser_warnings": [],
+  "parser_warning_reviews": [],
+  "cross_reference_reviews": [],
+  "audit_scope": {
+    "status": "reviewed",
+    "depth": "full",
+    "overall_assessment": "defects_found",
+    "target_units": [
+      "thm:main"
+    ],
+    "in_scope_units": [
+      "lem:growing-max",
+      "thm:main"
+    ],
+    "critical_units": [
+      "thm:main"
+    ],
+    "in_scope_interfaces": [],
+    "excluded_units": [],
+    "inventory_overrides": [],
+    "source_or_parser_limits": []
+  },
+  "completion": {
+    "inventory_reviewed": true,
+    "parser_warnings_reviewed": true,
+    "dependency_registry_reviewed": true,
+    "method_interface_registry_reviewed": true,
+    "global_consistency_pass": {
+      "status": "completed_with_findings",
+      "evidence": [
+        "Following the practical source and report repairs, the primary reviewer rechecked every cross-unit aspect against the unchanged manuscript, exact normalized contracts, I-001, and D001. Both genuinely fresh-context challenge responses are preserved and bound. The current responses agree with invalid written arguments and direct statement refutations. The prior theorem conditional-versus-invalid disagreement and coordinator resolution remain unchanged in the theorem's linked superseded review.",
+        "Following the final unreadable auxiliary-context regression repair, the primary reviewer reconfirmed the exact unchanged manuscript, complete obligations, all six moves, both counterexample programs and eight D001 compatibility dimensions. A genuinely fresh packet-only review context supplied current initial responses for both reference units. They were recorded before reconciliation and now agree with invalid complete arguments and direct statement refutations. All previous initial responses and the historical theorem disagreement remain linked and byte-verified.",
+        "Proofcheck 1.5 primary renewal on 2026-09-08: the full unchanged source, both normalized obligations, all six substantive records, both instantiated counterexamples, I-001 repair searches and all eight global aspects were re-reviewed under the fresh passing five-canary qualification. Source references and notation are stable; no rates or implementation claims are introduced. Pointwise-to-growing-range promotion remains the precise probability and quantifier defect. D001 matches the exact lemma contract in all eight applicability aspects but remains incorrect because C001 is directly refuted. The estimator is also directly refuted by $m_n=n$, $X_{n,j}=\\mathbf{1}\\{j=n\\}$. New independent checks will be recorded before finalization; prior review history remains preserved.",
+        "Proofcheck 1.5 independent renewal completed on 2026-09-08: separate genuinely fresh packet-only contexts /root/reference_lemma_blind and /root/reference_theorem_blind supplied actual initial responses. Both identify invalid complete written arguments and direct C001 statement refutations under the exact stated conditions, and independently confirm I-001 and its D001 consequence. Their unchanged responses were recorded before reconciliation, then bound without a judgment change. All earlier initial responses and prior reconciliations remain preserved through the superseded-review chains.",
+        "Surgical validator-maintenance primary review: the complete 32-line source, both obligations, all six substantive records, eight D001 applicability checks and eight global aspects were rechecked. Declarations, source references, domains, probability space, assumptions and exact use forms remain identical. The line-16 promotion remains invalid; the moving-coordinate array $m_n=n$, $X_{n,j}=\\mathbf{1}_{\\{j=n\\}}$ directly refutes both C001 statements. I-001 retains its original S004/M001 origin and its exact two-unit propagation. Earlier independent responses are preserved; current independent checks are still pending.",
+        "Final surgical-maintenance independent renewal: two genuine fresh packet-only contexts supplied the actual final-context responses, preserved before reconciliation by record-challenge. Each independently constructed an admissible moving-coordinate array and concluded C001 incorrect, argument invalid, statement refuted, with I-001 confirmed. The coordinator checked both witnesses against the exact source, reconciled agreement without changing any primary judgment, and bound both responses. Earlier review history, issue identity, source and calibration are unchanged."
+      ],
+      "checks": [
+        {
+          "aspect": "source_resolution",
+          "status": "passed",
+          "evidence": "Every reference occurrence, candidate path, and label in both proofs is reconciled; the parser reported no warnings and no broken or duplicate labels.",
+          "affected_units": [],
+          "issue_ids": []
+        },
+        {
+          "aspect": "assumption_and_definition_propagation",
+          "status": "passed",
+          "evidence": "thm:main inherits exactly Lemma 1's conditions by explicit statement reference, and both units use the same convergence-in-probability definition.",
+          "affected_units": [],
+          "issue_ids": []
+        },
+        {
+          "aspect": "notation_domain_and_dimension",
+          "status": "passed",
+          "evidence": "X_{n,j}, m_n, theta_0, and hat{theta}_n keep one meaning across both units; all objects are scalar with stable domains.",
+          "affected_units": [],
+          "issue_ids": []
+        },
+        {
+          "aspect": "constants_and_rates",
+          "status": "passed",
+          "evidence": "Neither statement carries constants or rates; the theta_0 shift is exact and no hidden constant crosses units.",
+          "affected_units": [],
+          "issue_ids": []
+        },
+        {
+          "aspect": "probability_events_and_conditioning",
+          "status": "defect",
+          "evidence": "The growing union of tail events {|X_{n,j}| > eps} over 1..m_n accumulates probability that the pointwise hypothesis does not control; this is the root defect of I-001 at lem:growing-max S004 and it propagates to thm:main through D001.",
+          "affected_units": [
+            "lem:growing-max",
+            "thm:main"
+          ],
+          "issue_ids": [
+            "I-001"
+          ]
+        },
+        {
+          "aspect": "quantifiers_uniformity_and_regime",
+          "status": "defect",
+          "evidence": "The pointwise-in-j hypothesis is used uniformly over the growing range 1..m_n on lem line 16, the exact quantifier promotion recorded in I-001; both units share the asymptotic regime consistently otherwise.",
+          "affected_units": [
+            "lem:growing-max",
+            "thm:main"
+          ],
+          "issue_ids": [
+            "I-001"
+          ]
+        },
+        {
+          "aspect": "use_site_sufficiency",
+          "status": "defect",
+          "evidence": "thm:main needs Lemma 1's conclusion in exactly its stated form; the form matches verbatim but the refuted conclusion cannot support the use, so the use site fails through I-001 rather than through a form mismatch.",
+          "affected_units": [
+            "thm:main"
+          ],
+          "issue_ids": [
+            "I-001"
+          ]
+        },
+        {
+          "aspect": "issue_propagation",
+          "status": "passed",
+          "evidence": "I-001 targets the line-16 growing-maximum inference and both exact C001 conclusions through D001. The valid line-15 premise, faulty line-16 promotion, lemma conclusion at line 17, theorem citation at lines 27 to 28, and consuming inference at line 29 were rechecked. Both fresh reviewers directly refute the theorem under its exact estimator definition; the disagreement in the prior theorem review remains preserved.",
+          "affected_units": [],
+          "issue_ids": []
+        }
+      ]
+    },
+    "adversarial_pass": {
+      "status": "completed_with_findings",
+      "evidence": [
+        "Boundary and degenerate cases were searched for both units: fixed finite index ranges (union bound closes, exposing the growing-range promotion as the exact defect), constant arrays, zero-variance coordinates, and the independent Bernoulli(1/n) family with m_n = n^2, which refutes lem:growing-max C001 and is locked as the instantiated computation of I-001.",
+        "On 2026-09-08 both hash-locked counterexample programs were reread and replayed with the shared Python interpreter. For the Bernoulli construction, $1-(1-1/n)^{n^2}\\geq1-e^{-n}\\to1$ provides the separate analytical limit justification. For the moving-coordinate construction, every fixed coordinate is eventually zero and the row maximum and estimator error equal one for every row. A fixed finite range closes by a finite union bound; the stated growing range lacks the required tail control.",
+        "Maintenance primary review replayed both unchanged hash-locked programs with the existing shared Python 3.14.7. The exact finite computations agree with their recorded outputs. Separately, $(1-1/n)^{n^2}\\leq e^{-n}$ proves the Bernoulli maximum tail tends to one; in the deterministic array each fixed coordinate is eventually zero while every row maximum and estimator error equals one. Fixed finite ranges close by the finite union bound. The proposed uniform tail-rate addition remains an unapplied candidate; no manuscript repair or severity change was made."
+      ]
+    },
+    "final_report_ready": true
+  },
+  "report_deliverables": [
+    {
+      "id": "R001",
+      "role": "user_facing_report",
+      "path": "audit/06_reports/FINAL_REPORT.html",
+      "sha256": "5682b4035580f87574b4c291d7536e5cb8351692df751b789dea425dd0dcfd97",
+      "issue_ids": [
+        "I-001"
+      ],
+      "overall_verdict": "defects_found"
+    },
+    {
+      "id": "R001",
+      "role": "user_facing_report",
+      "path": "audit/06_reports/FINAL_REPORT.md",
+      "sha256": "affc59a4b8af4de75438081e0659bfbe05a0dcf6d7cb424c31655cd9def77a32",
+      "issue_ids": [
+        "I-001"
+      ],
+      "overall_verdict": "defects_found"
+    }
+  ],
+  "notes": [],
+  "report_context": {
+    "Files and results checked": "paper.tex; lem:growing-max; thm:main",
+    "Final confidence": "high",
+    "Tooling, extraction, or rendering limitations": "none"
+  },
+  "report_contract": {
+    "version": 2,
+    "primary": "audit/06_reports/FINAL_REPORT.html",
+    "markdown_export": true,
+    "renderer_sha256": "7faecceee19cdfaa34b98927e82aa9ac89ea50705a880190e5c28ae046883b91"
+  },
+  "report_release": {
+    "status": "FINAL",
+    "finalized_at": "2026-09-09T16:48:54+00:00",
+    "projection_sha256": "0fb6f3342629b8d711b131bf6306f1d306b225620bec91d98316072d3bd6e611"
+  }
+}

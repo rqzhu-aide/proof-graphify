@@ -1,0 +1,747 @@
+{
+  "initial_challenge_schema_version": 2,
+  "unit_id": "lem:growing-max",
+  "input_sha256": "fdf4285ee2e2158fefb19e44da4f07462c26e0e15f29a99e47c2855cc89cfacb",
+  "packet_sha256": "beea7f2f20b372588de8288aa7beb2dda53619c882a59e5dbee538c711115583",
+  "packet": {
+    "schema_version": 2,
+    "challenge_contract_version": 3,
+    "kind": "stat-paper-proofcheck-context-packet",
+    "mode": "challenge",
+    "unit_id": "lem:growing-max",
+    "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+    "source_context_sha256": "0e8342101a967943979be214fea2d60a398033b6aceb32b7d3c6c2c67365efee",
+    "source_binding_sha256": "aaab24b8c683602aed32e94204209aec6a9c7404ff25c232026be31940075881",
+    "context_binding": {
+      "unit_id": "lem:growing-max",
+      "mode": "challenge",
+      "protocol_sha256": "481475d426fb7cdc30e644f215aaec00bd2cefa6b41098683c86005e34092a1c",
+      "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+      "source_context_sha256": "0e8342101a967943979be214fea2d60a398033b6aceb32b7d3c6c2c67365efee",
+      "calibration_receipt_sha256": "e679c265aa86c9692d2b60b08fba12014e994b4433fd09f9ffc4b6b0a72354e8",
+      "source_binding_sha256": "aaab24b8c683602aed32e94204209aec6a9c7404ff25c232026be31940075881",
+      "obligation_sha256": "e9ce76b1ffdc5d2601904a95287e6d390789e6a337c30c9515ef326ae616ff7c",
+      "semantic_artifact_sha256": "430eb46950b7ecc601054d764d7c91d97d11e5820c395a0adac8c18a14a93691",
+      "obligation_projection_sha256": "a64d4767737afecbd84f6122914d413ff6b7868bdce19d6714afae6a982a9ee0",
+      "inventory_projection_sha256": "d8652c0ea4a581e0a96e79dd503970ef5185dab96319fc2bbef8b482f430ce15",
+      "dependency_projection_sha256": "ab49f02f941ff7cc55b4470c0e3055cded41867adf4e93294f2184292461b78c",
+      "issue_triggers_sha256": "04377e43276ddf8c432ad7a832db74c8359b7b664bf9b73b3d5985a7a401c11d",
+      "candidate_reconciliation_sha256": "06ac14be0b642dc4f13fc337820a0fec70e06e1897ee9b10ed74954f0b58f54f",
+      "dependency_alignment_sha256": "0064a2fc2aac08e084ce837a0dea6bfd4c7081475d2851fb20ec1032011cde6d",
+      "risk_aspects_sha256": "b27c0f575e78c442a231c338a7af67d47717b07ffbccc0c49ffdc5a13df35865",
+      "readiness_sha256": "024d6e241088c58a05d43ea667a45fc98da555b784db9be297cd6c531a6d8600"
+    },
+    "context_binding_sha256": "e997833e3cbb871243ba540b850f6d8e516963371f22536f29acaad9efbedf4c",
+    "operational_binding": {
+      "manifest_sha256": "7a26a370dd940b182a926098e6d504ff44d43a5a13a06edeaeba24b3586c9f0c",
+      "inventory_sha256": "4e2bc7a872c8703f9ac582e1f4eb920dca7203bd834e4bf7ef11af31903b74e2",
+      "dependency_registry_sha256": "448484e7f6b44b53066002fa40e3a6c474a13dfdca88b55166c7b3eead032788",
+      "issue_log_sha256": "518db6bb664ff8754d761ebbd23d56212df8cc3fe880d291e795ba401b54bc85",
+      "progress_sha256": "fccacd27ac9ced9166a7e977e950ef0e57bfc5c8622903b12a2a89ae295c6407",
+      "semantic_artifact_file_sha256": "0b68d93f1fa2dbb6ebeb5a1855be1f1ddd8ab27c60298e6ab0a06af588fce020",
+      "readiness_sha256": "024d6e241088c58a05d43ea667a45fc98da555b784db9be297cd6c531a6d8600",
+      "resume_sha256": null
+    },
+    "operational_binding_sha256": "7d42303b72a649224f67084d414eea32161fa83294ad8aa58b157319b7e2eaa5",
+    "source_obligation_ready": true,
+    "dependency_mapping_ready": true,
+    "dependency_context_ready": true,
+    "primary_work_packet_ready": true,
+    "primary_record_ready": true,
+    "semantic_review_ready": true,
+    "semantic_review_reasons": [],
+    "semantic_artifact": {
+      "kind": "canonical_ledger",
+      "audit_relative_file": "audit/04_local_checks/lem-growing-max.ledger.json",
+      "primary_ledger_sha256": "859d492f5d592c1a4c8958c02c0f01b5814f8e54f5fe3df686016364d6bf648d"
+    },
+    "source": {
+      "statement": {
+        "source_member": {
+          "index": 1,
+          "name": "paper.tex",
+          "audit_relative_file": "audit/00_sources/project/paper.tex",
+          "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+        },
+        "start_line": 6,
+        "end_line": 11,
+        "span_sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a",
+        "lines": [
+          {
+            "line": 6,
+            "text": "\\begin{lemma}\\label{lem:growing-max}"
+          },
+          {
+            "line": 7,
+            "text": "Let $\\{X_{n,j} : 1 \\le j \\le m_n\\}$ be random variables on one probability"
+          },
+          {
+            "line": 8,
+            "text": "space such that $X_{n,j} \\to 0$ in probability as $n \\to \\infty$ for each"
+          },
+          {
+            "line": 9,
+            "text": "fixed $j$, and let $m_n \\to \\infty$. Then"
+          },
+          {
+            "line": 10,
+            "text": "$\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability."
+          },
+          {
+            "line": 11,
+            "text": "\\end{lemma}"
+          }
+        ]
+      },
+      "proof": {
+        "source_member": {
+          "index": 1,
+          "name": "paper.tex",
+          "audit_relative_file": "audit/00_sources/project/paper.tex",
+          "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+        },
+        "start_line": 13,
+        "end_line": 18,
+        "span_sha256": "a1c45ce017bdfe3b1691725e77c10f91c5ebab0999c7679b23f079046cad0eec",
+        "lines": [
+          {
+            "line": 13,
+            "text": "\\begin{proof}"
+          },
+          {
+            "line": 14,
+            "text": "Fix $\\varepsilon > 0$."
+          },
+          {
+            "line": 15,
+            "text": "For each fixed $j$, $P(|X_{n,j}| > \\varepsilon) \\to 0$ by hypothesis."
+          },
+          {
+            "line": 16,
+            "text": "Therefore $P(\\max_{1 \\le j \\le m_n} |X_{n,j}| > \\varepsilon) \\to 0$."
+          },
+          {
+            "line": 17,
+            "text": "Hence the maximum converges to zero in probability."
+          },
+          {
+            "line": 18,
+            "text": "\\end{proof}"
+          }
+        ]
+      }
+    },
+    "obligation_sha256": "e9ce76b1ffdc5d2601904a95287e6d390789e6a337c30c9515ef326ae616ff7c",
+    "obligation": {
+      "quantified_variables": [
+        {
+          "symbol": "n",
+          "type": "positive integer",
+          "domain": "n >= 1, n -> infinity",
+          "quantifier": "forall"
+        },
+        {
+          "symbol": "j",
+          "type": "positive integer index",
+          "domain": "1 <= j <= m_n",
+          "quantifier": "forall"
+        },
+        {
+          "symbol": "X_{n,j}",
+          "type": "real random variable",
+          "domain": "triangular array on one probability space",
+          "quantifier": "fixed"
+        },
+        {
+          "symbol": "m_n",
+          "type": "positive integer sequence",
+          "domain": "m_n -> infinity",
+          "quantifier": "fixed"
+        }
+      ],
+      "quantifier_scope": "The hypothesis is pointwise in each fixed j; the conclusion controls the maximum over the growing index range 1 <= j <= m_n.",
+      "probability_model": "One probability space carries the triangular array {X_{n,j}}; every convergence-in-probability statement uses its measure P.",
+      "hypotheses": [
+        "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity.",
+        "m_n -> infinity as n -> infinity."
+      ],
+      "definitions": [
+        "Convergence in probability to zero: for every eps > 0, P(|X_n| > eps) -> 0."
+      ],
+      "conclusion": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+      "uniformity": "uniform",
+      "regime": "asymptotic",
+      "constant_dependencies": [
+        "none"
+      ],
+      "statement_spans": [
+        {
+          "source": {
+            "name": "paper.tex",
+            "audit_relative_file": "audit/00_sources/project/paper.tex"
+          },
+          "start_line": 6,
+          "end_line": 11,
+          "sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a",
+          "quote": null,
+          "source_span_ref": "/source/statement"
+        }
+      ],
+      "context_spans": [],
+      "conclusions": [
+        {
+          "id": "C001",
+          "claim": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+          "applies_under": [
+            "/quantifier_scope",
+            "/probability_model",
+            "/hypotheses/0",
+            "/hypotheses/1",
+            "/definitions/0"
+          ],
+          "source_spans": [
+            {
+              "source": {
+                "name": "paper.tex",
+                "audit_relative_file": "audit/00_sources/project/paper.tex"
+              },
+              "start_line": 9,
+              "end_line": 10,
+              "sha256": "a238ba340fa91b2b57d4de79b9091ccd032297f733daa6a518f248ee5b6c2295",
+              "quote": null,
+              "source_span_ref": "/source/statement"
+            }
+          ]
+        }
+      ]
+    },
+    "inventory": {
+      "environment": "lemma",
+      "proof_required": true,
+      "proof_association": {
+        "status": "associated",
+        "method": "adjacent_environment",
+        "target": "lem:growing-max",
+        "evidence_occurrence_ids": []
+      },
+      "reference_occurrences": [],
+      "candidate_internal_dependency_ids": [],
+      "candidate_dependency_paths": [],
+      "downstream_use_sites": [
+        {
+          "canonical_location": "paper.tex:21",
+          "occurrence_id": "R-3bceb3ec3aa25815",
+          "command": "ref",
+          "target": "lem:growing-max",
+          "source_member": {
+            "index": 1,
+            "name": "paper.tex",
+            "audit_relative_file": "audit/00_sources/project/paper.tex",
+            "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+          },
+          "line": 21,
+          "text": "Under the conditions of Lemma~\\ref{lem:growing-max}, with"
+        },
+        {
+          "canonical_location": "paper.tex:27",
+          "occurrence_id": "R-f9f87f3eae98ba46",
+          "command": "ref",
+          "target": "lem:growing-max",
+          "source_member": {
+            "index": 1,
+            "name": "paper.tex",
+            "audit_relative_file": "audit/00_sources/project/paper.tex",
+            "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+          },
+          "line": 27,
+          "text": "By Lemma~\\ref{lem:growing-max},"
+        }
+      ],
+      "citation_keys": []
+    },
+    "candidate_dependency_reconciliation": {
+      "candidate_internal_dependency_ids": [],
+      "registry_mapped_dependency_ids": [],
+      "candidate_ids_without_registry_contract": []
+    },
+    "dependency_alignment": {
+      "status": "registry_contracts_bound"
+    },
+    "dependencies": {
+      "registry_binding": {
+        "closure_contract_version": 4
+      },
+      "internal_contracts": [],
+      "direct_internal_uses": [],
+      "direct_external_uses": [],
+      "downstream_internal_uses": [
+        {
+          "dependent_unit": "thm:main",
+          "use_id": "D001",
+          "dependency_id": "lem:growing-max",
+          "dependency_conclusion_id": "C001",
+          "dependency_conclusion": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+          "dependency_contract_sha256": "9a5f5d539ddaecdb52c43841cbfafb4608bcb35cc568a58bd0ab0227b168c22e",
+          "needed_form": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+          "step_ids": [
+            "S003"
+          ]
+        }
+      ],
+      "external_results": []
+    },
+    "issue_triggers": [
+      {
+        "id": "I-001",
+        "target_contract": {
+          "current_target": {
+            "reference": {
+              "kind": "ledger_move",
+              "unit_id": "lem:growing-max",
+              "step_id": "S004",
+              "move_id": "M001"
+            },
+            "source_anchor": {
+              "source_member": {
+                "index": 1,
+                "name": "paper.tex",
+                "audit_relative_file": "audit/00_sources/project/paper.tex",
+                "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+              },
+              "start_line": 16,
+              "end_line": 16,
+              "span_sha256": "43301734c3287ad3dcc9acdd6958f3841212f749309e8766d1f554366eca81d9",
+              "lines": [
+                {
+                  "line": 16,
+                  "text": "Therefore $P(\\max_{1 \\le j \\le m_n} |X_{n,j}| > \\varepsilon) \\to 0$."
+                }
+              ],
+              "source_unit_id": "U004"
+            },
+            "goal": "Control the tail of the maximum over the growing index range 1..m_n.",
+            "claim": "P(max_{1 <= j <= m_n} |X_{n,j}| > eps) -> 0 as n -> infinity.",
+            "rule": "Promotion of pointwise tail convergence to a maximum over a growing index set",
+            "premises": [
+              {
+                "id": "P001",
+                "role": "fact",
+                "claim": "For each fixed j, P(|X_{n,j}| > eps) -> 0 as n -> infinity.",
+                "origin": {
+                  "kind": "prior_step",
+                  "reference": "S003",
+                  "source": {
+                    "source_member": {
+                      "index": 1,
+                      "name": "paper.tex",
+                      "audit_relative_file": "audit/00_sources/project/paper.tex",
+                      "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+                    },
+                    "start_line": 15,
+                    "end_line": 15,
+                    "span_sha256": "e86bfca9b219a254e0ba1d5a62784311d71227d65204e8de0fcf3ba94f10d924",
+                    "lines": [
+                      {
+                        "line": 15,
+                        "text": "For each fixed $j$, $P(|X_{n,j}| > \\varepsilon) \\to 0$ by hypothesis."
+                      }
+                    ],
+                    "source_unit_id": "U003"
+                  }
+                }
+              },
+              {
+                "id": "P002",
+                "role": "assumption",
+                "claim": "m_n -> infinity as n -> infinity.",
+                "origin": {
+                  "kind": "obligation",
+                  "reference": "/hypotheses/1",
+                  "anchor": {
+                    "kind": "statement_span",
+                    "index": 1,
+                    "source": {
+                      "source_member": {
+                        "index": 1,
+                        "name": "paper.tex",
+                        "audit_relative_file": "audit/00_sources/project/paper.tex",
+                        "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+                      },
+                      "start_line": 6,
+                      "end_line": 11,
+                      "span_sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a",
+                      "lines": [
+                        {
+                          "line": 6,
+                          "text": "\\begin{lemma}\\label{lem:growing-max}"
+                        },
+                        {
+                          "line": 7,
+                          "text": "Let $\\{X_{n,j} : 1 \\le j \\le m_n\\}$ be random variables on one probability"
+                        },
+                        {
+                          "line": 8,
+                          "text": "space such that $X_{n,j} \\to 0$ in probability as $n \\to \\infty$ for each"
+                        },
+                        {
+                          "line": 9,
+                          "text": "fixed $j$, and let $m_n \\to \\infty$. Then"
+                        },
+                        {
+                          "line": 10,
+                          "text": "$\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability."
+                        },
+                        {
+                          "line": 11,
+                          "text": "\\end{lemma}"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "prior_moves": []
+          },
+          "contracts": [
+            {
+              "reference": {
+                "kind": "obligation_pointer",
+                "unit_id": "lem:growing-max",
+                "pointer": "/hypotheses/1"
+              },
+              "value": "m_n -> infinity as n -> infinity.",
+              "source_anchors": [
+                {
+                  "source_member": {
+                    "index": 1,
+                    "name": "paper.tex",
+                    "audit_relative_file": "audit/00_sources/project/paper.tex",
+                    "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+                  },
+                  "start_line": 6,
+                  "end_line": 11,
+                  "span_sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a",
+                  "lines": [
+                    {
+                      "line": 6,
+                      "text": "\\begin{lemma}\\label{lem:growing-max}"
+                    },
+                    {
+                      "line": 7,
+                      "text": "Let $\\{X_{n,j} : 1 \\le j \\le m_n\\}$ be random variables on one probability"
+                    },
+                    {
+                      "line": 8,
+                      "text": "space such that $X_{n,j} \\to 0$ in probability as $n \\to \\infty$ for each"
+                    },
+                    {
+                      "line": 9,
+                      "text": "fixed $j$, and let $m_n \\to \\infty$. Then"
+                    },
+                    {
+                      "line": 10,
+                      "text": "$\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability."
+                    },
+                    {
+                      "line": 11,
+                      "text": "\\end{lemma}"
+                    }
+                  ]
+                }
+              ],
+              "contract_sha256": "20adb1efe7913f6ef5a524a40132cdfd151cd44be3f4f20271b04a2206e447ff"
+            },
+            {
+              "reference": {
+                "kind": "obligation_pointer",
+                "unit_id": "lem:growing-max",
+                "pointer": "/hypotheses/0"
+              },
+              "value": "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity.",
+              "source_anchors": [
+                {
+                  "source_member": {
+                    "index": 1,
+                    "name": "paper.tex",
+                    "audit_relative_file": "audit/00_sources/project/paper.tex",
+                    "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+                  },
+                  "start_line": 6,
+                  "end_line": 11,
+                  "span_sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a",
+                  "lines": [
+                    {
+                      "line": 6,
+                      "text": "\\begin{lemma}\\label{lem:growing-max}"
+                    },
+                    {
+                      "line": 7,
+                      "text": "Let $\\{X_{n,j} : 1 \\le j \\le m_n\\}$ be random variables on one probability"
+                    },
+                    {
+                      "line": 8,
+                      "text": "space such that $X_{n,j} \\to 0$ in probability as $n \\to \\infty$ for each"
+                    },
+                    {
+                      "line": 9,
+                      "text": "fixed $j$, and let $m_n \\to \\infty$. Then"
+                    },
+                    {
+                      "line": 10,
+                      "text": "$\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability."
+                    },
+                    {
+                      "line": 11,
+                      "text": "\\end{lemma}"
+                    }
+                  ]
+                }
+              ],
+              "contract_sha256": "11939778a67688793d8b29dc0b5cbd13a606e26e7a71d2bb4744128f029e1556"
+            },
+            {
+              "reference": {
+                "kind": "conclusion",
+                "unit_id": "thm:main",
+                "conclusion_id": "C001"
+              },
+              "claim": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+              "conditions": [
+                {
+                  "pointer": "/quantifier_scope",
+                  "value": "For every eps > 0, the tail P(|hat{theta}_n - theta_0| > eps) tends to 0 as n -> infinity, with the estimator built from the maximum over the growing range 1 <= j <= m_n."
+                },
+                {
+                  "pointer": "/probability_model",
+                  "value": "The single probability space of Lemma 1 carries the array {X_{n,j}} and hence hat{theta}_n; convergence in probability uses its measure P."
+                },
+                {
+                  "pointer": "/hypotheses/0",
+                  "value": "The conditions of Lemma 1 hold: for each fixed j, X_{n,j} -> 0 in probability, and m_n -> infinity."
+                },
+                {
+                  "pointer": "/hypotheses/1",
+                  "value": "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|."
+                },
+                {
+                  "pointer": "/definitions/0",
+                  "value": "Convergence in probability: hat{theta}_n -> theta_0 iff for every eps > 0, P(|hat{theta}_n - theta_0| > eps) -> 0."
+                }
+              ],
+              "source_anchors": [
+                {
+                  "source_member": {
+                    "index": 1,
+                    "name": "paper.tex",
+                    "audit_relative_file": "audit/00_sources/project/paper.tex",
+                    "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+                  },
+                  "start_line": 23,
+                  "end_line": 24,
+                  "span_sha256": "8f5149d2085856785fbe08fcd3fa84fb1a2169e855c89305266294682e0bc353",
+                  "lines": [
+                    {
+                      "line": 23,
+                      "text": "the estimator satisfies $\\hat\\theta_n \\to \\theta_0$ in probability."
+                    },
+                    {
+                      "line": 24,
+                      "text": "\\end{theorem}"
+                    }
+                  ]
+                }
+              ],
+              "contract_sha256": "9d87f109637cba55e4b92004186519e898d2316c29f79215cce52c1d750aa3f4"
+            },
+            {
+              "reference": {
+                "kind": "conclusion",
+                "unit_id": "lem:growing-max",
+                "conclusion_id": "C001"
+              },
+              "claim": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+              "conditions": [
+                {
+                  "pointer": "/quantifier_scope",
+                  "value": "The hypothesis is pointwise in each fixed j; the conclusion controls the maximum over the growing index range 1 <= j <= m_n."
+                },
+                {
+                  "pointer": "/probability_model",
+                  "value": "One probability space carries the triangular array {X_{n,j}}; every convergence-in-probability statement uses its measure P."
+                },
+                {
+                  "pointer": "/hypotheses/0",
+                  "value": "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity."
+                },
+                {
+                  "pointer": "/hypotheses/1",
+                  "value": "m_n -> infinity as n -> infinity."
+                },
+                {
+                  "pointer": "/definitions/0",
+                  "value": "Convergence in probability to zero: for every eps > 0, P(|X_n| > eps) -> 0."
+                }
+              ],
+              "source_anchors": [
+                {
+                  "source_member": {
+                    "index": 1,
+                    "name": "paper.tex",
+                    "audit_relative_file": "audit/00_sources/project/paper.tex",
+                    "file_sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+                  },
+                  "start_line": 9,
+                  "end_line": 10,
+                  "span_sha256": "a238ba340fa91b2b57d4de79b9091ccd032297f733daa6a518f248ee5b6c2295",
+                  "lines": [
+                    {
+                      "line": 9,
+                      "text": "fixed $j$, and let $m_n \\to \\infty$. Then"
+                    },
+                    {
+                      "line": 10,
+                      "text": "$\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability."
+                    }
+                  ]
+                }
+              ],
+              "contract_sha256": "e4e93633bcca0193414fb79075829b8c7f2a3036e1132ffd86c1b427c6c14c11"
+            },
+            {
+              "reference": {
+                "kind": "dependency_use",
+                "unit_id": "thm:main",
+                "use_id": "D001"
+              },
+              "dependency_id": null,
+              "dependency_conclusion_id": null,
+              "dependency_conclusion": null,
+              "dependency_contract_sha256": null,
+              "needed_form": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+              "source_anchors": [],
+              "contract_sha256": "1f484a80ae04188ad3f4eb1719235d476dcd262818ecf40e262c6167613a116f"
+            }
+          ],
+          "propagation": {
+            "root_affected_result": "lem:growing-max",
+            "challenged_unit": "lem:growing-max",
+            "uses": []
+          }
+        },
+        "target_contract_sha256": "a55282aebd9fabb477429cd8cfeab159f679748a19e859e6f1c9b894d3aab215"
+      }
+    ],
+    "risk_aspects": [
+      "domain",
+      "dimension",
+      "sign",
+      "constant",
+      "rate",
+      "probability",
+      "quantifier",
+      "limit"
+    ]
+  },
+  "response": {
+    "response_schema_version": 2,
+    "unit_id": "lem:growing-max",
+    "independence_level": "fresh_context_same_model",
+    "challenger_verdict": "incorrect",
+    "conclusions": [
+      {
+        "conclusion_id": "C001",
+        "verdict": "incorrect",
+        "argument_status": "invalid",
+        "statement_status": "refuted",
+        "decisive_reason": "The normalized obligation faithfully preserves the source's pointwise hypothesis for each fixed $j$ and its stronger conclusion about the entire growing row. Line 15 is justified, but line 16 does not follow. On a one-point probability space, take $m_n=n$ and $X_{n,j}=\\mathbf{1}\\{j=n\\}$ for $1\\le j\\le n$. For every fixed $j$, the variable is zero for all $n>j$, hence converges to zero in probability as required. Nevertheless $\\max_{1\\le j\\le n}|X_{n,j}|=1$ for every $n$, so for $\\varepsilon=1/2$ its exceedance probability is always one. This satisfies all source hypotheses and refutes the conclusion, rather than merely exposing an omitted argument. A finite union bound would leave $\\sum_{j=1}^{m_n}P(|X_{n,j}|>\\varepsilon)$, whose decay is not supplied by convergence at fixed coordinates. No prerequisite theorem or other assumption in this packet supplies the missing control.",
+        "source_refs": [
+          {
+            "packet_pointer": "/source/statement",
+            "start_line": 7,
+            "end_line": 10
+          },
+          {
+            "packet_pointer": "/source/proof",
+            "start_line": 14,
+            "end_line": 17
+          },
+          {
+            "packet_pointer": "/issue_triggers/0/target_contract/current_target/source_anchor",
+            "start_line": 16,
+            "end_line": 16
+          }
+        ]
+      }
+    ],
+    "issue_assessments": [
+      {
+        "issue_id": "I-001",
+        "assessment": "confirmed",
+        "target_assessment": "The targeted promotion at paper.tex line 16 is invalid. The assumptions permit $m_n=n$ and $X_{n,j}=\\mathbf{1}\\{j=n\\}$ on one probability space. Every fixed-coordinate tail eventually vanishes, whereas $P(\\max_{1\\le j\\le n}|X_{n,j}|>1/2)=1$ for all $n$. The growing index range is precisely what allows the nonvanishing spike to escape every fixed coordinate.",
+        "downstream_assessment": "The packet identifies thm:main as using this maximum convergence and gives its estimator as $\\hat\\theta_n=\\theta_0+\\max_{1\\le j\\le m_n}|X_{n,j}|$. Under the same admissible deterministic array, $\\hat\\theta_n-\\theta_0=1$ for every $n$. Thus this dependency cannot justify the downstream consistency claim, and the displayed downstream statement is itself refuted under its given conditions."
+      }
+    ]
+  },
+  "recorded_utc": "2026-09-07T17:08:43+00:00",
+  "primary_snapshot": {
+    "unit_status": "incorrect",
+    "conclusions": [
+      {
+        "conclusion_id": "C001",
+        "claim": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+        "argument_status": "invalid",
+        "statement_status": "refuted",
+        "verdict": "incorrect",
+        "support": {
+          "step_id": "S005",
+          "move_id": "M001"
+        }
+      }
+    ]
+  },
+  "superseded_review": {
+    "initial_response": {
+      "artifact": "audit/05_adversarial/initial-fef88974cf7442a7-358b132a00f1b17405b09db2dadff3172f87ebe24d77d1045cdd9f87dfd18654.json",
+      "sha256": "e56f5374f53dcc12fcb1497686d9c2e64f3507e735432e06da8e12fb9db13cca",
+      "input_sha256": "358b132a00f1b17405b09db2dadff3172f87ebe24d77d1045cdd9f87dfd18654"
+    },
+    "independent_check": {
+      "required": true,
+      "status": "agreed",
+      "independence_level": "fresh_context_same_model",
+      "challenger_verdict": "incorrect",
+      "reconciled_verdict": "incorrect",
+      "artifact": "audit/05_adversarial/lem-growing-max-challenge-usability-repairs-2026-09-07.md",
+      "covered_issue_ids": [
+        "I-001"
+      ],
+      "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+      "challenged_ledger_sha256": "f7047703b1fccbc1601893a5d43efc4821e3e3363bdc3c160ae8a3e07eacb3a3",
+      "challenge_context_sha256": "9d6f5fe7589b97835adcf47ebb731142ce95f1f91740f8041a232f4c74f3cbfa",
+      "challenge_artifact_sha256": "aa422c67663d4d10f70f94bf116568415c6cc5b375e8c0b0f793ce64527de2a3",
+      "issue_assessments": [
+        {
+          "issue_id": "I-001",
+          "assessment": "confirmed",
+          "target_assessment": "The line 16 inference fails: each fixed coordinate can eventually vanish while a nonzero coordinate moves to the growing boundary. The deterministic construction $m_n=n$, $X_{n,j}=\\mathbf{1}\\{j=n\\}$ satisfies every stated premise but makes $\\Pr(\\max_{j\\le n}|X_{n,j}|>1/2)=1$ for every $n$. No assumption in the locked statement controls these moving coordinates.",
+          "downstream_assessment": "The downstream use requires exactly the refuted maximum convergence. Under the estimator definition supplied in the packet, the same admissible array gives $\\hat\\theta_n=\\theta_0+1$ for every $n$, hence $\\Pr(|\\hat\\theta_n-\\theta_0|>1/2)=1$. Consequently the downstream consistency claim is also refuted under its stated conditions, beyond merely losing this proof route.",
+          "target_contract_sha256": "a55282aebd9fabb477429cd8cfeab159f679748a19e859e6f1c9b894d3aab215"
+        }
+      ],
+      "generated_utc": "2026-09-07T16:32:13.134590Z",
+      "disagreements": [],
+      "resolution": "",
+      "initial_response": {
+        "artifact": "audit/05_adversarial/initial-fef88974cf7442a7-358b132a00f1b17405b09db2dadff3172f87ebe24d77d1045cdd9f87dfd18654.json",
+        "sha256": "e56f5374f53dcc12fcb1497686d9c2e64f3507e735432e06da8e12fb9db13cca",
+        "input_sha256": "358b132a00f1b17405b09db2dadff3172f87ebe24d77d1045cdd9f87dfd18654"
+      }
+    },
+    "reconciliation_artifact": {
+      "artifact": "audit/05_adversarial/history-aa422c67663d4d10f70f94bf116568415c6cc5b375e8c0b0f793ce64527de2a3.md",
+      "sha256": "aa422c67663d4d10f70f94bf116568415c6cc5b375e8c0b0f793ce64527de2a3"
+    }
+  },
+  "record_payload_sha256": "cc84405b284604147c0b74ba0af836125e6dfc7a52c32d808ee295fcf60c26b0"
+}

@@ -1,0 +1,11 @@
+# Primary reference renewal for proofcheck 1.5
+
+Completed primary re-review at 2026-09-08T01:25:29.586740+00:00 in `/root/renew_release_reference`.
+
+The declared judgment-bearing profile is `gpt-6-astra-inherited`, configuration `proofcheck-1.5-inherited-settings`. The separate fresh context `/root/reference_qualification` fixed all five canary responses before the balanced session `reference-1.5-2026-09-08-fresh-qualification` was graded. All five passed. This is qualification evidence, not a research benchmark or identity attestation.
+
+Source and both complete obligations were unchanged and fully reread. Fresh extraction and packet-bound null annotation scaffolds were used for both units because calibration changed. All six substantive records, every input and all eight risk dispositions, the two direct counterexamples and programs, C001 targets, I-001 severity and bounded repair search, eight D001 applicability rows, and eight global checks were reviewed. The written arguments remain invalid and the exact statements remain refuted. The two counterexample programs were actually replayed; the finite outputs supplement the explicit analytical arguments, not replace them.
+
+The prior ledger remained live as the issue origin until each fresh sibling compiled. Earlier skeletons and ledgers are preserved byte-for-byte under `audit/04_local_checks/history/pre-proofcheck-1.5-renewal-2026-09-08`. Prior release metadata and reports are preserved under `audit/06_reports/history/pre-proofcheck-1.5-renewal-2026-09-08`. The complete old independent checks were restored before any renewed first response, retaining every initial response and historical reconciliation chain. Current independent review is recorded separately in immutable response artifacts.
+
+The independent checks completed in separate genuinely fresh contexts `/root/reference_lemma_blind` and `/root/reference_theorem_blind`, each reading only its exact packet and challenge protocol. Both original responses reported incorrect support, invalid complete arguments, refuted statements and I-001 confirmed. The coordinator checked both explicit deterministic witnesses, preserved the responses before reconciliation, bound both agreements and passed the required final ledger checks. No mathematical judgment changed and no prior disagreement was erased.

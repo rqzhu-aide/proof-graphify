@@ -1,4 +1,6 @@
 __pycache__/
+/.agents/
+/.codex/
 *.py[cod]
 .pytest_cache/
 /output/

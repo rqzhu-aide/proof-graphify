@@ -1,0 +1,25 @@
+{
+  "case_id": "q-7b42",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "valid"
+      ],
+      "statement_status": [
+        "established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [],
+      "rationale": "The union bound needs no independence. For each fixed epsilon there are finitely many tail probabilities, each converging to zero, so their sum converges to zero. The quantifier m is fixed, not growing with n.",
+      "repair": "No repair is needed. Reject a complaint that independence or a uniform rate over an infinite index set is missing.",
+      "counterexample": null
+    }
+  ]
+}

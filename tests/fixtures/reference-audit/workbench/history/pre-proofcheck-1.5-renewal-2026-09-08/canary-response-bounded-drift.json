@@ -1,0 +1,11 @@
+{
+  "canary_id": "bounded-drift",
+  "argument_status": "invalid",
+  "statement_status": "refuted",
+  "defect_lines": [
+    14,
+    15,
+    16
+  ],
+  "justification": "At lines 14-16 the proof treats convergence of individual factors to one as boundedness of the growing product. In fact the product from n=1 to m of (n+1)/n telescopes to m+1. The admissible sequence x_n=n starts at one and satisfies the recursion with equality, so its supremum is infinite and the stated bound two is false."
+}

@@ -1,0 +1,751 @@
+{
+  "schema_version": 5,
+  "evidence_contract_version": 5,
+  "unit_id": "lem:growing-max",
+  "source": {
+    "file": "../00_sources/project/paper.tex",
+    "start_line": 13,
+    "end_line": 18,
+    "unit_sha256": "a1c45ce017bdfe3b1691725e77c10f91c5ebab0999c7679b23f079046cad0eec",
+    "coverage_mode": "proof_with_separate_statement",
+    "separate_statement_reason": "The lemma statement occupies lines 6-11 while its proof environment occupies lines 13-18; the statement span is locked separately as the contract anchor."
+  },
+  "source_lines": [
+    {
+      "line": 13,
+      "sha256": "876233b8a03f24d0857a26d052957e71a7978dbe28514f9de6cd46217ef0121b",
+      "text": "\\begin{proof}"
+    },
+    {
+      "line": 14,
+      "sha256": "046e28d55a1c84283458d08cabe2d9047bb99de99ce4dc2d98ee8ddaa6345f5f",
+      "text": "Fix $\\varepsilon > 0$."
+    },
+    {
+      "line": 15,
+      "sha256": "e86bfca9b219a254e0ba1d5a62784311d71227d65204e8de0fcf3ba94f10d924",
+      "text": "For each fixed $j$, $P(|X_{n,j}| > \\varepsilon) \\to 0$ by hypothesis."
+    },
+    {
+      "line": 16,
+      "sha256": "43301734c3287ad3dcc9acdd6958f3841212f749309e8766d1f554366eca81d9",
+      "text": "Therefore $P(\\max_{1 \\le j \\le m_n} |X_{n,j}| > \\varepsilon) \\to 0$."
+    },
+    {
+      "line": 17,
+      "sha256": "cc827c1dd1fa3b27e8f6f08ec1c854dd9d2030d5466bb41881c334d5647dc741",
+      "text": "Hence the maximum converges to zero in probability."
+    },
+    {
+      "line": 18,
+      "sha256": "923e6f2ceee70dab30fb38391d0660b7e80b6c7e8d2669b45bbc7fd4cb93aaa4",
+      "text": "\\end{proof}"
+    }
+  ],
+  "source_units": [
+    {
+      "id": "U001",
+      "lines": [
+        13,
+        13
+      ],
+      "kind": "non_substantive",
+      "source_sha256": "876233b8a03f24d0857a26d052957e71a7978dbe28514f9de6cd46217ef0121b",
+      "partition_evidence": "Locked line 13 is mechanically non-substantive."
+    },
+    {
+      "id": "U002",
+      "lines": [
+        14,
+        14
+      ],
+      "kind": "one_line",
+      "source_sha256": "046e28d55a1c84283458d08cabe2d9047bb99de99ce4dc2d98ee8ddaa6345f5f",
+      "partition_evidence": "This source unit is exactly locked physical line 14."
+    },
+    {
+      "id": "U003",
+      "lines": [
+        15,
+        15
+      ],
+      "kind": "one_line",
+      "source_sha256": "e86bfca9b219a254e0ba1d5a62784311d71227d65204e8de0fcf3ba94f10d924",
+      "partition_evidence": "This source unit is exactly locked physical line 15."
+    },
+    {
+      "id": "U004",
+      "lines": [
+        16,
+        16
+      ],
+      "kind": "one_line",
+      "source_sha256": "43301734c3287ad3dcc9acdd6958f3841212f749309e8766d1f554366eca81d9",
+      "partition_evidence": "This source unit is exactly locked physical line 16."
+    },
+    {
+      "id": "U005",
+      "lines": [
+        17,
+        17
+      ],
+      "kind": "one_line",
+      "source_sha256": "cc827c1dd1fa3b27e8f6f08ec1c854dd9d2030d5466bb41881c334d5647dc741",
+      "partition_evidence": "This source unit is exactly locked physical line 17."
+    },
+    {
+      "id": "U006",
+      "lines": [
+        18,
+        18
+      ],
+      "kind": "non_substantive",
+      "source_sha256": "923e6f2ceee70dab30fb38391d0660b7e80b6c7e8d2669b45bbc7fd4cb93aaa4",
+      "partition_evidence": "Locked line 18 is mechanically non-substantive."
+    }
+  ],
+  "obligation": {
+    "statement_spans": [
+      {
+        "file": "../00_sources/project/paper.tex",
+        "start_line": 6,
+        "end_line": 11,
+        "sha256": "863987af71ffccd32299f3a95efb0563027ff63d1abc8177451d3de19caf136a"
+      }
+    ],
+    "quantified_variables": [
+      {
+        "symbol": "n",
+        "type": "positive integer",
+        "domain": "n >= 1, n -> infinity",
+        "quantifier": "forall"
+      },
+      {
+        "symbol": "j",
+        "type": "positive integer index",
+        "domain": "1 <= j <= m_n",
+        "quantifier": "forall"
+      },
+      {
+        "symbol": "X_{n,j}",
+        "type": "real random variable",
+        "domain": "triangular array on one probability space",
+        "quantifier": "fixed"
+      },
+      {
+        "symbol": "m_n",
+        "type": "positive integer sequence",
+        "domain": "m_n -> infinity",
+        "quantifier": "fixed"
+      }
+    ],
+    "quantifier_scope": "The hypothesis is pointwise in each fixed j; the conclusion controls the maximum over the growing index range 1 <= j <= m_n.",
+    "probability_model": "One probability space carries the triangular array {X_{n,j}}; every convergence-in-probability statement uses its measure P.",
+    "hypotheses": [
+      "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity.",
+      "m_n -> infinity as n -> infinity."
+    ],
+    "definitions": [
+      "Convergence in probability to zero: for every eps > 0, P(|X_n| > eps) -> 0."
+    ],
+    "conclusion": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+    "conclusions": [
+      {
+        "id": "C001",
+        "claim": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+        "source_spans": [
+          {
+            "file": "../00_sources/project/paper.tex",
+            "start_line": 9,
+            "end_line": 10,
+            "sha256": "a238ba340fa91b2b57d4de79b9091ccd032297f733daa6a518f248ee5b6c2295"
+          }
+        ],
+        "applies_under": [
+          "/quantifier_scope",
+          "/probability_model",
+          "/hypotheses/0",
+          "/hypotheses/1",
+          "/definitions/0"
+        ],
+        "normalization": {
+          "status": "checked",
+          "evidence": "The normalized claim keeps the growing maximum over 1 <= j <= m_n, the in-probability mode, and the asymptotic regime exactly as displayed on lines 9-10."
+        }
+      }
+    ],
+    "uniformity": "uniform",
+    "regime": "asymptotic",
+    "constant_dependencies": [
+      "none"
+    ],
+    "context_spans": [],
+    "normalization_checks": [
+      {
+        "aspect": "quantifiers_and_domains",
+        "status": "checked",
+        "evidence": "The fixed-j pointwise hypothesis and the maximum over the growing range 1..m_n are recorded as distinct scopes from lines 6-11."
+      },
+      {
+        "aspect": "probability_model",
+        "status": "checked",
+        "evidence": "One triangular-array law on a single space serves hypotheses and conclusion; no conditioning appears."
+      },
+      {
+        "aspect": "hypotheses",
+        "status": "checked",
+        "evidence": "Only per-fixed-j convergence and m_n -> infinity are stated; lines 6-9 contain no uniform tail bound or rate."
+      },
+      {
+        "aspect": "definitions",
+        "status": "checked",
+        "evidence": "The statement uses only the standard convergence-in-probability definition; the max ranges over exactly 1 <= j <= m_n."
+      },
+      {
+        "aspect": "conclusion",
+        "status": "checked",
+        "evidence": "The conclusion is exactly the displayed max convergence on lines 9-10."
+      },
+      {
+        "aspect": "uniformity",
+        "status": "checked",
+        "evidence": "The conclusion demands simultaneous control over the growing index set while the hypothesis is pointwise in j."
+      },
+      {
+        "aspect": "regime",
+        "status": "checked",
+        "evidence": "The claim is asymptotic in n; no finite-sample bound is stated."
+      },
+      {
+        "aspect": "constant_dependencies",
+        "status": "not_applicable",
+        "evidence": "The normalized claim is a pure limit statement introducing no hidden constant."
+      }
+    ]
+  },
+  "review": {
+    "unit_status": "incorrect",
+    "conclusion_step_id": "S005",
+    "conclusion_results": [
+      {
+        "conclusion_id": "C001",
+        "support": {
+          "step_id": "S005",
+          "move_id": "M001"
+        },
+        "contract_fidelity": "verified",
+        "argument_status": "invalid",
+        "statement_status": "refuted",
+        "dependency_closure": "verified",
+        "dependency_use_ids": [],
+        "issue_ids": [
+          "I-001"
+        ]
+      }
+    ],
+    "contract_fidelity": "verified",
+    "argument_status": "invalid",
+    "statement_status": "refuted",
+    "dependency_closure": "verified",
+    "explicit_assumptions": [
+      "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity.",
+      "m_n -> infinity as n -> infinity."
+    ],
+    "inherited_assumptions": [],
+    "direct_dependencies": [],
+    "source_reference_dispositions": [],
+    "candidate_dependency_dispositions": [],
+    "citation_dispositions": [],
+    "use_sites": [
+      "paper.tex:21",
+      "paper.tex:27"
+    ],
+    "verification_basis": [
+      "Line-by-line reconstruction of locked proof lines 13-18 against the normalized obligation.",
+      "Exact Bernoulli(1/n) counterexample with m_n = n^2, instantiated in exact rational arithmetic by the hash-locked script under audit/05_adversarial."
+    ],
+    "reviewer_notes": [
+      "The proof fails exactly at the pointwise-to-uniform promotion on line 16; the statement itself is refuted by the recorded counterexample, so downstream uses of C001 receive an incorrect dependency.",
+      "Primary source review on 2026-09-04 in existing maintenance context: reread every normalized condition and proof line, checked actual support inputs and the counterexample, and reconfirmed the judgments under proofcheck 1.4. This is primary review, not a fresh-context independent challenge.",
+      "After the final validator maintenance fix for unreadable shared style files, the primary reviewer reconfirmed these unchanged source spans and mathematical conditions. The current source-bound candidate was rebuilt and locally validated; this statement makes no claim of another independent review.",
+      "Primary renewal on 2026-09-07 in the existing implementation maintenance context: reread the exact manuscript, normalized conditions, every atomic annotation and registered dependency. Both direct counterexamples remain valid. This is a new primary review, not another independent challenge. Earlier annotations and complete independent checks remain preserved.",
+      "New primary review after the practical source and report repairs on 2026-09-07: reread the exact manuscript and declarations, every normalized condition, every source-locked inference and counterexample, and the D001 compatibility checks. Recompiled the unchanged mathematical judgments under the repaired validator. Historical conditional-versus-whole-argument disagreement remains preserved; this is primary review, not a new independent challenge.",
+      "Primary reconfirmation after the final unreadable auxiliary-context regression repair on 2026-09-07: reread the unchanged manuscript, complete obligations, all six source-locked moves, both counterexample programs and the eight D001 compatibility checks. Recompiled the unchanged mathematical judgments against a newly constructed current packet. The reference contains no unreadable or included source, so the repair changes validator context but no mathematical premise. This is an actual primary review; a fresh independent challenge is recorded separately and all earlier responses remain preserved."
+    ]
+  },
+  "independent_check": {
+    "required": true,
+    "status": "agreed",
+    "independence_level": "fresh_context_same_model",
+    "challenger_verdict": "incorrect",
+    "reconciled_verdict": "incorrect",
+    "artifact": "audit/05_adversarial/lem-growing-max-challenge-context-recovery-2026-09-07.md",
+    "covered_issue_ids": [
+      "I-001"
+    ],
+    "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+    "challenged_ledger_sha256": "859d492f5d592c1a4c8958c02c0f01b5814f8e54f5fe3df686016364d6bf648d",
+    "challenge_context_sha256": "e997833e3cbb871243ba540b850f6d8e516963371f22536f29acaad9efbedf4c",
+    "challenge_artifact_sha256": "c16a260422d71b1d06fd0070f1763fbf2108923b1f95298ec3c477365ea32851",
+    "issue_assessments": [
+      {
+        "issue_id": "I-001",
+        "assessment": "confirmed",
+        "target_assessment": "The targeted promotion at paper.tex line 16 is invalid. The assumptions permit $m_n=n$ and $X_{n,j}=\\mathbf{1}\\{j=n\\}$ on one probability space. Every fixed-coordinate tail eventually vanishes, whereas $P(\\max_{1\\le j\\le n}|X_{n,j}|>1/2)=1$ for all $n$. The growing index range is precisely what allows the nonvanishing spike to escape every fixed coordinate.",
+        "downstream_assessment": "The packet identifies thm:main as using this maximum convergence and gives its estimator as $\\hat\\theta_n=\\theta_0+\\max_{1\\le j\\le m_n}|X_{n,j}|$. Under the same admissible deterministic array, $\\hat\\theta_n-\\theta_0=1$ for every $n$. Thus this dependency cannot justify the downstream consistency claim, and the displayed downstream statement is itself refuted under its given conditions.",
+        "target_contract_sha256": "a55282aebd9fabb477429cd8cfeab159f679748a19e859e6f1c9b894d3aab215"
+      }
+    ],
+    "generated_utc": "2026-09-07T17:09:08.128972Z",
+    "disagreements": [],
+    "resolution": "",
+    "initial_response": {
+      "artifact": "audit/05_adversarial/initial-fef88974cf7442a7-fdf4285ee2e2158fefb19e44da4f07462c26e0e15f29a99e47c2855cc89cfacb.json",
+      "sha256": "87c71a084e6ef5bf3ecab1ae3feda90dd503c9ccbdc0489ad7627659d3c4eec2",
+      "input_sha256": "fdf4285ee2e2158fefb19e44da4f07462c26e0e15f29a99e47c2855cc89cfacb"
+    }
+  },
+  "steps": [
+    {
+      "id": "S001",
+      "source_unit_id": "U001",
+      "kind": "other",
+      "status": "non_substantive",
+      "issue_ids": []
+    },
+    {
+      "id": "S002",
+      "source_unit_id": "U002",
+      "kind": "setup",
+      "goal": "Introduce the arbitrary tolerance used by the convergence-in-probability argument.",
+      "restatement": "Fix an arbitrary eps > 0 for the remainder of the proof.",
+      "premise_uses": [],
+      "dependencies": [],
+      "checks": {
+        "literal": "Line 14 says exactly: Fix $\\varepsilon > 0$.",
+        "atomicity": {
+          "status": "non_inferential",
+          "evidence": "The sentence performs the single act of fixing eps; it derives nothing."
+        },
+        "adversarial": [
+          "eps is used as an arbitrary positive number on lines 15-16, matching the universal role required by /definitions/0."
+        ]
+      },
+      "side_conditions": [],
+      "risk_checks": [
+        {
+          "aspect": "domain",
+          "status": "not_applicable",
+          "evidence": "Fixing the tolerance eps performs no mathematical transition, so no domain content arises on line 14."
+        },
+        {
+          "aspect": "dimension",
+          "status": "not_applicable",
+          "evidence": "Fixing the tolerance eps performs no mathematical transition, so no dimension content arises on line 14."
+        },
+        {
+          "aspect": "sign",
+          "status": "not_applicable",
+          "evidence": "Fixing the tolerance eps performs no mathematical transition, so no sign content arises on line 14."
+        },
+        {
+          "aspect": "constant",
+          "status": "not_applicable",
+          "evidence": "Fixing the tolerance eps performs no mathematical transition, so no constant content arises on line 14."
+        },
+        {
+          "aspect": "rate",
+          "status": "not_applicable",
+          "evidence": "Fixing the tolerance eps performs no mathematical transition, so no rate content arises on line 14."
+        },
+        {
+          "aspect": "probability",
+          "status": "not_applicable",
+          "evidence": "Fixing the tolerance eps performs no mathematical transition, so no probability content arises on line 14."
+        },
+        {
+          "aspect": "quantifier",
+          "status": "passed",
+          "evidence": "eps is introduced with universal force; the conclusion must hold for every eps > 0 exactly as /definitions/0 requires."
+        },
+        {
+          "aspect": "limit",
+          "status": "not_applicable",
+          "evidence": "Fixing the tolerance eps performs no mathematical transition, so no limit content arises on line 14."
+        }
+      ],
+      "conditions": [],
+      "status": "verified",
+      "issue_ids": [],
+      "inference": {
+        "moves": [],
+        "conclusion_move": null
+      }
+    },
+    {
+      "id": "S003",
+      "source_unit_id": "U003",
+      "kind": "probability",
+      "goal": "Translate the pointwise hypothesis into tail probabilities at the fixed eps.",
+      "restatement": "For each fixed j, P(|X_{n,j}| > eps) -> 0 as n -> infinity.",
+      "premise_uses": [
+        {
+          "id": "P001",
+          "role": "assumption",
+          "claim": "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity.",
+          "origin": {
+            "kind": "obligation",
+            "reference": "/hypotheses/0",
+            "anchor": {
+              "kind": "statement_span",
+              "index": 1
+            }
+          },
+          "evidence": "The locked hypothesis states per-fixed-j convergence in probability to zero."
+        },
+        {
+          "id": "P002",
+          "role": "definition",
+          "claim": "Convergence in probability to zero: for every eps > 0, P(|X_n| > eps) -> 0.",
+          "origin": {
+            "kind": "obligation",
+            "reference": "/definitions/0",
+            "anchor": {
+              "kind": "statement_span",
+              "index": 1
+            }
+          },
+          "evidence": "The definition equates convergence in probability with vanishing tails at every eps > 0."
+        }
+      ],
+      "dependencies": [],
+      "checks": {
+        "literal": "Line 15 says exactly: For each fixed $j$, $P(|X_{n,j}| > \\varepsilon) \\to 0$ by hypothesis.",
+        "atomicity": {
+          "status": "single_move",
+          "evidence": "One move: unfold the convergence-in-probability definition at the fixed eps, per fixed j."
+        },
+        "adversarial": [
+          "The unfolding is per fixed j only; nothing on line 15 involves the growing range 1..m_n or any uniformity in j."
+        ]
+      },
+      "side_conditions": [],
+      "risk_checks": [
+        {
+          "aspect": "domain",
+          "status": "passed",
+          "evidence": "Each X_{n,j} is a real random variable, so the event |X_{n,j}| > eps is measurable."
+        },
+        {
+          "aspect": "dimension",
+          "status": "passed",
+          "evidence": "All quantities on line 15 are scalar; no dimensional bookkeeping arises."
+        },
+        {
+          "aspect": "sign",
+          "status": "passed",
+          "evidence": "eps > 0 and probabilities lie in [0,1]; no sign-sensitive operation occurs."
+        },
+        {
+          "aspect": "constant",
+          "status": "passed",
+          "evidence": "Unfolding the definition introduces no constant."
+        },
+        {
+          "aspect": "rate",
+          "status": "passed",
+          "evidence": "Line 15 asserts a pure limit per fixed j; no rate is claimed or needed here."
+        },
+        {
+          "aspect": "probability",
+          "status": "passed",
+          "evidence": "The tail event uses the single measure P fixed by the obligation's probability model."
+        },
+        {
+          "aspect": "quantifier",
+          "status": "passed",
+          "evidence": "The statement is per fixed j at the fixed eps; the growing range 1..m_n is untouched."
+        },
+        {
+          "aspect": "limit",
+          "status": "passed",
+          "evidence": "The limit is in n for each fixed j; no exchange of limits occurs."
+        }
+      ],
+      "conditions": [],
+      "status": "verified",
+      "issue_ids": [],
+      "support_role": "derivation",
+      "inference": {
+        "moves": [
+          {
+            "id": "M001",
+            "claim": "For each fixed j, P(|X_{n,j}| > eps) -> 0 as n -> infinity.",
+            "rule": "Definition unfolding at a fixed tolerance",
+            "premise_ids": [
+              "P001",
+              "P002"
+            ],
+            "prior_move_ids": [],
+            "justification": "Applying /definitions/0 to /hypotheses/0 at the eps fixed on line 14 gives, for each fixed j, P(|X_{n,j}| > eps) -> 0."
+          }
+        ],
+        "conclusion_move": "M001"
+      }
+    },
+    {
+      "id": "S004",
+      "source_unit_id": "U004",
+      "kind": "probability",
+      "goal": "Control the tail of the maximum over the growing index range 1..m_n.",
+      "restatement": "P(max_{1 <= j <= m_n} |X_{n,j}| > eps) -> 0 as n -> infinity.",
+      "premise_uses": [
+        {
+          "id": "P001",
+          "role": "fact",
+          "claim": "For each fixed j, P(|X_{n,j}| > eps) -> 0 as n -> infinity.",
+          "origin": {
+            "kind": "prior_step",
+            "reference": "S003"
+          },
+          "evidence": "Line 15 supplies per-fixed-j tail convergence at the same fixed eps."
+        },
+        {
+          "id": "P002",
+          "role": "assumption",
+          "claim": "m_n -> infinity as n -> infinity.",
+          "origin": {
+            "kind": "obligation",
+            "reference": "/hypotheses/1",
+            "anchor": {
+              "kind": "statement_span",
+              "index": 1
+            }
+          },
+          "evidence": "The index range of the maximum grows because m_n -> infinity."
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "S003",
+          "kind": "step",
+          "status": "verified",
+          "needed_form": "For each fixed j, P(|X_{n,j}| > eps) -> 0 as n -> infinity.",
+          "compatibility_check": "Line 16 uses line 15's tails at the identical eps and measure P; index j and tolerance match exactly, but line 15 is pointwise in j."
+        }
+      ],
+      "checks": {
+        "literal": "Line 16 says exactly: Therefore $P(\\max_{1 \\le j \\le m_n} |X_{n,j}| > \\varepsilon) \\to 0$.",
+        "atomicity": {
+          "status": "single_move",
+          "evidence": "One transition: pass from per-fixed-j tail convergence to the tail of the maximum over all of 1..m_n."
+        },
+        "adversarial": [
+          "A union bound gives P(max > eps) <= sum_{j<=m_n} P(|X_{n,j}| > eps), but m_n -> infinity and no rate uniform in j is available, so the sum need not vanish.",
+          "Rare independent coordinates make each per-index tail 1/n while the union tail tends to one."
+        ]
+      },
+      "side_conditions": [],
+      "risk_checks": [
+        {
+          "aspect": "domain",
+          "status": "passed",
+          "evidence": "The finite maximum of measurable X_{n,j} is measurable, so the tail event is well defined."
+        },
+        {
+          "aspect": "dimension",
+          "status": "passed",
+          "evidence": "Scalar quantities only; the index range 1..m_n is finite for each n."
+        },
+        {
+          "aspect": "sign",
+          "status": "passed",
+          "evidence": "Probabilities are nonnegative; no sign issue arises in the asserted limit."
+        },
+        {
+          "aspect": "constant",
+          "status": "passed",
+          "evidence": "No constant appears; the defect is quantifier promotion, not constant tracking."
+        },
+        {
+          "aspect": "rate",
+          "status": "failed",
+          "evidence": "The fixed-j hypothesis supplies no bound on the growing union's tail. A suitable rate uniform in j would be one sufficient remedy; it is not assumed."
+        },
+        {
+          "aspect": "probability",
+          "status": "failed",
+          "evidence": "The union of the events {|X_{n,j}| > eps} over j <= m_n accumulates failure probability that the per-fixed-j hypothesis does not control."
+        },
+        {
+          "aspect": "quantifier",
+          "status": "failed",
+          "evidence": "The step silently converts a statement pointwise in fixed j into simultaneous control over all 1 <= j <= m_n with m_n -> infinity."
+        },
+        {
+          "aspect": "limit",
+          "status": "failed",
+          "evidence": "The step exchanges the limit in n with a maximum over an n-dependent index set without justification."
+        }
+      ],
+      "conditions": [],
+      "status": "incorrect",
+      "issue_ids": [
+        "I-001"
+      ],
+      "support_role": "derivation",
+      "inference": {
+        "moves": [
+          {
+            "id": "M001",
+            "claim": "P(max_{1 <= j <= m_n} |X_{n,j}| > eps) -> 0 as n -> infinity.",
+            "rule": "Promotion of pointwise tail convergence to a maximum over a growing index set",
+            "premise_ids": [
+              "P001",
+              "P002"
+            ],
+            "prior_move_ids": [],
+            "justification": "The written step asserts the promotion directly; the locked proof supplies no uniform tail bound, rate, union-bound control, or dependence structure over j, and the promotion is false in general.",
+            "failure": {
+              "kind": "counterexample",
+              "issue_id": "I-001",
+              "target": "P(max_{1 <= j <= m_n} |X_{n,j}| > eps) -> 0 as n -> infinity.",
+              "evidence": "Take X_{n,j} independent Bernoulli(1/n) and m_n = n^2: each fixed j has P(|X_{n,j}| > eps) = 1/n -> 0 when 0 < eps < 1, and zero when eps >= 1; also m_n -> infinity. Thus both hypotheses hold, whereas P(max_{1<=j<=m_n} |X_{n,j}| > 1/2) = 1 - (1 - 1/n)^{n^2} -> 1.",
+              "computation": {
+                "status": "instantiated",
+                "script_file": "../05_adversarial/lem-growing-max-counterexample.py",
+                "script_sha256": "ebae7bca362ec6fa722b2caa38c085b7ab346a577a9456af082164c864a8c289",
+                "command": "python3 lem-growing-max-counterexample.py",
+                "output_excerpt": "n=10,100,1000 with m_n=n^2: P(max > 1/2) = 0.999973, 1.000000, 1.000000 -> 1, never -> 0 (exact rational arithmetic)"
+              }
+            }
+          }
+        ],
+        "conclusion_move": "M001"
+      }
+    },
+    {
+      "id": "S005",
+      "source_unit_id": "U005",
+      "kind": "conclusion",
+      "goal": "Conclude the lemma statement for the arbitrary eps fixed on line 14.",
+      "restatement": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+      "premise_uses": [
+        {
+          "id": "P001",
+          "role": "fact",
+          "claim": "P(max_{1 <= j <= m_n} |X_{n,j}| > eps) -> 0 as n -> infinity.",
+          "origin": {
+            "kind": "prior_step",
+            "reference": "S004"
+          },
+          "evidence": "Line 17 folds exactly the line-16 tail statement into the definition of convergence in probability."
+        }
+      ],
+      "dependencies": [
+        {
+          "id": "S004",
+          "kind": "step",
+          "status": "incorrect",
+          "needed_form": "P(max_{1 <= j <= m_n} |X_{n,j}| > eps) -> 0 as n -> infinity.",
+          "compatibility_check": "Same maximum over 1..m_n, same measure P, same asymptotic regime; the only change is folding the arbitrary eps into the definition."
+        }
+      ],
+      "checks": {
+        "literal": "Line 17 says exactly: Hence the maximum converges to zero in probability.",
+        "atomicity": {
+          "status": "single_move",
+          "evidence": "One move: fold the definition of convergence in probability by universal generalization over the arbitrary eps."
+        },
+        "adversarial": [
+          "Generalization over eps would be legitimate only if line 16 held for the arbitrary fixed eps; the Bernoulli(1/n) array refutes the folded conclusion itself at eps = 1/2."
+        ]
+      },
+      "side_conditions": [],
+      "risk_checks": [
+        {
+          "aspect": "domain",
+          "status": "passed",
+          "evidence": "The maximum over the finite range 1..m_n is a well-defined random variable for each n."
+        },
+        {
+          "aspect": "dimension",
+          "status": "passed",
+          "evidence": "Scalar limit statement; no dimensional content."
+        },
+        {
+          "aspect": "sign",
+          "status": "passed",
+          "evidence": "Only nonnegative probabilities are involved."
+        },
+        {
+          "aspect": "constant",
+          "status": "passed",
+          "evidence": "The conclusion asserts no constants."
+        },
+        {
+          "aspect": "rate",
+          "status": "passed",
+          "evidence": "The conclusion claims no rate, only convergence in probability of the maximum."
+        },
+        {
+          "aspect": "probability",
+          "status": "failed",
+          "evidence": "The conclusion inherits the uncontrolled growing union of tail events from line 16."
+        },
+        {
+          "aspect": "quantifier",
+          "status": "failed",
+          "evidence": "The conclusion asserts control uniform over the growing range 1..m_n that the pointwise hypotheses do not provide; eps = 1/2 witnesses the failure."
+        },
+        {
+          "aspect": "limit",
+          "status": "failed",
+          "evidence": "The claimed limit fails along the recorded Bernoulli(1/n) array, so the folded limit statement is false as stated."
+        }
+      ],
+      "conditions": [],
+      "status": "incorrect",
+      "issue_ids": [
+        "I-001"
+      ],
+      "support_role": "derivation",
+      "inference": {
+        "moves": [
+          {
+            "id": "M001",
+            "claim": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+            "rule": "Universal generalization over eps and definition folding",
+            "premise_ids": [
+              "P001"
+            ],
+            "prior_move_ids": [],
+            "justification": "Because eps was arbitrary, vanishing tails at every eps would give the folded conclusion; the supporting line-16 claim is refuted, and the folded conclusion about max_{1<=j<=m_n} |X_{n,j}| itself is false in general.",
+            "failure": {
+              "kind": "counterexample",
+              "issue_id": "I-001",
+              "target": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+              "evidence": "Take X_{n,j} independent Bernoulli(1/n) and m_n = n^2: each fixed j has P(|X_{n,j}| > eps) = 1/n -> 0 when 0 < eps < 1, and zero when eps >= 1; also m_n -> infinity. Thus both hypotheses hold, whereas P(max_{1<=j<=m_n} |X_{n,j}| > 1/2) = 1 - (1 - 1/n)^{n^2} -> 1. Hence the stated conclusion itself fails, not merely the written argument.",
+              "computation": {
+                "status": "instantiated",
+                "script_file": "../05_adversarial/lem-growing-max-counterexample.py",
+                "script_sha256": "ebae7bca362ec6fa722b2caa38c085b7ab346a577a9456af082164c864a8c289",
+                "command": "python3 lem-growing-max-counterexample.py",
+                "output_excerpt": "n=10,100,1000 with m_n=n^2: P(max > 1/2) = 0.999973, 1.000000, 1.000000 -> 1, never -> 0 (exact rational arithmetic)"
+              }
+            }
+          }
+        ],
+        "conclusion_move": "M001"
+      }
+    },
+    {
+      "id": "S006",
+      "source_unit_id": "U006",
+      "kind": "other",
+      "status": "non_substantive",
+      "issue_ids": []
+    }
+  ],
+  "work_context_sha256": "7e922c2db46d245e6158998efe08ad103fe123e62312a52db9dbc5bb1aca88ce"
+}

@@ -1,0 +1,7 @@
+{
+  "canary_id": "signed-markov",
+  "argument_status": "invalid",
+  "statement_status": "refuted",
+  "defect_lines": [12],
+  "justification": "Line 12 incorrectly uses the signed expectation E[X_n] to bound the tail of |X_n|; the required nonnegative quantity would be |X_n| and its expectation is not controlled by the hypothesis. On the two-point probability space with equal probabilities, let X_n equal 1 on one point and -1 on the other for every n. Then E[X_n] = 0 for every n, but P(|X_n| > 1/2) = 1 for every n, which both violates line 12 and refutes the exact convergence conclusion."
+}

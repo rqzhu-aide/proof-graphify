@@ -1,0 +1,19 @@
+\documentclass{article}
+\newtheorem{lemma}{Lemma}
+\begin{document}
+
+\begin{lemma}\label{lem:chebyshev}
+Let $(X_n)_{n \ge 1}$ be random variables with $E[X_n] = 0$ for every $n$
+and $\operatorname{Var}(X_n) \to 0$ as $n \to \infty$.
+Then $X_n \to 0$ in probability.
+\end{lemma}
+
+\begin{proof}
+Fix $\varepsilon > 0$.
+Chebyshev's inequality gives
+$P(|X_n| > \varepsilon) \le \operatorname{Var}(X_n) / \varepsilon^2$.
+The right-hand side tends to zero by hypothesis.
+Since $\varepsilon > 0$ was arbitrary, $X_n \to 0$ in probability.
+\end{proof}
+
+\end{document}

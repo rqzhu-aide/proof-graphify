@@ -1,0 +1,11 @@
+{
+  "case_id": "q-ec61",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nLet X_1,...,X_n be independent Uniform[0,1] random variables. Let D be independent of the whole sample.\nLet f_D:[0,1]->[0,1] be jointly measurable in D and its argument. Write P f_D = integral_0^1 f_D(x) dx.\nFor every t > 0, P(|n^{-1} sum_{i=1}^n f_D(X_i) - P f_D| >= t) <= 2 exp(-2 n t^2).\nProof. Conditional on D, the function f_D is fixed and the X_i remain independent Uniform[0,1].\nHoeffding's inequality conditional on D bounds the displayed event by 2 exp(-2 n t^2).\nIntegrating the conditional bound over D proves the claim.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "P(|P_n f_D - P f_D| >= t) <= 2 exp(-2 n t^2)"
+    }
+  ]
+}

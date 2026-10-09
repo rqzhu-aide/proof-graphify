@@ -1,0 +1,11 @@
+{
+  "case_id": "q-1eb4",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nLet X and Y be square-integrable real random variables, and assume E[X]=E[Y]=0.\nThen E[(X+Y)^2]=E[X^2]+E[Y^2].\nProof. Expanding the square and using the two zero means eliminates the cross term, giving the displayed equality.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "E[(X+Y)^2]=E[X^2]+E[Y^2]"
+    }
+  ]
+}

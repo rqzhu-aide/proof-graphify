@@ -1,4 +1,9 @@
 * text=auto eol=lf
-assets/archify/* -text
-scripts/paper_core/** -text
-scripts/paper_audit.py -text
+# Preserve exact common-core bytes and sealed reference evidence.
+shared/paper_core/** -text
+proof-graphify/scripts/paper_core/** -text
+proof-graphify/scripts/paper_audit.py -text
+stat-proof-check/scripts/paper_core/** -text
+stat-proof-check/scripts/paper_audit.py -text
+tests/fixtures/reference-audit/proofcheck-audit/** -text
+tests/fixtures/reference-audit/workbench/** -text

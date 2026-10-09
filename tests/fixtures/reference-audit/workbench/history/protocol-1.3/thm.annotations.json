@@ -1,0 +1,225 @@
+{
+ "annotation_schema_version": 2,
+ "unit_id": "thm:main",
+ "source_unit_sha256": "5308916e39da1b6e4cc0d2dae699c8cbb2d6db1e31fb03774b9611bb24553b28",
+ "obligation_sha256": "bb533147795044a6aba2a50b0089a9c297c2b7d6a6b3436e89e85fd4a9e8ba9b",
+ "context_binding_sha256": "0c35cbba880aff63a747047598adc149559c31cb6db1f5be80f1c9e60b07c2f3",
+ "calibration_receipt_sha256": "e061eeff7138bb650d1f76731739b46fbe4c29c2ef44af062d57740eaa64f5f4",
+ "source_groups": [
+  {
+   "lines": [
+    27,
+    28
+   ],
+   "kind": "continued_sentence",
+   "partition_evidence": "Lines 27-28 form one sentence: the invocation clause 'By Lemma 1,' on line 27 continues into the displayed claim on line 28 and shares one period."
+  }
+ ],
+ "dependencies": [
+  {
+   "id": "lem:growing-max",
+   "use_id": "D001",
+   "kind": "internal_result",
+   "status": "incorrect",
+   "needed_form": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+   "compatibility_check": "thm:main invokes the lemma conclusion verbatim for the same triangular array, measure, and asymptotic regime; no rescaling or transformation is applied.",
+   "conclusion_id": "C001"
+  }
+ ],
+ "steps": [
+  {
+   "key": "line-000027",
+   "lines": [
+    27,
+    28
+   ],
+   "mode": "noninferential",
+   "kind": "setup",
+   "goal": "Name the imported fact and its source before the deriving move consumes it.",
+   "claim": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+   "literal": "Lines 27-28 say exactly: By Lemma~\\ref{lem:growing-max}, $\\max_{1 \\le j \\le m_n} |X_{n,j}| \\to 0$ in probability.",
+   "atomicity_evidence": "The sentence names Lemma 1's conclusion as the fact the proof will use; the actual import and derivation happen on line 29 through use D001.",
+   "adversarial": [
+    "The named form matches the registered needed form for D001 verbatim, so no silent rescaling or regime change is introduced by this sentence."
+   ],
+   "risks": {
+    "domain": {
+     "status": "passed",
+     "evidence": "The named maximum of the measurable X_{n,j} over the finite range 1..m_n is a well-defined object on the inherited space."
+    },
+    "dimension": {
+     "status": "passed",
+     "evidence": "Scalar objects only; the sentence applies no operation."
+    },
+    "sign": {
+     "status": "passed",
+     "evidence": "Absolute values and probabilities are nonnegative; nothing sign-sensitive is asserted beyond the named form."
+    },
+    "constant": {
+     "status": "passed",
+     "evidence": "The sentence introduces no constant."
+    },
+    "rate": {
+     "status": "passed",
+     "evidence": "No rate is named; the imported form is a pure limit for max_{1<=j<=m_n} |X_{n,j}|."
+    },
+    "probability": {
+     "status": "passed",
+     "evidence": "The named statement uses the same measure P as the obligation; its correctness is assessed at the consuming move, not here."
+    },
+    "quantifier": {
+     "status": "passed",
+     "evidence": "The named form carries the growing range 1 <= j <= m_n explicitly, so the later move cannot silently change scope."
+    },
+    "limit": {
+     "status": "passed",
+     "evidence": "No limit operation is performed by this sentence."
+    }
+   },
+   "inputs": [],
+   "side_conditions": [],
+   "status": "verified",
+   "issue_ids": []
+  },
+  {
+   "key": "line-000029",
+   "lines": [
+    29,
+    29
+   ],
+   "mode": "derivation",
+   "kind": "conclusion",
+   "goal": "Derive the estimator's convergence from the imported lemma conclusion and the estimator's definition.",
+   "claim": "hat{theta}_n -> theta_0 in probability as n -> infinity.",
+   "literal": "Line 29 says exactly: Hence $\\hat\\theta_n - \\theta_0 \\to 0$ in probability, which is the claim.",
+   "atomicity_evidence": "One move: consume Lemma 1's conclusion through use D001, substitute hat{theta}_n - theta_0 = max_{1<=j<=m_n} |X_{n,j}| from the stated definition, and fold the convergence-in-probability definition.",
+   "adversarial": [
+    "The substitution hat{theta}_n - theta_0 = max_{1<=j<=m_n} |X_{n,j}| is exact from /hypotheses/1, so this move adds no analytic content; its only mathematical input is Lemma 1's refuted conclusion C001, and no independent control of the growing maximum exists in this proof."
+   ],
+   "risks": {
+    "domain": {
+     "status": "passed",
+     "evidence": "hat{theta}_n is theta_0 plus a finite maximum of measurable variables, hence a well-defined random variable."
+    },
+    "dimension": {
+     "status": "passed",
+     "evidence": "Scalar identity; the shift by theta_0 is exact."
+    },
+    "sign": {
+     "status": "passed",
+     "evidence": "hat{theta}_n - theta_0 equals the nonnegative maximum max_{1<=j<=m_n} |X_{n,j}|; no sign subtlety arises."
+    },
+    "constant": {
+     "status": "passed",
+     "evidence": "theta_0 is fixed and cancels exactly; no hidden constant appears."
+    },
+    "rate": {
+     "status": "passed",
+     "evidence": "No rate is claimed for hat{theta}_n; the folded statement is a pure limit."
+    },
+    "probability": {
+     "status": "failed",
+     "evidence": "The event |hat{theta}_n - theta_0| > eps equals the event max_{1<=j<=m_n} |X_{n,j}| > eps under the same P, so the move inherits the uncontrolled growing union refuted in I-001."
+    },
+    "quantifier": {
+     "status": "passed",
+     "evidence": "Folding preserves the universal eps and the growing range 1 <= j <= m_n; the missing uniform control is inherited from the refuted C001, not introduced here."
+    },
+    "limit": {
+     "status": "passed",
+     "evidence": "The substitution is exact for each n; no limit exchange is performed by this move."
+    }
+   },
+   "inputs": [
+    {
+     "kind": "dependency",
+     "reference": "D001",
+     "role": "fact",
+     "evidence": "The move consumes the lemma conclusion in exactly the registered needed form for the same array, measure, and regime.",
+     "source_reference_occurrence_id": "R-f9f87f3eae98ba46",
+     "source_reference_id": "lem:growing-max"
+    },
+    {
+     "kind": "obligation",
+     "reference": "/hypotheses/1",
+     "role": "assumption",
+     "evidence": "The stated definition hat{theta}_n = theta_0 + max_{1<=j<=m_n} |X_{n,j}| makes the substitution exact.",
+     "anchor": {
+      "kind": "statement_span",
+      "index": 1
+     }
+    }
+   ],
+   "side_conditions": [],
+   "status": "gap",
+   "issue_ids": [
+    "I-001"
+   ],
+   "rule": "Internal-result consumption, exact substitution, and definition folding",
+   "justification": "Given C001, subtracting theta_0 and folding the definition of convergence in probability would yield hat{theta}_n -> theta_0; C001 is refuted under exactly these hypotheses (issue I-001), so the required premise is not established and neither is the folded conclusion.",
+   "failure": {
+    "kind": "missing_premise",
+    "issue_id": "I-001",
+    "evidence": "The required premise max_{1<=j<=m_n} |X_{n,j}| -> 0 in probability is not established: its only source, Lemma 1's C001, is refuted by the Bernoulli(1/n), m_n = n^2 array, and lines 26-30 supply no independent control of the growing maximum."
+   }
+  }
+ ],
+ "conclusions": [
+  {
+   "conclusion_id": "C001",
+   "support_step": "line-000029",
+   "contract_fidelity": "verified",
+   "statement_status": "not_established",
+   "issue_ids": [
+    "I-001"
+   ]
+  }
+ ],
+ "review": {
+  "explicit_assumptions": [
+   "The conditions of Lemma 1 hold for the array {X_{n,j}} and m_n.",
+   "hat{theta}_n = theta_0 + max_{1 <= j <= m_n} |X_{n,j}|."
+  ],
+  "inherited_assumptions": [
+   "For each fixed j, X_{n,j} -> 0 in probability as n -> infinity.",
+   "m_n -> infinity as n -> infinity."
+  ],
+  "source_reference_dispositions": [
+   {
+    "occurrence_id": "R-3bceb3ec3aa25815",
+    "target": "lem:growing-max",
+    "command": "ref",
+    "disposition": "non_load_bearing",
+    "evidence": "The theorem statement names the lemma only to identify inherited conditions; the proof's line-27 reference is the exact premise-bearing occurrence bound to D001."
+   },
+   {
+    "occurrence_id": "R-f9f87f3eae98ba46",
+    "target": "lem:growing-max",
+    "command": "ref",
+    "disposition": "internal_result",
+    "evidence": "The line-27 reference invokes Lemma 1's conclusion as the load-bearing premise of the proof, recorded as internal use D001.",
+    "dependency_use_id": "D001"
+   }
+  ],
+  "candidate_dependency_dispositions": [
+   {
+    "candidate_id": "lem:growing-max",
+    "path_ids": [
+     "CP001",
+     "CP002"
+    ],
+    "disposition": "internal_result",
+    "evidence": "Both parser paths point at Lemma 1: CP001 is the load-bearing proof invocation on line 27 and CP002 is the statement's inheritance of Lemma 1's conditions on line 21; the single registered use D001 carries the load.",
+    "dependency_use_id": "D001"
+   }
+  ],
+  "citation_dispositions": [],
+  "verification_basis": [
+   "Line-by-line reconstruction of locked proof lines 26-30 against the normalized obligation.",
+   "Dependency closure through registry use D001 onto Lemma 1's refuted conclusion C001 (issue I-001)."
+  ],
+  "reviewer_notes": [
+   "The theorem's proof is internally exact algebra plus definition folding; its sole mathematical input is Lemma 1's refuted conclusion, so the statement is not established rather than refuted."
+  ]
+ }
+}

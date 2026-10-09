@@ -1,0 +1,394 @@
+{
+  "contract_version": 4,
+  "request_id": "req_graph_example",
+  "packet_id": "pkt_graph_example",
+  "edits": [
+    {
+      "op": "create",
+      "collection": "items",
+      "id": "itm_A",
+      "expected_version": null,
+      "body": {
+        "kind": "assumption",
+        "label": "Assumption A",
+        "caption": "First order relation",
+        "statement": {
+          "form": "transcription",
+          "text": "u <= v"
+        },
+        "passages": [
+          {
+            "role": "statement",
+            "anchor_id": "anc_A"
+          }
+        ],
+        "aliases": [],
+        "uncertainty": null,
+        "origin": "source",
+        "owner_id": null,
+        "scope_id": "scp_example"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "items",
+      "id": "itm_B",
+      "expected_version": null,
+      "body": {
+        "kind": "assumption",
+        "label": "Assumption B",
+        "caption": "Second order relation",
+        "statement": {
+          "form": "transcription",
+          "text": "v <= w"
+        },
+        "passages": [
+          {
+            "role": "statement",
+            "anchor_id": "anc_B"
+          }
+        ],
+        "aliases": [],
+        "uncertainty": null,
+        "origin": "source",
+        "owner_id": null,
+        "scope_id": "scp_example"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "items",
+      "id": "itm_T",
+      "expected_version": null,
+      "body": {
+        "kind": "theorem",
+        "label": "Theorem T",
+        "caption": "Transitivity target",
+        "statement": {
+          "form": "transcription",
+          "text": "u <= w"
+        },
+        "passages": [
+          {
+            "role": "statement",
+            "anchor_id": "anc_T_statement"
+          },
+          {
+            "role": "proof",
+            "anchor_id": "anc_T_proof"
+          }
+        ],
+        "aliases": [],
+        "uncertainty": null,
+        "origin": "source",
+        "owner_id": null,
+        "scope_id": "scp_example"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "scopes",
+      "id": "scp_example",
+      "expected_version": null,
+      "body": {
+        "argument_id": null,
+        "parent_id": null,
+        "assumptions": [
+          {
+            "collection": "items",
+            "id": "itm_A"
+          },
+          {
+            "collection": "items",
+            "id": "itm_B"
+          }
+        ],
+        "binders": [
+          {
+            "symbol": "u",
+            "domain": "real numbers",
+            "quantifier": "fixed"
+          },
+          {
+            "symbol": "v",
+            "domain": "real numbers",
+            "quantifier": "fixed"
+          },
+          {
+            "symbol": "w",
+            "domain": "real numbers",
+            "quantifier": "fixed"
+          }
+        ],
+        "conditions": [],
+        "evidence_refs": [
+          "anc_scope",
+          "anc_A",
+          "anc_B"
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "collection": "arguments",
+      "id": "arg_T",
+      "expected_version": null,
+      "body": {
+        "target": {
+          "collection": "items",
+          "id": "itm_T"
+        },
+        "label": "Written transitivity proof",
+        "origin": "source",
+        "scope_id": "scp_example",
+        "final_group_id": "grp_T",
+        "evidence_refs": [
+          "anc_T_proof"
+        ],
+        "lifecycle": "registered"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "groups",
+      "id": "grp_T",
+      "expected_version": null,
+      "body": {
+        "argument_id": "arg_T",
+        "conclusion": {
+          "collection": "items",
+          "id": "itm_T"
+        },
+        "kind": "joint",
+        "scope_id": "scp_example",
+        "case_scope_ids": [],
+        "discharges": [],
+        "rationale": "The written proof combines both order relations by transitivity.",
+        "evidence_refs": [
+          "anc_T_proof"
+        ]
+      }
+    },
+    {
+      "op": "create",
+      "collection": "uses",
+      "id": "use_A_T",
+      "expected_version": null,
+      "body": {
+        "from": {
+          "collection": "items",
+          "id": "itm_A"
+        },
+        "to": {
+          "collection": "items",
+          "id": "itm_T"
+        },
+        "type": "dependency",
+        "reason": "The first order relation is a premise of the joint inference.",
+        "evidence_refs": [
+          "anc_T_proof"
+        ],
+        "regime": null,
+        "uncertainty": null
+      }
+    },
+    {
+      "op": "create",
+      "collection": "uses",
+      "id": "use_B_T",
+      "expected_version": null,
+      "body": {
+        "from": {
+          "collection": "items",
+          "id": "itm_B"
+        },
+        "to": {
+          "collection": "items",
+          "id": "itm_T"
+        },
+        "type": "dependency",
+        "reason": "The second order relation is a premise of the joint inference.",
+        "evidence_refs": [
+          "anc_T_proof"
+        ],
+        "regime": null,
+        "uncertainty": null
+      }
+    },
+    {
+      "op": "create",
+      "collection": "audits",
+      "id": "aud_example",
+      "expected_version": null,
+      "body": {
+        "paper_id": "pap_example",
+        "mode": "focused",
+        "targets": [
+          {
+            "collection": "items",
+            "id": "itm_T"
+          }
+        ],
+        "exclusions": [],
+        "protocol_version": "item-audit/1",
+        "independent_required": false,
+        "qualification_id": null,
+        "global_tasks": [
+          {
+            "kind": "global_consistency",
+            "applicability": "required",
+            "reason": "Check that the shared real-variable scope is used consistently."
+          },
+          {
+            "kind": "adversarial",
+            "applicability": "required",
+            "reason": "Examine boundary and equality cases under the two premises."
+          },
+          {
+            "kind": "method_interface",
+            "applicability": "not_applicable",
+            "reason": "This example has no method or implementation interface."
+          }
+        ],
+        "report_path": "report.html"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "target_specs",
+      "id": "tsp_A",
+      "expected_version": null,
+      "body": {
+        "target": {
+          "collection": "items",
+          "id": "itm_A"
+        },
+        "statement_ref": {
+          "collection": "items",
+          "id": "itm_A",
+          "version": 1
+        },
+        "statement": null,
+        "scope_id": "scp_example",
+        "evidence_refs": [
+          "anc_A",
+          "anc_scope"
+        ],
+        "state": "registered",
+        "fidelity_ref": null
+      }
+    },
+    {
+      "op": "create",
+      "collection": "target_specs",
+      "id": "tsp_B",
+      "expected_version": null,
+      "body": {
+        "target": {
+          "collection": "items",
+          "id": "itm_B"
+        },
+        "statement_ref": {
+          "collection": "items",
+          "id": "itm_B",
+          "version": 1
+        },
+        "statement": null,
+        "scope_id": "scp_example",
+        "evidence_refs": [
+          "anc_B",
+          "anc_scope"
+        ],
+        "state": "registered",
+        "fidelity_ref": null
+      }
+    },
+    {
+      "op": "create",
+      "collection": "target_specs",
+      "id": "tsp_T",
+      "expected_version": null,
+      "body": {
+        "target": {
+          "collection": "items",
+          "id": "itm_T"
+        },
+        "statement_ref": {
+          "collection": "items",
+          "id": "itm_T",
+          "version": 1
+        },
+        "statement": null,
+        "scope_id": "scp_example",
+        "evidence_refs": [
+          "anc_T_statement",
+          "anc_scope"
+        ],
+        "state": "registered",
+        "fidelity_ref": null
+      }
+    },
+    {
+      "op": "create",
+      "collection": "application_details",
+      "id": "use_A_T",
+      "expected_version": null,
+      "body": {
+        "use_id": "use_A_T",
+        "group_id": "grp_T",
+        "needed_form": {
+          "form": "transcription",
+          "text": "u <= v"
+        },
+        "substitutions": [],
+        "scope_id": "scp_example",
+        "state": "registered"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "application_details",
+      "id": "use_B_T",
+      "expected_version": null,
+      "body": {
+        "use_id": "use_B_T",
+        "group_id": "grp_T",
+        "needed_form": {
+          "form": "transcription",
+          "text": "v <= w"
+        },
+        "substitutions": [],
+        "scope_id": "scp_example",
+        "state": "registered"
+      }
+    },
+    {
+      "op": "create",
+      "collection": "proof_boundaries",
+      "id": "pbd_T",
+      "expected_version": null,
+      "body": {
+        "target": {
+          "collection": "items",
+          "id": "itm_T"
+        },
+        "argument_ids": [
+          "arg_T"
+        ],
+        "anchor_refs": [
+          {
+            "collection": "anchors",
+            "id": "anc_T_proof",
+            "version": 1
+          }
+        ],
+        "source_review_ref": {
+          "collection": "source_reviews",
+          "id": "srv_boundary_example",
+          "version": 1
+        },
+        "state": "complete"
+      }
+    }
+  ]
+}

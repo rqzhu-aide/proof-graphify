@@ -1,0 +1,22 @@
+{
+  "schema_version": 5,
+  "paper_file": "audit/00_sources/project/paper.tex",
+  "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+  "status": "complete",
+  "current_pass": 8,
+  "active_unit": null,
+  "completed_units": [
+    "lem:growing-max",
+    "thm:main"
+  ],
+  "conditional_units": [],
+  "in_progress_units": [],
+  "blocked_units": {},
+  "not_started_units": [],
+  "open_high_priority_issues": [
+    "I-001"
+  ],
+  "source_or_parser_limits": [],
+  "next_action": "Audit finalized. Deliver proofcheck-report.html after delivery-check confirms FINAL.",
+  "updated_utc": "2026-09-08T23:08:55+00:00"
+}

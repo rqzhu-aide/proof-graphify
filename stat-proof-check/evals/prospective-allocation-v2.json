@@ -1,0 +1,23 @@
+{
+  "allocation_version": 2,
+  "based_on_catalog_version": 1,
+  "recorded_date": "2026-09-07",
+  "split_overrides": {"q-52fd": "development"},
+  "known_exposures": [
+    {
+      "case_id": "q-52fd",
+      "problem_sha256": "1e52cbd1d54c9e3701ca97a983e10c8ad8b0ef00e84f55c5d908103829d3ecca",
+      "configuration_id": "direct-review-two-chain-smoke-20260904",
+      "evidence": "architecture-proofcheck/implementation-evaluation/direct-smoke/run.json and its fixed response for packet a8e430b3dbba7a05",
+      "reason": "The split=all direct-review smoke exposed this chain and informed subsequent rubric discussion. It is development/regression material prospectively."
+    },
+    {
+      "case_id": "q-ab60",
+      "problem_sha256": "c0a34f40b026e259c1e63cc01c5cdae04007739a7f4e87343f70a3edbc16f600",
+      "configuration_id": "direct-review-two-chain-smoke-20260904",
+      "evidence": "architecture-proofcheck/implementation-evaluation/direct-smoke/run.json and its fixed response for packet 15b502104ff215ae",
+      "reason": "The same direct-review smoke exposed this already-development chain."
+    }
+  ],
+  "limitations": "Known exposures only. Absence from this list does not establish an untouched heldout case. No replacement unseen expert-reviewed chain has been supplied; obtain one before a confirmatory comparison. Historical catalog, keys, runs, and scores remain unchanged."
+}

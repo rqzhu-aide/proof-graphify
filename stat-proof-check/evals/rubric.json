@@ -1,0 +1,23 @@
+{
+  "rubric_version": 1,
+  "audience": "independent evaluator only",
+  "ground_truth": "All shipped keys are provisional pending actual domain-expert review.",
+  "rationale_scores": {
+    "0": "The explanation is incorrect, unrelated, or asserts a false mathematical principle, even if labels happen to be correct.",
+    "1": "The concern is directionally correct but the decisive justification, side condition, or source localization remains unsupported.",
+    "2": "The explanation gives a sound, source-backed argument for the judgment, preserves the exact assumptions and conclusion, and does not infer falsity from a defective proof."
+  },
+  "counterexample_scores": {
+    "0": "A proposed example is wrong, inadmissible, or does not violate the claimed conclusion.",
+    "1": "A plausible candidate is given without a decisive admissibility or violation check.",
+    "2": "The example satisfies every hypothesis and explicitly violates the conclusion."
+  },
+  "repair_scores": {
+    "0": "The repair is invalid, circular, or claims to preserve a guarantee that it actually weakens.",
+    "1": "A plausible repair direction is named but its necessary conditions or scientific cost remain unclear.",
+    "2": "A valid local repair candidate is explained with any changed assumptions, regime, claim, or required downstream recheck."
+  },
+  "optional_scores": "Use null for counterexample/repair when no assessment was performed. Null does not mean zero.",
+  "special_regression": "For a fixed finite maximum, correct valid/established labels justified by the false principle that pointwise convergence controls every growing maximum must receive rationale_score 0.",
+  "adjudication": "A reviewer who disputes a candidate key should document the dispute and revise/review the key before preparing a new run. Do not silently alter a key under an existing run."
+}

@@ -1,0 +1,11 @@
+{
+  "case_id": "q-a057",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nLet X_n be real random variables with |X_n| <= 1 almost surely and X_n -> 0 in probability.\nThen E|X_n| -> 0.\nProof. For epsilon > 0, split the expectation over |X_n| <= epsilon and its complement.\nThis gives E|X_n| <= epsilon + P(|X_n| > epsilon).\nThe probability tends to zero; letting epsilon decrease to zero proves the claim.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "E|X_n| -> 0"
+    }
+  ]
+}

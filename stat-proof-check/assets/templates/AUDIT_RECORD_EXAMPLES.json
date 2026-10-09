@@ -1,0 +1,1122 @@
+{
+  "schema_version": 5,
+  "evidence_contract_version": 5,
+  "method_interface_schema_version": 1,
+  "closure_contract_version": 4,
+  "skill_version": "1.5",
+  "enum_examples": {
+    "source_unit_kind": [
+      "non_substantive",
+      "one_line",
+      "continued_sentence",
+      "continued_display"
+    ],
+    "support_role": [
+      "derivation",
+      "reuse"
+    ],
+    "invalidation_kind": [
+      "proof_gap",
+      "proof_invalid",
+      "statement_refuted",
+      "dependency_mismatch",
+      "scope_inconclusive",
+      "presentation_only"
+    ],
+    "suggested_change_action": [
+      "repair_step",
+      "strengthen_assumption",
+      "weaken_claim",
+      "correct_statement",
+      "repair_dependency",
+      "clarify_scope",
+      "presentation_edit"
+    ],
+    "suggested_change_verification_status": [
+      "candidate",
+      "verified_sufficient"
+    ],
+    "resolution_disposition": [
+      "repaired",
+      "replaced",
+      "removed"
+    ],
+    "candidate_dependency_disposition": [
+      "internal_result",
+      "navigation",
+      "non_load_bearing"
+    ]
+  },
+  "ledger_example": {
+    "schema_version": 5,
+    "evidence_contract_version": 5,
+    "unit_id": "lem:target",
+    "source": {
+      "file": "../../../paper.tex",
+      "start_line": 120,
+      "end_line": 122,
+      "unit_sha256": "156858b4ce23c4dec02f0bc5a619f4a105d8b0bb4db6da6e02c2b47e074b95b9",
+      "coverage_mode": "proof_with_separate_statement",
+      "separate_statement_reason": "The statement and proof occur in different source regions."
+    },
+    "source_lines": [
+      {
+        "line": 120,
+        "text": "Because each $Z_{n,j}=o_p(1)$, we have",
+        "sha256": "a112febd744aca693150f44b558d332e1d00c0b7f8cb7bd34bcdaa52e377d3e8"
+      },
+      {
+        "line": 121,
+        "text": "$M_n=\\max_{1\\le j\\le m_n}|Z_{n,j}|=o_p(1)$.",
+        "sha256": "4bcc01047bb5d6372d2d397e30c6dc54a772e4cc99e92e121368f65a22e13fcb"
+      },
+      {
+        "line": 122,
+        "text": "\\qed",
+        "sha256": "3637e9825db9650c0dff2941d6809654f4e030dc9fe6e96e514b2b29a74fab12"
+      }
+    ],
+    "source_units": [
+      {
+        "id": "U001",
+        "lines": [
+          120,
+          121
+        ],
+        "kind": "continued_sentence",
+        "source_sha256": "7cfcdda3bf018986050d63701b631b2dcb8f2ca01e83c0a4bb6bf9af1d2267d2",
+        "partition_evidence": "The prose assertion continues directly into its displayed maximum without a separator."
+      },
+      {
+        "id": "U002",
+        "lines": [
+          122,
+          122
+        ],
+        "kind": "non_substantive",
+        "source_sha256": "3637e9825db9650c0dff2941d6809654f4e030dc9fe6e96e514b2b29a74fab12",
+        "partition_evidence": "The line contains only the proof terminator."
+      }
+    ],
+    "obligation": {
+      "statement_spans": [
+        {
+          "file": "../../../paper.tex",
+          "start_line": 100,
+          "end_line": 108,
+          "sha256": "sha256-of-the-exact-statement-span"
+        }
+      ],
+      "quantified_variables": [
+        {
+          "symbol": "n",
+          "type": "positive integer",
+          "domain": "n >= 1",
+          "quantifier": "forall"
+        },
+        {
+          "symbol": "j",
+          "type": "positive integer index",
+          "domain": "1 <= j <= m_n",
+          "quantifier": "forall"
+        }
+      ],
+      "quantifier_scope": "The conclusion is uniform over the growing index set 1 <= j <= m_n.",
+      "probability_model": "All stochastic orders use the joint law of the triangular array {Z_{n,j}}.",
+      "hypotheses": [
+        "For every fixed j, Z_{n,j}=o_p(1).",
+        "The positive integer sequence m_n tends to infinity."
+      ],
+      "definitions": [
+        "M_n=max_{1<=j<=m_n}|Z_{n,j}|."
+      ],
+      "conclusion": "M_n=o_p(1).",
+      "conclusions": [
+        {
+          "id": "C001",
+          "claim": "M_n=o_p(1).",
+          "source_spans": [
+            {
+              "file": "../../../paper.tex",
+              "start_line": 104,
+              "end_line": 108,
+              "sha256": "sha256-of-the-conclusion-span"
+            }
+          ],
+          "applies_under": [
+            "/quantifier_scope",
+            "/probability_model",
+            "/hypotheses/0",
+            "/hypotheses/1",
+            "/definitions/0"
+          ],
+          "normalization": {
+            "status": "checked",
+            "evidence": "The normalized claim preserves the growing maximum, probability mode, and asymptotic regime."
+          }
+        }
+      ],
+      "uniformity": "uniform",
+      "regime": "asymptotic",
+      "constant_dependencies": [
+        "none"
+      ],
+      "normalization_checks": [
+        {
+          "aspect": "quantifiers_and_domains",
+          "status": "checked",
+          "evidence": "The pointwise fixed-j hypothesis and growing-grid conclusion are recorded separately."
+        },
+        {
+          "aspect": "probability_model",
+          "status": "checked",
+          "evidence": "The triangular-array law is the measure used by both the hypotheses and conclusion."
+        },
+        {
+          "aspect": "hypotheses",
+          "status": "checked",
+          "evidence": "No uniform tail bound or rate is present in the locked statement."
+        },
+        {
+          "aspect": "definitions",
+          "status": "checked",
+          "evidence": "M_n is the maximum over exactly 1 <= j <= m_n."
+        },
+        {
+          "aspect": "conclusion",
+          "status": "checked",
+          "evidence": "The conclusion is exactly M_n=o_p(1)."
+        },
+        {
+          "aspect": "uniformity",
+          "status": "checked",
+          "evidence": "The conclusion requires uniform control over a growing index set."
+        },
+        {
+          "aspect": "regime",
+          "status": "checked",
+          "evidence": "The claim is asymptotic as n tends to infinity."
+        },
+        {
+          "aspect": "constant_dependencies",
+          "status": "not_applicable",
+          "evidence": "The normalized claim introduces no hidden constant."
+        }
+      ],
+      "context_spans": []
+    },
+    "review": {
+      "unit_status": "incorrect",
+      "conclusion_step_id": "S001",
+      "conclusion_results": [
+        {
+          "conclusion_id": "C001",
+          "support": {
+            "step_id": "S001",
+            "move_id": "M001"
+          },
+          "contract_fidelity": "verified",
+          "argument_status": "invalid",
+          "statement_status": "refuted",
+          "dependency_closure": "verified",
+          "dependency_use_ids": [],
+          "issue_ids": [
+            "I-001"
+          ]
+        }
+      ],
+      "contract_fidelity": "verified",
+      "argument_status": "invalid",
+      "statement_status": "refuted",
+      "dependency_closure": "verified",
+      "explicit_assumptions": [
+        "For every fixed j, Z_{n,j}=o_p(1).",
+        "m_n tends to infinity."
+      ],
+      "inherited_assumptions": [],
+      "direct_dependencies": [],
+      "source_reference_dispositions": [],
+      "candidate_dependency_dispositions": [],
+      "citation_dispositions": [],
+      "use_sites": [
+        "paper.tex:210"
+      ],
+      "verification_basis": [
+        "Source-locked atomic move",
+        "Explicit triangular-array counterexample",
+        "Issue-aware fresh-context challenge"
+      ],
+      "reviewer_notes": []
+    },
+    "independent_check": {
+      "required": true,
+      "status": "agreed",
+      "independence_level": "fresh_context_same_model",
+      "covered_issue_ids": [
+        "I-001"
+      ],
+      "challenger_verdict": "incorrect",
+      "reconciled_verdict": "incorrect",
+      "source_snapshot_sha256": "copy-from-AUDIT_MANIFEST.json",
+      "challenged_ledger_sha256": "sha256-of-the-challenged-ledger",
+      "challenge_context_sha256": "copy-from-challenge-packet-context-binding-sha256",
+      "artifact": "audit/05_adversarial/lem-target-challenge.md",
+      "challenge_artifact_sha256": "sha256-of-the-challenge-artifact",
+      "initial_response": {
+        "artifact": "audit/05_adversarial/initial-generated-by-record-challenge.json",
+        "sha256": "copy-from-record-challenge",
+        "input_sha256": "copy-from-record-challenge"
+      },
+      "issue_assessments": [
+        {
+          "issue_id": "I-001",
+          "target_contract_sha256": "copy-from-challenge-packet-issue-trigger",
+          "assessment": "confirmed",
+          "target_assessment": "The challenger independently reconstructed the growing-grid failure at the exact source-locked target.",
+          "downstream_assessment": "The failed conclusion remains load-bearing for the recorded downstream result."
+        }
+      ],
+      "generated_utc": "2026-08-09T00:00:00+00:00",
+      "disagreements": [],
+      "resolution": ""
+    },
+    "steps": [
+      {
+        "id": "S001",
+        "source_unit_id": "U001",
+        "support_role": "derivation",
+        "kind": "probability",
+        "goal": "Derive uniform stochastic convergence of the growing maximum.",
+        "restatement": "M_n=o_p(1).",
+        "premise_uses": [
+          {
+            "id": "P001",
+            "role": "assumption",
+            "claim": "For every fixed j, Z_{n,j}=o_p(1).",
+            "origin": {
+              "kind": "obligation",
+              "reference": "/hypotheses/0",
+              "anchor": {
+                "kind": "statement_span",
+                "index": 1
+              }
+            },
+            "evidence": "The locked hypothesis is pointwise in each fixed j."
+          },
+          {
+            "id": "P002",
+            "role": "assumption",
+            "claim": "The positive integer sequence m_n tends to infinity.",
+            "origin": {
+              "kind": "obligation",
+              "reference": "/hypotheses/1",
+              "anchor": {
+                "kind": "statement_span",
+                "index": 1
+              }
+            },
+            "evidence": "The locked statement permits a growing number of indices."
+          }
+        ],
+        "dependencies": [],
+        "inference": {
+          "moves": [
+            {
+              "id": "M001",
+              "claim": "M_n=o_p(1).",
+              "rule": "Promote pointwise convergence to a growing maximum.",
+              "premise_ids": [
+                "P001",
+                "P002"
+              ],
+              "prior_move_ids": [],
+              "justification": "The listed premises contain no uniform tail bound or rate that controls the growing union.",
+              "failure": {
+                "kind": "counterexample",
+                "issue_id": "I-001",
+                "target": "M_n=o_p(1).",
+                "evidence": "Let m_n=n and let Z_{n,j} be independent Bernoulli(1/n). Each fixed Z_{n,j}=o_p(1), but the maximum equals one with probability tending to 1-exp(-1).",
+                "computation": {
+                  "status": "instantiated",
+                  "script_file": "../05_adversarial/lem-target-growing-max.py",
+                  "script_sha256": "sha256-of-the-exact-script-file",
+                  "command": "python3 lem-target-growing-max.py",
+                  "output_excerpt": "n=10^2..10^6 with m_n=n: P(max_j Z_(n,j) = 1) = 0.634, 0.632, ... -> 1 - exp(-1), never -> 0"
+                }
+              }
+            }
+          ],
+          "conclusion_move": "M001"
+        },
+        "checks": {
+          "literal": "The locked source says: Because each $Z_{n,j}=o_p(1)$, we have $\\max_{1\\le j\\le m_n}|Z_{n,j}|=o_p(1)$.",
+          "atomicity": {
+            "status": "single_move",
+            "evidence": "The source unit makes one transition from pointwise convergence to a growing maximum."
+          },
+          "adversarial": [
+            "Test a triangular array in which each coordinate is rare but the growing union has nonvanishing probability."
+          ]
+        },
+        "side_conditions": [],
+        "risk_checks": [
+          {
+            "aspect": "domain",
+            "status": "passed",
+            "evidence": "Every Z_{n,j} is a real-valued random variable and the finite maximum is measurable."
+          },
+          {
+            "aspect": "dimension",
+            "status": "not_applicable",
+            "evidence": "The move contains no vector or matrix operation."
+          },
+          {
+            "aspect": "sign",
+            "status": "not_applicable",
+            "evidence": "No sign-sensitive inequality is used."
+          },
+          {
+            "aspect": "constant",
+            "status": "not_applicable",
+            "evidence": "No explicit or hidden constant is propagated."
+          },
+          {
+            "aspect": "rate",
+            "status": "failed",
+            "evidence": "Pointwise o_p(1) supplies no rate that offsets growth of m_n."
+          },
+          {
+            "aspect": "probability",
+            "status": "failed",
+            "evidence": "The proof omits control of the union probability over 1 <= j <= m_n."
+          },
+          {
+            "aspect": "quantifier",
+            "status": "failed",
+            "evidence": "A fixed-j statement is used uniformly over a growing index set."
+          },
+          {
+            "aspect": "limit",
+            "status": "not_applicable",
+            "evidence": "No exchange of limits or integration is used; the failure is lack of uniformity."
+          }
+        ],
+        "status": "incorrect",
+        "issue_ids": [
+          "I-001"
+        ]
+      },
+      {
+        "id": "S002",
+        "source_unit_id": "U002",
+        "kind": "other",
+        "status": "non_substantive",
+        "issue_ids": []
+      }
+    ]
+  },
+  "dependency_registry_example": {
+    "schema_version": 5,
+    "closure_contract_version": 4,
+    "review": {
+      "status": "reviewed",
+      "source_snapshot_sha256": "copy-from-AUDIT_MANIFEST.json",
+      "inventory_sha256": "sha256-of-the-current-theorem-inventory",
+      "in_scope_units": [
+        "lem:target",
+        "thm:main"
+      ],
+      "evidence": [
+        "The registry was reconciled with the current ledgers and locked use sites."
+      ]
+    },
+    "internal_uses": [
+      {
+        "dependent_unit": "thm:main",
+        "use_id": "D001",
+        "dependency_id": "lem:target",
+        "dependency_conclusion_id": "C001",
+        "step_ids": [
+          "S006"
+        ],
+        "needed_form": "M_n=o_p(1).",
+        "dependency_conclusion": "M_n=o_p(1).",
+        "dependency_contract_sha256": "sha256-of-lem-target-C001-contract",
+        "compatibility_check": "The downstream proof invokes the same maximum and asymptotic regime, but the source conclusion is refuted.",
+        "compatibility_checks": [
+          {
+            "aspect": "quantifiers_and_domains",
+            "status": "passed",
+            "evidence": "The use invokes the same growing index set and quantified asymptotic sequence.",
+            "issue_ids": []
+          },
+          {
+            "aspect": "probability_model",
+            "status": "passed",
+            "evidence": "The use and source conclusion refer to the same triangular-array probability law.",
+            "issue_ids": []
+          },
+          {
+            "aspect": "hypotheses",
+            "status": "passed",
+            "evidence": "The downstream use does not omit or strengthen any stated source hypothesis.",
+            "issue_ids": []
+          },
+          {
+            "aspect": "definitions",
+            "status": "passed",
+            "evidence": "Both records use M_n for the same maximum over 1 <= j <= m_n.",
+            "issue_ids": []
+          },
+          {
+            "aspect": "conclusion",
+            "status": "passed",
+            "evidence": "The needed form is textually the same stochastic-order conclusion C001.",
+            "issue_ids": []
+          },
+          {
+            "aspect": "uniformity",
+            "status": "passed",
+            "evidence": "The use requires the same uniform control over the growing grid.",
+            "issue_ids": []
+          },
+          {
+            "aspect": "regime",
+            "status": "passed",
+            "evidence": "Both the source and use are in the same n-to-infinity regime.",
+            "issue_ids": []
+          },
+          {
+            "aspect": "constant_dependencies",
+            "status": "not_applicable",
+            "evidence": "Neither the source conclusion nor the use introduces a hidden constant.",
+            "issue_ids": []
+          }
+        ],
+        "use_site": {
+          "file": "../../../paper.tex",
+          "start_line": 210,
+          "end_line": 210,
+          "sha256": "6af267879e668689ee0e948ad9c39d93206e8cb0c4646cbf4edcbf3994da57b3",
+          "quote": "By Lemma~\\ref{lem:target}, the maximum remainder is $o_p(1)$, so $\\widehat\\theta_n\\to_p\\theta_0$."
+        },
+        "status": "incorrect",
+        "issue_ids": [
+          "I-001"
+        ]
+      }
+    ],
+    "external_results": []
+  },
+  "external_result_citation_binding_fields_example": {
+    "purpose": "Add these fields to one external_results row when any use has a load-bearing citation key; the theorem-source and per-use applicability fields remain separate.",
+    "citation_bindings": [
+      {
+        "key": "smith2026",
+        "source_kind": "bibtex_entry",
+        "external_result_id": "ext:smith-theorem-2",
+        "external_identity_sha256": "sha256-of-id-plus-exact-external-result-core-contract",
+        "file": "audit/00_sources/project/references.bib",
+        "start_line": 40,
+        "end_line": 48,
+        "sha256": "sha256-of-the-exact-complete-bibtex-entry-span",
+        "role": "bibliography_identity",
+        "locator": "BibTeX entry smith2026"
+      }
+    ],
+    "citation_binding_review": {
+      "status": "reviewed",
+      "required_keys": [
+        "smith2026"
+      ],
+      "evidence": "The unique complete BibTeX entry key equals the load-bearing manuscript citation key and is bound to this external result identity."
+    },
+    "matching_use_excerpt": {
+      "dependency_id": "ext:smith-theorem-2",
+      "citation_keys": [
+        "smith2026"
+      ],
+      "dependency_contract_sha256": "sha256-of-the-core-contract-plus-citation-bindings"
+    }
+  },
+  "issue_log_example": {
+    "schema_version": 5,
+    "issues": [
+      {
+        "id": "I-001",
+        "severity": "S1",
+        "confidence": "high",
+        "status": "open",
+        "finding_status": "defect",
+        "scope": "unit",
+        "load_bearing": true,
+        "origin_ref": {
+          "kind": "ledger_move",
+          "unit_id": "lem:target",
+          "step_id": "S001",
+          "move_id": "M001"
+        },
+        "contract_refs": [
+          {
+            "kind": "conclusion",
+            "unit_id": "lem:target",
+            "conclusion_id": "C001"
+          },
+          {
+            "kind": "obligation_pointer",
+            "unit_id": "lem:target",
+            "pointer": "/hypotheses/0"
+          },
+          {
+            "kind": "obligation_pointer",
+            "unit_id": "lem:target",
+            "pointer": "/hypotheses/1"
+          },
+          {
+            "kind": "dependency_use",
+            "unit_id": "thm:main",
+            "use_id": "D001"
+          }
+        ],
+        "invalidation_kind": "statement_refuted",
+        "affected_result": "lem:target",
+        "affected_results": [
+          "lem:target",
+          "thm:main"
+        ],
+        "summary": "The proof promotes fixed-coordinate convergence in probability to a maximum over a growing grid without uniform control.",
+        "suggested_changes": [
+          {
+            "target_ref": {
+              "kind": "source_span",
+              "file": "../../../paper.tex",
+              "start_line": 100,
+              "end_line": 108,
+              "sha256": "sha256-of-the-exact-statement-span"
+            },
+            "action": "strengthen_assumption",
+            "proposal": "Add a uniform tail bound or rate strong enough that the union probability over m_n indices tends to zero.",
+            "verification_status": "candidate",
+            "required_rechecks": [
+              "lem:target",
+              "thm:main"
+            ],
+            "repair_scope": "unit_statement",
+            "assumption_cost": "adds_regularity_or_moment"
+          },
+          {
+            "target_ref": {
+              "kind": "source_span",
+              "file": "../../../paper.tex",
+              "start_line": 104,
+              "end_line": 108,
+              "sha256": "sha256-of-the-conclusion-span"
+            },
+            "action": "weaken_claim",
+            "proposal": "Restrict the conclusion to each fixed j if no uniform control is available.",
+            "verification_status": "candidate",
+            "required_rechecks": [
+              "lem:target",
+              "thm:main"
+            ],
+            "repair_scope": "unit_statement",
+            "assumption_cost": "none",
+            "claim_cost": "restricts_scope"
+          }
+        ],
+        "resolution_evidence_needed": [
+          "A revised source-locked contract and proof that closes the growing-grid step.",
+          "Full rechecks of every affected result, dependency use, challenge, and declared report deliverable."
+        ],
+        "repair_search": {
+          "strategies": [
+            {
+              "name": "union_bound",
+              "attempt": "Bound P(max_j |Z_{n,j}| > eps) by m_n * sup_j P(|Z_{n,j}| > eps) using only the stated per-fixed-j hypothesis.",
+              "outcome": "failed",
+              "evidence": "The hypothesis gives no rate: sup_j P(|Z_{n,j}| > eps) can decay arbitrarily slowly, so m_n times it need not vanish."
+            },
+            {
+              "name": "strengthened_hypothesis_variant",
+              "attempt": "Assume a uniform tail bound a_n with m_n * a_n -> 0 and close the growing union with the same union bound.",
+              "outcome": "survives_local_inspection",
+              "evidence": "Under the added uniform rate the union bound closes S001/M001 locally; the full affected-closure recheck remains required."
+            }
+          ],
+          "conclusion": "candidate_repair_exists"
+        }
+      }
+    ]
+  },
+  "generated_issue_report_example": {
+    "issue_id": "I-001",
+    "generated_from": [
+      "origin_ref",
+      "contract_refs",
+      "dependency_registry",
+      "conclusion_statuses",
+      "report_deliverables"
+    ],
+    "failure_site": {
+      "file": "../../../paper.tex",
+      "start_line": 120,
+      "end_line": 121,
+      "sha256": "7cfcdda3bf018986050d63701b631b2dcb8f2ca01e83c0a4bb6bf9af1d2267d2",
+      "quote": "Because each $Z_{n,j}=o_p(1)$, we have\n$M_n=\\max_{1\\le j\\le m_n}|Z_{n,j}|=o_p(1)$."
+    },
+    "normalized_contract": [
+      {
+        "contract_ref": {
+          "kind": "conclusion",
+          "unit_id": "lem:target",
+          "conclusion_id": "C001"
+        },
+        "text": "M_n=o_p(1)."
+      },
+      {
+        "contract_ref": {
+          "kind": "obligation_pointer",
+          "unit_id": "lem:target",
+          "pointer": "/hypotheses/0"
+        },
+        "text": "For every fixed j, Z_{n,j}=o_p(1)."
+      },
+      {
+        "contract_ref": {
+          "kind": "obligation_pointer",
+          "unit_id": "lem:target",
+          "pointer": "/hypotheses/1"
+        },
+        "text": "The positive integer sequence m_n tends to infinity."
+      },
+      {
+        "contract_ref": {
+          "kind": "dependency_use",
+          "unit_id": "thm:main",
+          "use_id": "D001"
+        },
+        "text": "M_n=o_p(1)."
+      }
+    ],
+    "failed_move": {
+      "unit_id": "lem:target",
+      "step_id": "S001",
+      "move_id": "M001",
+      "claim": "M_n=o_p(1).",
+      "rule": "Promote pointwise convergence to a growing maximum.",
+      "premises": [
+        "For every fixed j, Z_{n,j}=o_p(1).",
+        "The positive integer sequence m_n tends to infinity."
+      ],
+      "failure_evidence": "Let m_n=n and let Z_{n,j} be independent Bernoulli(1/n). Each fixed Z_{n,j}=o_p(1), but the maximum equals one with probability tending to 1-exp(-1).",
+      "failure_kind": "counterexample",
+      "target": "M_n=o_p(1).",
+      "issue_id": "I-001"
+    },
+    "propagation": [
+      {
+        "affected_result": "lem:target",
+        "relation": "origin",
+        "use_id": null,
+        "use_site": {
+          "file": "../../../paper.tex",
+          "start_line": 120,
+          "end_line": 121,
+          "sha256": "7cfcdda3bf018986050d63701b631b2dcb8f2ca01e83c0a4bb6bf9af1d2267d2",
+          "quote": "Because each $Z_{n,j}=o_p(1)$, we have\n$M_n=\\max_{1\\le j\\le m_n}|Z_{n,j}|=o_p(1)$."
+        },
+        "effect": "C001 is refuted and the unit status is incorrect."
+      },
+      {
+        "affected_result": "thm:main",
+        "relation": "transitive_internal_dependency",
+        "use_id": "D001",
+        "dependency_conclusion_id": "C001",
+        "use_site": {
+          "file": "../../../paper.tex",
+          "start_line": 210,
+          "end_line": 210,
+          "sha256": "6af267879e668689ee0e948ad9c39d93206e8cb0c4646cbf4edcbf3994da57b3",
+          "quote": "By Lemma~\\ref{lem:target}, the maximum remainder is $o_p(1)$, so $\\widehat\\theta_n\\to_p\\theta_0$."
+        },
+        "effect": "D001 is incorrect. The recorded proof of thm:main therefore does not establish its conclusion, but this finding does not by itself refute that downstream conclusion."
+      }
+    ],
+    "current_invalidation_effect": {
+      "invalidation_kind": "statement_refuted",
+      "origin_unit_status": "incorrect",
+      "affected_conclusions": [
+        "lem:target/C001",
+        "thm:main/C001"
+      ],
+      "affected_dependency_uses": [
+        "D001"
+      ],
+      "overall_assessment": "defects_found"
+    },
+    "full_recheck_closure": {
+      "status": "open",
+      "required_units": [
+        "lem:target",
+        "thm:main"
+      ],
+      "rechecked_units": [],
+      "required_dependency_uses": [
+        "D001"
+      ],
+      "rechecked_dependency_uses": [],
+      "required_challenges": [
+        "lem:target",
+        "thm:main"
+      ],
+      "reconciled_challenges": [],
+      "required_report_deliverables": [
+        "R001"
+      ],
+      "reconciled_report_deliverables": []
+    }
+  },
+  "promoted_challenge_example": {
+    "unit_id": "thm:main",
+    "required": true,
+    "promotion_reason": "Open S1 issue I-001 propagates to thm:main.",
+    "status": "agreed",
+    "independence_level": "fresh_context_same_model",
+    "covered_issue_ids": [
+      "I-001"
+    ],
+    "challenger_verdict": "incorrect",
+    "reconciled_verdict": "incorrect",
+    "source_snapshot_sha256": "copy-from-AUDIT_MANIFEST.json",
+    "challenged_ledger_sha256": "sha256-of-thm-main-ledger",
+    "challenge_context_sha256": "copy-from-challenge-packet-context-binding-sha256",
+    "artifact": "audit/05_adversarial/thm-main-I-001-challenge.md",
+    "challenge_artifact_sha256": "sha256-of-thm-main-challenge-artifact",
+    "issue_assessments": [
+      {
+        "issue_id": "I-001",
+        "target_contract_sha256": "copy-from-challenge-packet-issue-trigger",
+        "assessment": "confirmed",
+        "target_assessment": "The challenger independently confirmed the source-locked dependency failure targeted by I-001.",
+        "downstream_assessment": "The D001 use is load-bearing for thm:main, so the recorded downstream proof remains invalid; this does not by itself refute the downstream conclusion."
+      }
+    ],
+    "generated_utc": "2026-08-09T00:00:00+00:00",
+    "disagreements": [],
+    "resolution": ""
+  },
+  "resolved_issue_lifecycle_example": {
+    "purpose": "Illustrative schema-5 issue, current-resolution, archive-membership, and fresh-challenge shape for a resolved S1 lifecycle. Only complete byte-exact output produced by archive-issue can support finalization.",
+    "archive_before_repair_command": "python \"<skill-root>/scripts/proofcheck.py\" archive-issue --root proofcheck-audit --issue-id I-001",
+    "archive_record_contract": {
+      "records_are_generated_by_archive_issue": true,
+      "sealed_record_fields": [
+        "file",
+        "sha256",
+        "content_base64"
+      ],
+      "prior_artifacts": {
+        "manifest": {
+          "file": "AUDIT_MANIFEST.json",
+          "sha256": "66444334cfc47d81840f88c1e690564d3c130e9237482a58d7631124e9b9a815",
+          "content_base64": "bWFuaWZlc3QgYnl0ZXM="
+        },
+        "issue_log": {
+          "file": "audit/06_reports/ISSUE_LOG.json",
+          "sha256": "944bb65912ab916d93c7f96649eecb59a8cad670cd3f7e08b19fe7fb62ee259f",
+          "content_base64": "aXNzdWVfbG9nIGJ5dGVz"
+        },
+        "final_report": {
+          "file": "audit/06_reports/FINAL_REPORT.md",
+          "sha256": "d278675d5b4b4c30a04a3be189393fda48a588585c90e354e3f2e8e7b1c4f337",
+          "content_base64": "ZmluYWxfcmVwb3J0IGJ5dGVz"
+        },
+        "inventory": {
+          "file": "audit/01_index/theorem_inventory.json",
+          "sha256": "aff637d2b0bf931acda483cab075f23a24ca26807873337ad56da750b5126609",
+          "content_base64": "aW52ZW50b3J5IGJ5dGVz"
+        },
+        "dependency_registry": {
+          "file": "audit/03_dependencies/DEPENDENCY_REGISTRY.json",
+          "sha256": "82a00fb2cb7bf74b7acbd637326b5d3662efbe792fa61bb892ef26bfb7f6d4a8",
+          "content_base64": "ZGVwZW5kZW5jeV9yZWdpc3RyeSBieXRlcw=="
+        },
+        "method_interface_registry": {
+          "file": "audit/03_dependencies/METHOD_INTERFACE_REGISTRY.json",
+          "sha256": "11670d2b8e8cddf7d10aff1789a7a259b00f065e7eea11aebd4d2b756d9e8818",
+          "content_base64": "bWV0aG9kIGludGVyZmFjZSByZWdpc3RyeSBieXRlcw=="
+        },
+        "ledgers": [
+          {
+            "file": "audit/04_local_checks/lem-target.ledger.json",
+            "sha256": "63288b256708375bb72777f0b5c132d3558dd45e4f6f4f34c8fd19ff0d9ebe56",
+            "content_base64": "bGVkZ2VyIHRhcmdldCBieXRlcw=="
+          },
+          {
+            "file": "audit/04_local_checks/thm-main.ledger.json",
+            "sha256": "08f01681721ad54665834276b35b38363679b0ce28599022c4751f5c7ab2cfcb",
+            "content_base64": "bGVkZ2VyIG1haW4gYnl0ZXM="
+          }
+        ]
+      },
+      "prior_sources": [
+        {
+          "file": "../../../paper.tex",
+          "sha256": "ad925706ee909490cac492bbf5f73a3596d31ebc58f352cab16553f771848e53",
+          "content_base64": "c291cmNlIHBhcGVyIGJ5dGVz"
+        }
+      ],
+      "membership_binding": [
+        "Each prior_artifacts byte sequence and hash must match the same file in the prior passed finalization artifact manifest.",
+        "The ledgers list contains the repair-unit ledgers plus any internal dependency-source ledgers needed to reconstruct required closure edges.",
+        "The archived issue must be the exact I-001 member of the sealed prior issue log.",
+        "The archived failure must be recomputed from the sealed origin ledger, method-interface registry, or manifest global-consistency check; the sealed prior final report is only the prior user-facing deliverable.",
+        "prior_sources must equal the sealed prior manifest source_snapshot.files membership and hashes exactly."
+      ],
+      "illustration_note": "The small self-hashing payloads above illustrate the sealed record shape only. A real finalizable archive uses the complete byte-exact artifacts generated by archive-issue."
+    },
+    "issue_record": {
+      "id": "I-001",
+      "severity": "S1",
+      "confidence": "high",
+      "status": "resolved",
+      "finding_status": "resolved",
+      "scope": "unit",
+      "load_bearing": true,
+      "origin_ref": {
+        "kind": "ledger_move",
+        "unit_id": "lem:target",
+        "step_id": "S001",
+        "move_id": "M001"
+      },
+      "contract_refs": [
+        {
+          "kind": "conclusion",
+          "unit_id": "lem:target",
+          "conclusion_id": "C001"
+        },
+        {
+          "kind": "obligation_pointer",
+          "unit_id": "lem:target",
+          "pointer": "/hypotheses/2"
+        },
+        {
+          "kind": "dependency_use",
+          "unit_id": "thm:main",
+          "use_id": "D001"
+        }
+      ],
+      "invalidation_kind": "statement_refuted",
+      "affected_result": "lem:target",
+      "affected_results": [
+        "lem:target",
+        "thm:main"
+      ],
+      "summary": "The proof promotes fixed-coordinate convergence in probability to a maximum over a growing grid without uniform control.",
+      "suggested_changes": [
+        {
+          "target_ref": {
+            "kind": "source_span",
+            "file": "../../../paper.tex",
+            "start_line": 100,
+            "end_line": 108,
+            "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+          },
+          "action": "strengthen_assumption",
+          "proposal": "Add the source-locked uniform tail condition used by the repaired proof.",
+          "verification_status": "verified_sufficient",
+          "required_rechecks": [
+            "lem:target",
+            "thm:main"
+          ],
+          "repair_scope": "unit_statement",
+          "assumption_cost": "adds_regularity_or_moment"
+        }
+      ],
+      "resolution_evidence_needed": [
+        "A revised source-locked contract and proof that closes the growing-grid step.",
+        "Full rechecks of every affected result, dependency use, challenge, and declared report deliverable."
+      ],
+      "resolution": "The current proof establishes the strengthened growing-grid contract, D001 is current, and both affected results were rechecked.",
+      "source_revision": "The statement now includes the uniform tail condition used by the repaired S001/M001 move.",
+      "source_snapshot_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "recheck_evidence": [
+        "Current source-locked ledgers, D001, both issue-aware challenges, and R001 reconcile the repaired state."
+      ],
+      "rechecked_units": [
+        "lem:target",
+        "thm:main"
+      ],
+      "rechecked_dependency_uses": [
+        "D001"
+      ],
+      "reconciled_deliverables": [
+        "R001"
+      ],
+      "historical_origin": {
+        "artifact": "audit/06_reports/history/I-001-origin.json",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source_snapshot_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "required_units": [
+          "lem:target",
+          "thm:main"
+        ],
+        "required_dependency_uses": [
+          "D001"
+        ],
+        "required_challenges": [
+          "lem:target",
+          "thm:main"
+        ],
+        "required_report_deliverables": [
+          "R001"
+        ]
+      },
+      "current_resolution": {
+        "disposition": "repaired",
+        "current_ref": {
+          "kind": "ledger_move",
+          "unit_id": "lem:target",
+          "step_id": "S001",
+          "move_id": "M001"
+        },
+        "mapping": "The archived failed S001/M001 identity is retained, while the current source-locked move is clean under the strengthened contract.",
+        "evidence_spans": [
+          {
+            "role": "repair_verification",
+            "file": "../../../paper.tex",
+            "start_line": 100,
+            "end_line": 121,
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ],
+        "retired_dependency_uses": [],
+        "verification_status": "verified_sufficient",
+        "required_rechecks": [
+          "lem:target",
+          "thm:main"
+        ]
+      },
+      "repair_search": {
+        "strategies": [
+          {
+            "name": "union_bound",
+            "attempt": "Bound P(max_j |Z_{n,j}| > eps) by m_n * sup_j P(|Z_{n,j}| > eps) using only the stated per-fixed-j hypothesis.",
+            "outcome": "failed",
+            "evidence": "The hypothesis gives no rate: sup_j P(|Z_{n,j}| > eps) can decay arbitrarily slowly, so m_n times it need not vanish."
+          },
+          {
+            "name": "strengthened_hypothesis_variant",
+            "attempt": "Assume a uniform tail bound a_n with m_n * a_n -> 0 and close the growing union with the same union bound.",
+            "outcome": "survives_local_inspection",
+            "evidence": "Under the added uniform rate the union bound closes S001/M001 locally; the full affected-closure recheck remains required."
+          }
+        ],
+        "conclusion": "candidate_repair_exists"
+      }
+    },
+    "current_obligation_excerpt": {
+      "hypotheses": [
+        "For every fixed j, Z_{n,j}=o_p(1).",
+        "The positive integer sequence m_n tends to infinity.",
+        "For every epsilon>0, m_n max_{1<=j<=m_n} P(|Z_{n,j}|>epsilon) tends to zero."
+      ],
+      "pointer_used_by_current_contract": "/hypotheses/2"
+    },
+    "fresh_current_challenges": [
+      {
+        "unit_id": "lem:target",
+        "required": true,
+        "status": "agreed",
+        "independence_level": "fresh_context_same_model",
+        "covered_issue_ids": [
+          "I-001"
+        ],
+        "challenger_verdict": "verified",
+        "reconciled_verdict": "verified",
+        "source_snapshot_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "challenged_ledger_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "challenge_context_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+        "artifact": "audit/05_adversarial/lem-target-post-repair-challenge.md",
+        "challenge_artifact_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+        "issue_assessments": [
+          {
+            "issue_id": "I-001",
+            "target_contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "assessment": "not_confirmed",
+            "target_assessment": "The fresh challenger found that the repaired root move now follows from the strengthened current contract.",
+            "downstream_assessment": "The repaired conclusion is available to the current downstream dependency use."
+          }
+        ],
+        "generated_utc": "2026-08-09T00:00:00+00:00",
+        "disagreements": [],
+        "resolution": ""
+      },
+      {
+        "unit_id": "thm:main",
+        "required": true,
+        "status": "agreed",
+        "independence_level": "fresh_context_same_model",
+        "covered_issue_ids": [
+          "I-001"
+        ],
+        "challenger_verdict": "verified",
+        "reconciled_verdict": "verified",
+        "source_snapshot_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "challenged_ledger_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "challenge_context_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "artifact": "audit/05_adversarial/thm-main-post-repair-challenge.md",
+        "challenge_artifact_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+        "issue_assessments": [
+          {
+            "issue_id": "I-001",
+            "target_contract_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "assessment": "not_confirmed",
+            "target_assessment": "The fresh challenger found no remaining failure in the repaired dependency contract used by thm:main.",
+            "downstream_assessment": "The current D001 use supports the downstream theorem under its recorded conditions."
+          }
+        ],
+        "generated_utc": "2026-08-09T00:00:00+00:00",
+        "disagreements": [],
+        "resolution": ""
+      }
+    ],
+    "report_projection_rule": "Use the archive for the exact historical failure only. Use current contract_refs, propagation, component statuses, severity effects, and recheck closure for the resolved report."
+  },
+  "manifest_report_deliverables_example": {
+    "schema_version": 5,
+    "protocol": {
+      "skill_name": "stat-paper-proofcheck",
+      "skill_version": "1.5",
+      "artifact_schema_version": 5,
+      "evidence_contract_version": 5,
+      "method_interface_schema_version": 1,
+      "closure_contract_version": 4,
+      "challenge_contract_version": 3,
+      "validator_sha256": "sha256-of-the-current-proofcheck-validator"
+    },
+    "report_contract": {
+      "version": 2,
+      "primary": "audit/06_reports/FINAL_REPORT.html",
+      "markdown_export": false,
+      "renderer_sha256": "generated-by-report-command"
+    },
+    "report_context": {
+      "title": "Proof audit",
+      "limitations": ["State actual source or review limitations."],
+      "notes": []
+    },
+    "report_deliverables": [
+      {
+        "id": "R001",
+        "role": "user_facing_report",
+        "path": "audit/06_reports/FINAL_REPORT.html",
+        "sha256": "generated-by-report-command",
+        "issue_ids": [
+          "I-001"
+        ],
+        "overall_verdict": "defects_found"
+      }
+    ]
+  }
+}

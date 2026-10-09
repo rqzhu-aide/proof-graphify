@@ -1,0 +1,14 @@
+{
+  "rubric_version": 2,
+  "base_rationale_rubric": "rubric.json",
+  "scorer_version": 2,
+  "expert_adjudication": "pending",
+  "judgment_dimensions": "Argument validity judges the submitted derivation. Statement status is separate: a defective proof alone does not refute its statement. In this evaluation established specifically means established by the submitted derivation, so established with any argument status other than valid is an inconsistent establishment and is retained as an error observation.",
+  "serious_errors": {
+    "serious_false_verification": "A defective submitted argument is labeled valid, regardless of whether its statement happens to be true.",
+    "serious_false_establishment": "A candidate-known false statement is labeled established, including when its argument is labeled gap or invalid.",
+    "serious_false_refutation": "A candidate-known true statement is labeled refuted."
+  },
+  "pending_conventions": "Independent statistical-theory adjudication must resolve conditional versus gap and root-defect versus use-site localization conventions before a confirmatory comparison. Existing candidate keys are not widened or relabeled by this software correction.",
+  "historical_scores": "Records without scorer_version retain v1 scoring. Do not rewrite them with v2 scores or compare mixed scorer versions as if their serious-error measures were identical."
+}

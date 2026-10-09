@@ -1,0 +1,27 @@
+{
+  "case_id": "q-d190",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "refuted"
+      ],
+      "statement_truth": "false",
+      "defect_lines": [
+        7
+      ],
+      "rationale": "The growing number of summands is not controlled by fixed-j convergence. Set X_{n,j}=1{j=n} deterministically. Every fixed coordinate is eventually zero, while the maximum equals one for every n.",
+      "repair": "Require a vanishing sum of tail probabilities for each epsilon, or keep the index count fixed. A vanishing maximum individual tail probability alone need not suffice.",
+      "counterexample": "The deterministic diagonal array X_{n,j}=1{j=n} satisfies the assumptions and has P(max>1/2)=1."
+    }
+  ]
+}

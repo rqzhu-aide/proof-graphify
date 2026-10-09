@@ -1,0 +1,20 @@
+\documentclass{article}
+\newtheorem{lemma}{Lemma}
+\begin{document}
+
+\begin{lemma}\label{lem:bounded-drift}
+Let $x_1 = 1$ and suppose the real sequence $(x_n)_{n \ge 1}$ satisfies
+$0 \le x_{n+1} \le (1 + 1/n)\, x_n$ for every $n \ge 1$.
+Then $\sup_{n \ge 1} x_n \le 2$.
+\end{lemma}
+
+\begin{proof}
+Iterating the recursion gives
+$x_{m+1} \le \prod_{n=1}^{m} (1 + 1/n)\, x_1$ for every $m \ge 1$.
+Since $1/n \to 0$, the factors $(1 + 1/n)$ approach $1$, so the product
+$\prod_{n=1}^{m} (1 + 1/n)$ remains bounded by a constant close to $1$;
+in particular it never exceeds $2$.
+Hence $x_m \le 2$ for every $m$, which proves the claim.
+\end{proof}
+
+\end{document}

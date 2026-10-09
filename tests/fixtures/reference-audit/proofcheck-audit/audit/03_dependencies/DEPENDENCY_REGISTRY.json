@@ -1,0 +1,90 @@
+{
+  "schema_version": 5,
+  "closure_contract_version": 4,
+  "review": {
+    "status": "reviewed",
+    "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+    "inventory_sha256": "4e2bc7a872c8703f9ac582e1f4eb920dca7203bd834e4bf7ef11af31903b74e2",
+    "in_scope_units": [
+      "lem:growing-max",
+      "thm:main"
+    ],
+    "evidence": [
+      "Reviewed the two-unit inventory: lem:growing-max has no dependency; thm:main uses lem:growing-max through the single parser candidate and reference occurrences, recorded as internal use D001.",
+      "Primary review on 2026-09-07 reconfirmed that the statement reference inherits conditions and the proof reference supplies the sole result-use D001. Its requested form and all eight applicability dimensions match the lemma contract, while its effective mathematical support remains incorrect. No external theorem or additional route is present.",
+      "Primary source re-review after the practical robustness repairs: declaration metadata at paper.tex lines 2 and 3 preserves the two result kinds and all prior source locations; line 21 inherits conditions, lines 27 to 28 name D001, and line 29 consumes its unavailable growing-maximum claim. All eight compatibility dimensions were rechecked and remain unchanged.",
+      "Primary source reconfirmation after the unreadable auxiliary-context regression repair: the unchanged paper and complete normalized obligations were reread. The exact inventory, declarations, statement and proof spans remain identical. Line 21 inherits conditions, lines 27 to 28 name D001, and line 29 consumes its unavailable growing-maximum claim. All eight compatibility dimensions were rechecked and remain unchanged.",
+      "Proofcheck 1.5 primary renewal on 2026-09-08: independently rechecked all eight D001 compatibility rows against the unchanged lemma and theorem statements. The statement reference on line 21 inherits assumptions; the proof reference on line 27 names the precise imported C001 form, consumed on line 29. Its contract matches and remains refuted. No source, scope, contract, use status or issue-propagation judgment changed."
+    ]
+  },
+  "internal_uses": [
+    {
+      "dependent_unit": "thm:main",
+      "use_id": "D001",
+      "dependency_id": "lem:growing-max",
+      "dependency_conclusion_id": "C001",
+      "step_ids": [
+        "S003"
+      ],
+      "needed_form": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+      "dependency_conclusion": "max_{1 <= j <= m_n} |X_{n,j}| -> 0 in probability as n -> infinity.",
+      "dependency_contract_sha256": "9a5f5d539ddaecdb52c43841cbfafb4608bcb35cc568a58bd0ab0227b168c22e",
+      "compatibility_check": "thm:main invokes the lemma conclusion verbatim for the same triangular array, measure, and asymptotic regime; no rescaling or transformation is applied.",
+      "compatibility_checks": [
+        {
+          "aspect": "quantifiers_and_domains",
+          "status": "passed",
+          "evidence": "The theorem quantifies the same triangular array indices n and 1 <= j <= m_n; the invoked form quantifies identically.",
+          "issue_ids": []
+        },
+        {
+          "aspect": "probability_model",
+          "status": "passed",
+          "evidence": "Both units use the single probability space and measure P fixed in the lemma's obligation.",
+          "issue_ids": []
+        },
+        {
+          "aspect": "hypotheses",
+          "status": "passed",
+          "evidence": "The theorem assumes exactly the conditions of Lemma 1 by explicit reference on lines 20-22, adding only the definition of hat-theta_n.",
+          "issue_ids": []
+        },
+        {
+          "aspect": "definitions",
+          "status": "passed",
+          "evidence": "Convergence in probability carries the same standard definition in both statements.",
+          "issue_ids": []
+        },
+        {
+          "aspect": "conclusion",
+          "status": "passed",
+          "evidence": "The needed form equals the lemma's C001 claim verbatim.",
+          "issue_ids": []
+        },
+        {
+          "aspect": "uniformity",
+          "status": "passed",
+          "evidence": "The invoked claim is used at the same growing-maximum scope in which it is stated.",
+          "issue_ids": []
+        },
+        {
+          "aspect": "regime",
+          "status": "passed",
+          "evidence": "Both statements are asymptotic in n with no finite-sample content.",
+          "issue_ids": []
+        },
+        {
+          "aspect": "constant_dependencies",
+          "status": "passed",
+          "evidence": "Neither statement introduces constants; the shift by theta_0 is exact.",
+          "issue_ids": []
+        }
+      ],
+      "status": "incorrect",
+      "issue_ids": [
+        "I-001"
+      ]
+    }
+  ],
+  "external_results": []
+}

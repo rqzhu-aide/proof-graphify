@@ -1,0 +1,7 @@
+# Final reference validator context
+
+Context renewed 2026-09-08T03:13:08.614558+00:00 after the adjacent-inline-math delimiter repair. The completed mathematical review in PRIMARY_SURGICAL_REVIEW_2026_09_08.md is retained, with the same exact manuscript, normalized obligations, six substantive records, risks, dependencies, counterexamples, issue origin and calibration. This narrow token-matching correction does not affect any mathematical object or judgment in the reference. No new calibration, mathematical audit or independent review is claimed.
+
+Public revalidate-protocol, fresh extract, packet --for-recompile, annotation rebind, preflight and compilation renewed both validator contexts. Interim skeletons and ledgers remain byte-exact in canonical history; interim packets and annotations remain byte-exact in external history. All prior independent evidence is preserved. Final-context blinded packets await independent dispatch.
+
+Two separate fresh packet-only contexts have now supplied the actual responses for the final validator identity. Both responses were preserved before reconciliation and agree on incorrect C001 support, invalid complete arguments, refuted statements and I-001 confirmation. The coordinator checked both explicit moving-coordinate witnesses, bound the unchanged responses and passed both final ledger checks. No previous judgment or disagreement was overwritten.

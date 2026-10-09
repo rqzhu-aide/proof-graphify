@@ -1,0 +1,11 @@
+# Primary reference maintenance re-review
+
+Completed 2026-09-08T03:05:00.616393+00:00 in `/root/surgical_reference_renewal`.
+
+The current inherited model and configuration are the same as the passing five-canary session `reference-1.5-2026-09-08-fresh-qualification`. Its exact calibration bytes were retained. No new calibration or independent review is claimed.
+
+I read the complete 32-line original source, both exact normalized obligations, all six substantive records and their premises, side conditions, eight risks and failure targets. Line 15 correctly unfolds the fixed-coordinate hypothesis. Line 16 does not control the growing union. Line 17 concludes a false statement. The theorem imports the precise refuted C001 through D001; its algebra is valid conditional on that premise, but the complete argument is invalid. The deterministic moving-coordinate construction also directly refutes the estimator statement. Thus both argument statuses remain invalid and both statement statuses remain refuted.
+
+For independent Bernoulli coordinates with $m_n=n^2$, $\Pr(\max_j|X_{n,j}|>1/2)=1-(1-1/n)^{n^2}\geq1-e^{-n}\to1$. For $m_n=n$ and $X_{n,j}=\mathbf{1}_{\{j=n\}}$, every fixed coordinate is eventually zero while the maximum and $\hat\theta_n-\theta_0$ equal one. I reread and replayed both unchanged scripts; the finite outputs supplement these general arguments. The eight applicability dimensions of D001 still match; its availability remains incorrect. All eight global checks and I-001 severity, original origin, propagation, repair searches and unapplied candidate changes were reconfirmed.
+
+The validator identity changed while source, schemas, mathematical contracts and checker configuration did not. Public revalidate-protocol and fresh extract, packet --for-recompile, annotation rebind, preflight and compile commands renewed primary context. Original ledgers remained live until replacements compiled. Their complete independent_check objects and all original artifacts were retained; old skeletons and ledgers are byte-exact history. Fresh independent review will be recorded by separate packet-only contexts. Exact CLI and computation receipts live outside the canonical audit in this renewal directory.

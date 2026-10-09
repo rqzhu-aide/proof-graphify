@@ -1,0 +1,11 @@
+{
+  "case_id": "q-04d7",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nLet Z have the standard normal distribution and let theta_hat_n=1+Z/sqrt(n).\nThen sqrt(n)(|theta_hat_n|-1) converges in distribution to a standard normal random variable.\nProof. We have theta_hat_n -> 1 in probability and sqrt(n)(theta_hat_n-1)=Z.\nThe map g(x)=|x| has derivative one at one, so the delta method gives the claim.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "sqrt(n)(|theta_hat_n|-1) converges in distribution to N(0,1)"
+    }
+  ]
+}

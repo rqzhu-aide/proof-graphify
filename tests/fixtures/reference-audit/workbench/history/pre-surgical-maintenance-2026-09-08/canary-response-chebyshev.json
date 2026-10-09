@@ -1,0 +1,7 @@
+{
+  "canary_id": "chebyshev",
+  "argument_status": "valid",
+  "statement_status": "established",
+  "defect_lines": [],
+  "justification": "The zero-mean hypothesis makes the centered deviation X_n - E[X_n] equal X_n, so Chebyshev's inequality yields exactly the bound in lines 13-14. For every fixed epsilon > 0, the variance hypothesis makes that upper bound tend to zero. The resulting vanishing tail probabilities are precisely the definition of convergence to zero in probability, establishing the stated lemma."
+}

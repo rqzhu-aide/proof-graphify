@@ -1,0 +1,22 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb}
+\newtheorem{proposition}{Proposition}
+\begin{document}
+\section*{Supplement to Two elementary bounds for simultaneous events}
+All notation and the restriction $0<\delta<1/2$ are inherited from the main paper.
+\setcounter{proposition}{6}
+\begin{proposition}\label{prop:joint-supp}
+For events $A,B$ with $\mathbb P(A)\ge1-\delta$ and
+$\mathbb P(B)\ge1-\delta$, we have $\mathbb P(A\cap B)\ge1-\delta$.
+\end{proposition}
+\begin{proof}
+The two applications of Lemma 1 in the main paper yield
+$\mathbb P(A^c)\le\delta$ and $\mathbb P(B^c)\le\delta$.
+By the union bound,
+\[
+\mathbb P((A\cap B)^c)=\mathbb P(A^c\cup B^c)
+\le\mathbb P(A^c)+\mathbb P(B^c)\le\delta.
+\]
+Taking complements gives the result.
+\end{proof}
+\end{document}

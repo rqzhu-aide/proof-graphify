@@ -1,0 +1,11 @@
+{
+  "case_id": "q-217c",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nLet A be a real symmetric d by d matrix, where d >= 1, and assume A is positive semidefinite.\nThen A is invertible.\nProof. By the spectral theorem, every eigenvalue of A is at least zero.\nEvery eigenvalue is therefore nonzero, which proves invertibility.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "A is invertible"
+    }
+  ]
+}

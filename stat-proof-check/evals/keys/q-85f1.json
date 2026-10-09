@@ -1,0 +1,25 @@
+{
+  "case_id": "q-85f1",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "valid"
+      ],
+      "statement_status": [
+        "established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [],
+      "rationale": "Square integrability makes XY integrable by Cauchy-Schwarz. Expanding gives cross term 2E[XY]=2E[X E[Y|X]]=0. The short source names the needed operations and provides the correct conditional-mean assumption.",
+      "repair": "No repair is needed. Requiring the author to spell out this routine expansion would be an unnecessary false alarm.",
+      "counterexample": null
+    }
+  ]
+}

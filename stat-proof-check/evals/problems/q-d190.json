@@ -1,0 +1,11 @@
+{
+  "case_id": "q-d190",
+  "title": "Proof audit exercise",
+  "source": "Claim C001.\nFor each n >= 1, let X_{n,1},...,X_{n,n} be real random variables.\nFor every fixed positive integer j, assume X_{n,j} -> 0 in probability along n >= j.\nThen max_{1<=j<=n}|X_{n,j}| -> 0 in probability.\nProof. Fix epsilon > 0.\nThe union bound gives P(max_{j<=n}|X_{n,j}| > epsilon) <= sum_{j=1}^n P(|X_{n,j}| > epsilon).\nEach summand tends to zero for fixed j, so the displayed sum tends to zero, proving the claim.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "claim": "max_{1<=j<=n}|X_{n,j}| -> 0 in probability"
+    }
+  ]
+}

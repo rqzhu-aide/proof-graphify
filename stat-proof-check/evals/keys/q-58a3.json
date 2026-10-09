@@ -1,0 +1,28 @@
+{
+  "case_id": "q-58a3",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "refuted"
+      ],
+      "statement_truth": "false",
+      "defect_lines": [
+        5,
+        6
+      ],
+      "rationale": "Conditioning on S fixes the observations; it does not leave their original uniform law. Choose f_S(x)=1{x in {X_1,...,X_n}}. Its uniform integral is zero while its empirical mean is one. At n=2,t=1/2, the claimed probability bound is 2/e<1 although the probability is one.",
+      "repair": "Use an independent evaluation sample, or supply a valid uniform/data-dependent complexity bound for the selected class.",
+      "counterexample": "For f_S the indicator of the observed finite set, P_n f_S=1 and P f_S=0 for every sample. At n=2,t=1/2 the event has probability one, exceeding 2/e."
+    }
+  ]
+}

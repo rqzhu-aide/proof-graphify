@@ -1,0 +1,27 @@
+{
+  "case_id": "q-1eb4",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "invalid"
+      ],
+      "statement_status": [
+        "refuted"
+      ],
+      "statement_truth": "false",
+      "defect_lines": [
+        4
+      ],
+      "rationale": "Marginal zero means do not imply E[XY]=0. Let X=Y be a Rademacher variable taking +/-1 equally likely. Both are square-integrable and mean zero, but the left side is four and the right side is two.",
+      "repair": "Add E[XY]=0, an appropriate conditional-mean-zero assumption, or independence with the stated zero means. These are stronger joint-distribution conditions.",
+      "counterexample": "For X=Y with P(X=1)=P(X=-1)=1/2, E[(X+Y)^2]=4 while E[X^2]+E[Y^2]=2."
+    }
+  ]
+}

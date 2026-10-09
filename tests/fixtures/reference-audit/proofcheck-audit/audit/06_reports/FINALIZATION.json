@@ -1,0 +1,440 @@
+{
+  "finalization_schema_version": 1,
+  "status": "passed",
+  "generated_utc": "2026-09-10T21:40:23+00:00",
+  "protocol": {
+    "skill_name": "stat-paper-proofcheck",
+    "skill_version": "1.5",
+    "evidence_contract_version": 5,
+    "artifact_schema_version": 5,
+    "method_interface_schema_version": 1,
+    "closure_contract_version": 4,
+    "validator_sha256": "a963acf763aec5367c4ef8ed39c1527532737bbc1d1bec0b7f9d243cf59efc96"
+  },
+  "source_snapshot_sha256": "3f8b5733b8151109077b4cb9ba689810977c85ca977fbf57b53412d5e235c466",
+  "artifact_manifest": [
+    {
+      "file": "AUDIT_MANIFEST.json",
+      "sha256": "604b0589f276b24823f874374b5a158c5d995ebc711940e413ffc6f36fab461c"
+    },
+    {
+      "file": "CHECK_PLAN.md",
+      "sha256": "e9ce1536fa30a2663cb901021a241d01cd15d5a45f4c6a3b203e3250d73f40bb"
+    },
+    {
+      "file": "EXECUTION_ORDER.md",
+      "sha256": "b6679a51bf36feaa3b2b10dd86c81cbe21a1ca471ec0dea57e925fe6cc966883"
+    },
+    {
+      "file": "PROGRESS.json",
+      "sha256": "02bb73fdfd97a89cd377c89ce23773839867f4c40af64dbe6b350f796665575b"
+    },
+    {
+      "file": "audit/00_sources/project/paper.tex",
+      "sha256": "aacbf71efe27f4decd4a85208223e763e54a585b4b074a1b3a0029eaff54875f"
+    },
+    {
+      "file": "audit/01_index/cross_reference_audit.json",
+      "sha256": "abaefd1bf5cdd737286c0506e6f9fae012434bbd2a3bf385d163a69dfdd6a6cd"
+    },
+    {
+      "file": "audit/01_index/cross_reference_audit.md",
+      "sha256": "71a24a3e7f6e520bfbcf40f80b43d0e460c779b4b8748ed44f31e152b0e07d09"
+    },
+    {
+      "file": "audit/01_index/theorem_inventory.json",
+      "sha256": "4e2bc7a872c8703f9ac582e1f4eb920dca7203bd834e4bf7ef11af31903b74e2"
+    },
+    {
+      "file": "audit/01_index/theorem_inventory.md",
+      "sha256": "c56bdbda2a5f2649441278afb8da60e9569be32870cda3b79069a588bb8c31d8"
+    },
+    {
+      "file": "audit/03_dependencies/DEPENDENCY_REGISTRY.json",
+      "sha256": "2f70a97d19b4aa522f1576b5900b1c4d32f7df93c04891804d6642fb804986ad"
+    },
+    {
+      "file": "audit/03_dependencies/METHOD_INTERFACE_REGISTRY.json",
+      "sha256": "9ea1e51c5380d0e6ff07cb804bab1dd9312f36722e686aaf89f318b34255f31e"
+    },
+    {
+      "file": "audit/03_dependencies/dependency_graph.md",
+      "sha256": "db18f6d9677d60f45165469a0fb4b580631428342226da462c433ae9bab16a4d"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-challenge-1.4/lem-growing-max.ledger.json",
+      "sha256": "dacea67244d9155718317fbe4da70088f4d85f512eed644fa5827762ac9e2008"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-challenge-1.4/thm-main.ledger.json",
+      "sha256": "a14f3135dfa7cda0e7a9380edf672acf0a11ab4e692066c4065798649f95e87c"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-context-recovery-2026-09-07/lem-growing-max.ledger.json",
+      "sha256": "348b7e1ee1d60137e56639948db011e1497e9246ca5460a8bf23a30bf18f1d21"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-context-recovery-2026-09-07/lem-growing-max.skeleton.json",
+      "sha256": "4414a348f5fef9c7a188dbc2a38fea89b1eac94d720ee99522722493cfbea987"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-context-recovery-2026-09-07/thm-main.ledger.json",
+      "sha256": "ac727555e86e0c7bbac0c7d1ee423da4425f6d36c03037ed8ecb8ed692ba12b1"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-context-recovery-2026-09-07/thm-main.skeleton.json",
+      "sha256": "bf6e03673c9147763a94a9bdc6cb95ba1baf3c2203bb6c025c1450e8c972cc43"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-proofcheck-1.5-renewal-2026-09-08/lem-growing-max.ledger.json",
+      "sha256": "1f1be8d6a58052e1688b3d7287ed45f034b654159afa69950fb17fae6c3683a3"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-proofcheck-1.5-renewal-2026-09-08/lem-growing-max.skeleton.json",
+      "sha256": "4414a348f5fef9c7a188dbc2a38fea89b1eac94d720ee99522722493cfbea987"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-proofcheck-1.5-renewal-2026-09-08/thm-main.ledger.json",
+      "sha256": "f1c6a0c89b7c15b1b9c635d29e359e2fbc0b549864ce158905a3cff2959f0ad7"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-proofcheck-1.5-renewal-2026-09-08/thm-main.skeleton.json",
+      "sha256": "bf6e03673c9147763a94a9bdc6cb95ba1baf3c2203bb6c025c1450e8c972cc43"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-renewal-2026-09-07/lem-growing-max.ledger.json",
+      "sha256": "f2c4d91e98b149ac92981bb4fc99738af2f73814f0df92411b65e46813a534f3"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-renewal-2026-09-07/lem-growing-max.skeleton.json",
+      "sha256": "4d45833e9de45def369f438af9eecfc247d5829b3385e397867e2b47548a00c6"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-renewal-2026-09-07/thm-main.ledger.json",
+      "sha256": "7f5b13157c2e8462d4cfa3c643284764f0d461ca52338b6cdff4b88545387f20"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-renewal-2026-09-07/thm-main.skeleton.json",
+      "sha256": "d57637e1d814c31ff184325ed3152edeedb0fda3df0baef519c347c1fd1e91f7"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-surgical-validator-renewal-2026-09-08/lem-growing-max.ledger.json",
+      "sha256": "57e7f8cf8cf39e20007cf43dc96a6a531b34a540e6660e0084de3af367c99858"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-surgical-validator-renewal-2026-09-08/lem-growing-max.skeleton.json",
+      "sha256": "8c85d71f4d74cc8eeb5546d20a850c9e41cd69d9017a9faad956f7d847db6b28"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-surgical-validator-renewal-2026-09-08/thm-main.ledger.json",
+      "sha256": "e384ea96f934899f1979eea49204ef7970f14729ea5cf734da1adbffdee492d3"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-surgical-validator-renewal-2026-09-08/thm-main.skeleton.json",
+      "sha256": "b2c670a95bc5b708fe3034d671acc930f1031c90095a6c03796807f388ccb094"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-usability-repairs-2026-09-07/lem-growing-max.ledger.json",
+      "sha256": "97f1b4d6157fa5bb062625879466637f9e5fbb4172ad5f9dcfe9bccf5e03e323"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-usability-repairs-2026-09-07/lem-growing-max.skeleton.json",
+      "sha256": "4414a348f5fef9c7a188dbc2a38fea89b1eac94d720ee99522722493cfbea987"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-usability-repairs-2026-09-07/thm-main.ledger.json",
+      "sha256": "b69f3bcb9943e299e3c8b3073358558e4aabe867504ae18ca10047e3ecee2a48"
+    },
+    {
+      "file": "audit/04_local_checks/history/pre-usability-repairs-2026-09-07/thm-main.skeleton.json",
+      "sha256": "bf6e03673c9147763a94a9bdc6cb95ba1baf3c2203bb6c025c1450e8c972cc43"
+    },
+    {
+      "file": "audit/04_local_checks/history/protocol-1.3/lem-growing-max.ledger.json",
+      "sha256": "1b3614d6e1161481ca07bb1d38e937c38fd39b62651bc7916d28e15423efb393"
+    },
+    {
+      "file": "audit/04_local_checks/history/protocol-1.3/thm-main.ledger.json",
+      "sha256": "0d02385ce0975e381a293e6069daf143f6b5022b85bf3f881b948fd1c8d6707f"
+    },
+    {
+      "file": "audit/04_local_checks/history/superseded-surgical-context-before-adjacent-math-fix/lem-growing-max.ledger.json",
+      "sha256": "f98bb20c13ee17d52b9f793e9ef971ac22bb2c8815912a40b4c578bc548ed7e1"
+    },
+    {
+      "file": "audit/04_local_checks/history/superseded-surgical-context-before-adjacent-math-fix/lem-growing-max.skeleton.json",
+      "sha256": "8c85d71f4d74cc8eeb5546d20a850c9e41cd69d9017a9faad956f7d847db6b28"
+    },
+    {
+      "file": "audit/04_local_checks/history/superseded-surgical-context-before-adjacent-math-fix/thm-main.ledger.json",
+      "sha256": "70e726d96ccecf338a043050e583e0dc42ccb85fc618e2322681d66e4fc2c6f7"
+    },
+    {
+      "file": "audit/04_local_checks/history/superseded-surgical-context-before-adjacent-math-fix/thm-main.skeleton.json",
+      "sha256": "b2c670a95bc5b708fe3034d671acc930f1031c90095a6c03796807f388ccb094"
+    },
+    {
+      "file": "audit/04_local_checks/lem-growing-max.ledger.json",
+      "sha256": "31837e50fb08a210996d3773a84bb3ca29b1fbd9cc1fb5e34b95c5506abe19bd"
+    },
+    {
+      "file": "audit/04_local_checks/lem-growing-max.skeleton.json",
+      "sha256": "8c85d71f4d74cc8eeb5546d20a850c9e41cd69d9017a9faad956f7d847db6b28"
+    },
+    {
+      "file": "audit/04_local_checks/thm-main.ledger.json",
+      "sha256": "db4a31270f3bbdb7ea577dbb5bfafaa158facab2d2a082925fe508ff3482dd2c"
+    },
+    {
+      "file": "audit/04_local_checks/thm-main.skeleton.json",
+      "sha256": "b2c670a95bc5b708fe3034d671acc930f1031c90095a6c03796807f388ccb094"
+    },
+    {
+      "file": "audit/05_adversarial/history-1ba1296e3a1f5e6ef7479ff26a7b344e8fa086403e3f02fe669300ad5a84dc95.md",
+      "sha256": "1ba1296e3a1f5e6ef7479ff26a7b344e8fa086403e3f02fe669300ad5a84dc95"
+    },
+    {
+      "file": "audit/05_adversarial/history-27d5cae9dadaa01c65ed560b469cc70f9b29cd369516397bf319d742098b1b73.md",
+      "sha256": "27d5cae9dadaa01c65ed560b469cc70f9b29cd369516397bf319d742098b1b73"
+    },
+    {
+      "file": "audit/05_adversarial/history-6529400d5d8b6837dce42361965ed444bcd80173d7005797f58c0b373c210096.md",
+      "sha256": "6529400d5d8b6837dce42361965ed444bcd80173d7005797f58c0b373c210096"
+    },
+    {
+      "file": "audit/05_adversarial/history-7454513ea1bd1c1d8d99ad02f347b0f52b18a869bfce444a62fb3602f3365f12.md",
+      "sha256": "7454513ea1bd1c1d8d99ad02f347b0f52b18a869bfce444a62fb3602f3365f12"
+    },
+    {
+      "file": "audit/05_adversarial/history-8e60e20abd755cba2383f52802cd9885c15a0b26a76e3d87350efd3c9361c2ea.md",
+      "sha256": "8e60e20abd755cba2383f52802cd9885c15a0b26a76e3d87350efd3c9361c2ea"
+    },
+    {
+      "file": "audit/05_adversarial/history-95afd7c0bac1a5df9ff31a23b34ee7e42b635ab591b67bd5ca4a4bdfbc2f6c14.md",
+      "sha256": "95afd7c0bac1a5df9ff31a23b34ee7e42b635ab591b67bd5ca4a4bdfbc2f6c14"
+    },
+    {
+      "file": "audit/05_adversarial/history-aa422c67663d4d10f70f94bf116568415c6cc5b375e8c0b0f793ce64527de2a3.md",
+      "sha256": "aa422c67663d4d10f70f94bf116568415c6cc5b375e8c0b0f793ce64527de2a3"
+    },
+    {
+      "file": "audit/05_adversarial/history-b2cdee12413ebe0e3c8af7ac8acf63c1e1a304985824a5281cd5ad9124cd0c9b.md",
+      "sha256": "b2cdee12413ebe0e3c8af7ac8acf63c1e1a304985824a5281cd5ad9124cd0c9b"
+    },
+    {
+      "file": "audit/05_adversarial/history-c16a260422d71b1d06fd0070f1763fbf2108923b1f95298ec3c477365ea32851.md",
+      "sha256": "c16a260422d71b1d06fd0070f1763fbf2108923b1f95298ec3c477365ea32851"
+    },
+    {
+      "file": "audit/05_adversarial/history-ca8d66c462b1953ac533dfea32673cc0f815dcab3494aae7ecd166f2ed7531e4.md",
+      "sha256": "ca8d66c462b1953ac533dfea32673cc0f815dcab3494aae7ecd166f2ed7531e4"
+    },
+    {
+      "file": "audit/05_adversarial/history-e08e07dd801f8b14780706792a93aa250a75e228df5fb6ad8a2662f56a672772.md",
+      "sha256": "e08e07dd801f8b14780706792a93aa250a75e228df5fb6ad8a2662f56a672772"
+    },
+    {
+      "file": "audit/05_adversarial/history-ee94ec49be3fad9376750c4ded78afa53701e618cb4cfc0a4ca495fb392a40fb.md",
+      "sha256": "ee94ec49be3fad9376750c4ded78afa53701e618cb4cfc0a4ca495fb392a40fb"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-171a45b5c7e3d0f718a61d63392973e83b299e06b66a18829e39a7eb246d8b4e.json",
+      "sha256": "fe1ffc56536e840dfbdd30945f843e64b38aaf83d9bdfa0de9735ebd73511a39"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-1d417c122dcd991f3d2f9830f259f7e55de3425bffb1d9f67495d0179b93f52f.json",
+      "sha256": "269f723a922726de68e8c2c0f97b046db93fb5856e948e8ec4a9ea8a6a204530"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-5c15993b718482ec4455ea6d489509d27fc05951fb8dbba340cb5ad63ffeeb74.json",
+      "sha256": "27b27bc701a2248824db7863653b3ff4172b785d20c43c81deb65d85a94b9787"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-6d94eaf5acca1ac2e733f9c0be56efad395b5455c99b90610e11300ffe36afea.json",
+      "sha256": "7be7c6d4ef492ea3fb475392166042390b9147404a22666a6760ba217757d78f"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-824b4bd739700f9f0ecbfd392a004092231e5cef6e40c1817a2b79b533fc4a3e.json",
+      "sha256": "a8d3c5325914f146f8f7998c83ea1ebccbc3e5402be17dd35901bd84b2d25ff1"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-b33af9674185f57d7dad4e9a99bae3602e6e3f5c60e2bb3dc0934484f655edc0.json",
+      "sha256": "b6d2261f6e8fd62405bf758aa0f3abf3a47b7bc5297a5a6cbba090f30d796439"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-b94f863a570eebbbb9ab4d94743a402fe6e716df2cadc5a21d0ab6dceca9fa36.json",
+      "sha256": "a8cf5202b58c97e189e1de00fe406fd2ad6b9e2c1f68389d54e95b7d0307c1bb"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-e76f5e73dc2563fc8f80fcd31fa70e0859fa7734f392edaeef3db1204d57eb58.json",
+      "sha256": "5e31ea764aae37f2696bb86c45e2136e7038ebf76656991b390543151992b843"
+    },
+    {
+      "file": "audit/05_adversarial/initial-7bdd85e78da77a40-f6169a1e24fc75d2b938ce6fb3b0114b1f8178b592837ade57a4a9cbbaa23c59.json",
+      "sha256": "674f42bb92b48e70c0d5d9005c9bdad65943f3203b3d404fd602797f07f38285"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-058588ccb1752142804eb23cb34cf196b0440e00ec8c6b0ab094fbdacbaa2c7a.json",
+      "sha256": "7c4e50592bc6b3e7fe99205f796fce05eb22d62b57ec798f18ceeb487d7d7629"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-2480843bfd34837fd0b08a7693668521e94e92a9ee0dd0086aeff4fe01565cbc.json",
+      "sha256": "8fc8fb95bbdf14d5b1a98cb9f139ac596db7322679e5cd1a628a6a6b85ffe9fd"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-358b132a00f1b17405b09db2dadff3172f87ebe24d77d1045cdd9f87dfd18654.json",
+      "sha256": "e56f5374f53dcc12fcb1497686d9c2e64f3507e735432e06da8e12fb9db13cca"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-7039c8b720900e27d31bb25e0f521c0ede2e7d172a32c97bf3fc15063873a3f6.json",
+      "sha256": "7d77a6cf911b85d129eba814fbc187f189a760517fc84c9ba04b16c36dcb0a3d"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-88323660cf364d57609b700cc891bab24b36e3e943a94e2b7db1a0b9233e42e3.json",
+      "sha256": "60dd71ac143976f71cf77f2550c47ac0e0cf8c16ad4c67f8725d8804e373fdd5"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-b8ce091439e1a1031770a84095a3ebef584dbeb0dc7630fb59a935c07f4b6769.json",
+      "sha256": "135426ab140d2f47331ff640eb8d1b22721b9039ea346d84475f318cfb002a1e"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-dd87a422e7ed900164321110a4be64e8ef2a8ca3018060fcfddb6dcf7460b514.json",
+      "sha256": "04ab42418ead57a16ba116401e3f6f6c6ae46c03ba7ef567369f659b2c37a015"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-e40221e211aa307d1034103c736e7685cf2108a2259ec87e7e770a91a97e4c6d.json",
+      "sha256": "cf28685b26e40c6a106ae033c199f7123fe47f777b868e0cd69c5bdb70f4e485"
+    },
+    {
+      "file": "audit/05_adversarial/initial-fef88974cf7442a7-fdf4285ee2e2158fefb19e44da4f07462c26e0e15f29a99e47c2855cc89cfacb.json",
+      "sha256": "87c71a084e6ef5bf3ecab1ae3feda90dd503c9ccbdc0489ad7627659d3c4eec2"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge-1.4.md",
+      "sha256": "7454513ea1bd1c1d8d99ad02f347b0f52b18a869bfce444a62fb3602f3365f12"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge-1.5-2026-09-08.md",
+      "sha256": "ca8d66c462b1953ac533dfea32673cc0f815dcab3494aae7ecd166f2ed7531e4"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge-2026-09-07.md",
+      "sha256": "8e60e20abd755cba2383f52802cd9885c15a0b26a76e3d87350efd3c9361c2ea"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge-context-recovery-2026-09-07.md",
+      "sha256": "c16a260422d71b1d06fd0070f1763fbf2108923b1f95298ec3c477365ea32851"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge-srf-revision.md",
+      "sha256": "c006335b8b6b2a4eff5dd337b2c2d40e13f31ed55ba93ee340b2cb6d83666e08"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge-surgical-final-2026-09-08.md",
+      "sha256": "e08e07dd801f8b14780706792a93aa250a75e228df5fb6ad8a2662f56a672772"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge-usability-repairs-2026-09-07.md",
+      "sha256": "aa422c67663d4d10f70f94bf116568415c6cc5b375e8c0b0f793ce64527de2a3"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-challenge.md",
+      "sha256": "2416cfcec37911423fc1fd828ae4e2d5fa7e0a327eba44c44e9af47b884ac06b"
+    },
+    {
+      "file": "audit/05_adversarial/lem-growing-max-counterexample.py",
+      "sha256": "ebae7bca362ec6fa722b2caa38c085b7ab346a577a9456af082164c864a8c289"
+    },
+    {
+      "file": "audit/05_adversarial/moving-coordinate-counterexample.py",
+      "sha256": "e924b984c6ad701596f4df9d90231228a4ee17e7fcb0bcb6af8194228ee74496"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge-1.4.md",
+      "sha256": "1ba1296e3a1f5e6ef7479ff26a7b344e8fa086403e3f02fe669300ad5a84dc95"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge-1.5-2026-09-08.md",
+      "sha256": "b2cdee12413ebe0e3c8af7ac8acf63c1e1a304985824a5281cd5ad9124cd0c9b"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge-2026-09-07.md",
+      "sha256": "6529400d5d8b6837dce42361965ed444bcd80173d7005797f58c0b373c210096"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge-context-recovery-2026-09-07.md",
+      "sha256": "95afd7c0bac1a5df9ff31a23b34ee7e42b635ab591b67bd5ca4a4bdfbc2f6c14"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge-srf-revision.md",
+      "sha256": "b5f7e95d5f2541d2f86ebe6ae1f8359fe852425ac2a3dac83563053362e5b0e1"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge-surgical-final-2026-09-08.md",
+      "sha256": "ee94ec49be3fad9376750c4ded78afa53701e618cb4cfc0a4ca495fb392a40fb"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge-usability-repairs-2026-09-07.md",
+      "sha256": "27d5cae9dadaa01c65ed560b469cc70f9b29cd369516397bf319d742098b1b73"
+    },
+    {
+      "file": "audit/05_adversarial/thm-main-challenge.md",
+      "sha256": "61b2927cdffdbb11f640d953eee3126e8244cd9a9b456760d432408c2122c59c"
+    },
+    {
+      "file": "audit/06_reports/FINAL_REPORT.md",
+      "sha256": "1bb67fc0360126d1e26e319747be06dbc1a85dcbcfc53106f1e972670060be96"
+    },
+    {
+      "file": "audit/06_reports/ISSUE_LOG.json",
+      "sha256": "518db6bb664ff8754d761ebbd23d56212df8cc3fe880d291e795ba401b54bc85"
+    },
+    {
+      "file": "audit/06_reports/ISSUE_SUMMARY.md",
+      "sha256": "3f9d5a4b8e0943f685760fef79b14986be63e81b2078fbe6845f781327a98d8d"
+    },
+    {
+      "file": "audit/06_reports/history/context-protocol-d88edcbed357f56f1ee06e2d55ce39e9d31b1362a2e2f283fec4e2f931ba24b6.json",
+      "sha256": "d88edcbed357f56f1ee06e2d55ce39e9d31b1362a2e2f283fec4e2f931ba24b6"
+    },
+    {
+      "file": "audit/07_runtime/CALIBRATION.json",
+      "sha256": "0486e51c2a4f59d396a61db7da81ac1c9866235bb0fdec5231b0d93fe1da0f93"
+    },
+    {
+      "file": "audit/07_runtime/FINAL_SURGICAL_CONTEXT_2026_09_08.md",
+      "sha256": "1b4b0312f66adbc80a92644c6b4fae709ac70a239d85140ddc9f3024cc35e10a"
+    },
+    {
+      "file": "audit/07_runtime/PRIMARY_CONTEXT_RECOVERY_2026_09_07.md",
+      "sha256": "1236da08cdc17624612a8eb344976f2965eafc922f641a7c3611263b32066eb8"
+    },
+    {
+      "file": "audit/07_runtime/PRIMARY_REFRESH_1_4.md",
+      "sha256": "641142442aa8b844eb18aa476fbbdc1b58b06d7ba77ecefabb138d2a12f2adae"
+    },
+    {
+      "file": "audit/07_runtime/PRIMARY_RENEWAL_1_5_2026_09_08.md",
+      "sha256": "db3ea1322e1d6ec08eb395a00a52bd95d33e01457f93b260c791c8bc5fdcdc01"
+    },
+    {
+      "file": "audit/07_runtime/PRIMARY_RENEWAL_2026_09_07.md",
+      "sha256": "2799ede34c54892a35b48aeb24784a92736873db200d92ca8fa52647bcb488e6"
+    },
+    {
+      "file": "audit/07_runtime/PRIMARY_SURGICAL_REVIEW_2026_09_08.md",
+      "sha256": "c47afcdb0c8201e402642ab44996fd709dc60fa71e28fc1e4f6333ed1d7229b9"
+    },
+    {
+      "file": "audit/07_runtime/PRIMARY_USABILITY_REVIEW_2026_09_07.md",
+      "sha256": "14ff86b2035a58d5a018f18a24df0406d124950d19398ca7014681008261f3dc"
+    },
+    {
+      "file": "proofcheck-report.html",
+      "sha256": "79d8f648a7185b26abd5837fe9f20af000959cf044d41fa3f692ed832eba9ecb"
+    }
+  ],
+  "audit_state_sha256": "b9cb066f6cde7190686d2bcf537f489f4a2e86b0426dae2d74aaee9d25b5f710",
+  "errors": [],
+  "record_payload_sha256": "4712bdea2c341d1e486fbd7ebe42519146e6963ba11f797c581aa18dbafef4ce"
+}

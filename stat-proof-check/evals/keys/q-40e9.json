@@ -1,0 +1,25 @@
+{
+  "case_id": "q-40e9",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "valid"
+      ],
+      "statement_status": [
+        "established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [],
+      "rationale": "The alternatives are admissible and separated by 1/2. Their Bernoulli total variation is |3/4-1/4|=1/2. Thresholding at their midpoint gives risk sum >=(1/4)(1-TV)=1/8 and maximum risk >=1/16, uniformly over T.",
+      "repair": "No repair is needed. The lower bound need not be sharp.",
+      "counterexample": null
+    }
+  ]
+}

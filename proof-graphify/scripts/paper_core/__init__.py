@@ -1,0 +1,49 @@
+"""Shared scientific paper core: storage format 4, record contract 4.
+
+The maintained source is shared/paper_core. The canonical bundle builder ships
+identical runtime files to Proof Check and Graphify; their workflows differ.
+New-format code never imports the legacy ``proofcheck.py`` monolith.
+"""
+from __future__ import annotations
+
+CORE_VERSION = "3.2.0"
+STORAGE_FORMAT = 4
+CONTRACT_VERSION = 4
+CONTRACT_NAME = "proofcheck-records/4"
+PACKET_VERSION = 2
+PROJECTION_VERSION = 2
+PROTOCOL_VERSION = "coherent-proof-audit/1"
+OVERVIEW_PROTOCOL_VERSION = "paper-overview/1"
+WRITE_PROTOCOLS = {
+    "audit": (PROTOCOL_VERSION,),
+    "overview": ("item-audit/1", OVERVIEW_PROTOCOL_VERSION, PROTOCOL_VERSION),
+}
+COHERENT_EXAMINATIONS_FEATURE = "coherent-examinations/1"
+# Feature names a database may require; every open checks the stored list is a
+# subset of what this core supports. Compare names, never bare digits.
+DEFAULT_FEATURES = (
+    "records/3",
+    "packets/1",
+    "packets/2",
+    "work-submissions/1",
+    "audits/1",
+    "independent-review/1",
+    "projection/1",
+    "projection/2",
+    # Overview bridging: intermediate item kinds equation/claim/derivation and
+    # provenance groups with null argument_id/scope_id (record-contract 3).
+    "overview-bridge/1",
+    "sql-superset/1",
+    "records/4",
+    "route-review/1",
+    COHERENT_EXAMINATIONS_FEATURE,
+)
+WORK_CONTEXT_EXTENSION_FEATURE = "work-context-extension/1"
+AUDIT_SCOPE_BINDING_FEATURE = "audit-scope-binding/1"
+PROOF_SPANS_FEATURE = "reviewed-proof-spans/1"
+SUPPORTED_FEATURES = DEFAULT_FEATURES + (WORK_CONTEXT_EXTENSION_FEATURE, AUDIT_SCOPE_BINDING_FEATURE,
+                                       PROOF_SPANS_FEATURE)
+STORAGE_FORMATS_READABLE = (2, 3, 4)
+STORAGE_FORMATS_WRITABLE = (4,)
+LEGACY_OVERVIEW_FORMAT = "archify-paper-database-1"
+LEGACY_OVERVIEW_SCHEMA_VERSIONS = (3,)

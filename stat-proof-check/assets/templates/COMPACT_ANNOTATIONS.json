@@ -1,0 +1,99 @@
+{
+  "annotation_schema_version": 2,
+  "unit_id": "<copy packet unit_id>",
+  "source_unit_sha256": "<copy skeleton source.unit_sha256>",
+  "obligation_sha256": "<copy packet obligation_sha256>",
+  "context_binding_sha256": "<copy packet context_binding_sha256>",
+  "calibration_receipt_sha256": "<copy packet calibration_receipt_sha256>",
+  "source_groups": [],
+  "dependencies": [],
+  "steps": [
+    {
+      "key": "proof-move-1",
+      "lines": [
+        1,
+        1
+      ],
+      "mode": "derivation",
+      "kind": "algebra",
+      "goal": "<state the exact local goal>",
+      "claim": "<state the exact local claim>",
+      "literal": "<record what the locked source literally says>",
+      "atomicity_evidence": "<explain why this row contains exactly one move>",
+      "adversarial": [
+        "<record a concrete boundary, assumption, or failure-mode check>"
+      ],
+      "risks": {
+        "domain": {
+          "status": "unclear",
+          "evidence": "<record local domain evidence>"
+        },
+        "dimension": {
+          "status": "unclear",
+          "evidence": "<record local dimension evidence>"
+        },
+        "sign": {
+          "status": "unclear",
+          "evidence": "<record local sign evidence>"
+        },
+        "constant": {
+          "status": "unclear",
+          "evidence": "<record local constant evidence>"
+        },
+        "rate": {
+          "status": "unclear",
+          "evidence": "<record local rate evidence>"
+        },
+        "probability": {
+          "status": "unclear",
+          "evidence": "<record local probability evidence>"
+        },
+        "quantifier": {
+          "status": "unclear",
+          "evidence": "<record local quantifier evidence>"
+        },
+        "limit": {
+          "status": "unclear",
+          "evidence": "<record local limit evidence>"
+        }
+      },
+      "inputs": [
+        {
+          "kind": "obligation",
+          "reference": "/hypotheses/0",
+          "role": "assumption",
+          "evidence": "<explain how the exact obligation scalar supports this move>",
+          "anchor": {
+            "kind": "statement_span",
+            "index": 1
+          }
+        }
+      ],
+      "side_conditions": [],
+      "status": "unclear",
+      "issue_ids": [],
+      "rule": "<name the exact inference rule>",
+      "justification": "<derive the claim from the recorded inputs>"
+    }
+  ],
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "support_step": "proof-move-1",
+      "contract_fidelity": "unclear",
+      "statement_status": "not_assessed",
+      "issue_ids": []
+    }
+  ],
+  "review": {
+    "explicit_assumptions": [],
+    "inherited_assumptions": [],
+    "source_reference_dispositions": [],
+    "candidate_dependency_dispositions": [],
+    "citation_dispositions": [],
+    "verification_basis": [
+      "<state the exact source, derivation, or computational evidence used>"
+    ],
+    "reviewer_notes": []
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "case_id": "q-ec61",
+  "expert_review": {
+    "status": "pending",
+    "reviewer": null,
+    "reviewed_utc": null
+  },
+  "candidate_review": "Authored and mathematically self-reviewed by the implementation assistant; independent statistical-theory expert review remains pending.",
+  "conclusions": [
+    {
+      "conclusion_id": "C001",
+      "argument_status": [
+        "valid"
+      ],
+      "statement_status": [
+        "established"
+      ],
+      "statement_truth": "true",
+      "defect_lines": [],
+      "rationale": "Independence of D and the evaluation sample preserves the conditional iid law. Conditional boundedness and measurability permit Hoeffding, with conditional mean equal to the uniform integral; integration preserves the same bound.",
+      "repair": "No repair is needed. The fitted function may be random because it is independent of the evaluation observations.",
+      "counterexample": null
+    }
+  ]
+}
