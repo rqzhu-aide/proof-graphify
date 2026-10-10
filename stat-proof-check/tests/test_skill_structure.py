@@ -18,8 +18,8 @@ class SkillStructureTests(unittest.TestCase):
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
         readme = (REPO / "README.md").read_text(encoding="utf-8")
         manifest = json.loads((SKILL_ROOT / "scripts/paper_core/bundle-manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(re.search(r'(?m)^\s+version: "([^"]+)"$', skill).group(1), CORE_VERSION)
-        self.assertEqual(re.search(r'(?m)^\| `stat-proof-check` \| v([^ |]+)', readme).group(1), CORE_VERSION)
+        skill_version = re.search(r'(?m)^\s+version: "([^"]+)"$', skill).group(1)
+        self.assertEqual(re.search(r'(?m)^\| `stat-proof-check` \| v([^ |]+)', readme).group(1), skill_version)
         self.assertEqual(manifest["core_version"], CORE_VERSION)
         self.assertEqual(manifest["protocol_version"], PROTOCOL_VERSION)
 

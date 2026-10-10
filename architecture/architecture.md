@@ -12,7 +12,7 @@ The skill supports triage, focused audits, and full audits. A focused audit exam
 
 The maintained backend is [`shared/paper_core`](../shared/paper_core). [`tools/build_paper_core_bundles.py`](../tools/build_paper_core_bundles.py) copies it into `stat-proof-check/scripts/paper_core/` and `proof-graphify/scripts/paper_core/` in this repository. These bundles must be byte-identical. Each installed skill runs its own bundle and does not import from a neighboring package or download runtime code.
 
-The common core now reports version `3.2.1`, SQLite storage format `4`, and record contract `4`. [`schema.sql`](../shared/paper_core/schema.sql), [`contract.py`](../shared/paper_core/contract.py), and the acceptance and validation modules define the executable data contract. Overview writes have a bounded scope; ordinary audit writes require `coherent-proof-audit/1`. Historical audit records remain historical and are not automatically recertified.
+The common core now reports version `3.2.3`, SQLite storage format `4`, and record contract `4`. [`schema.sql`](../shared/paper_core/schema.sql), [`contract.py`](../shared/paper_core/contract.py), and the acceptance and validation modules define the executable data contract. Overview writes have a bounded scope; ordinary audit writes require `coherent-proof-audit/1`. Historical audit records remain historical and are not automatically recertified.
 
 ## From manuscript to assessment
 

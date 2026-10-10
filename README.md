@@ -1,13 +1,29 @@
-# Proof Graphify and Stat Proof Check
+# Proof Graphify
+
+[![Version v3.2.3](https://img.shields.io/badge/version-v3.2.3-6366f1)](proof-graphify/SKILL.md)
+
+**Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
+
+The skill selects the results that explain the paper's central contributions, records faithful summaries, proof ideas, and sourced connections in a local SQLite database, and generates an interactive HTML graph. Expanded cards distinguish statements from the reasoning that connects their prerequisites. Follow the argument and inspect source passages without reconstructing individual proof steps. The selected scope is visible; unselected declarations do not require exhaustive bookkeeping.
+
+The records remain reusable: [revise the overview](proof-graphify/references/revisions.md) as the manuscript changes. A new proofcheck audit starts independently from the manuscript in its own folder and database. Source comparison checks the overview against the paper; it does not certify proof validity. Existing detailed databases retain their content and history through the [compatibility and maintenance guidance](proof-graphify/references/audit-database.md).
+
+[![Example](proof-graphify/examples/overview-browser.png)](proof-graphify/examples/overview-browser.png)
+
+Open the [example HTML](proof-graphify/examples/representer-theorem/overview.html) locally to explore statements and trace dependencies. Read its [source proof](proof-graphify/examples/representer-theorem/proof.md).
+
+[`stat-proof-check`](stat-proof-check/README.md) is an extended version of Proof Graphify that builds more detailed items within a proof and uses LLMs to check their reasoning and dependencies. The two skills share a common core and presentation interface. Its checks are non-formal: it does not produce a Lean proof or provide formal verification.
+
+## Skills in this repository
 
 This repository maintains two independently installable skills for understanding mathematical papers. They share a maintained backend and reader, while keeping separate scientific workflows.
 
 | Skill | Version | Main use |
 |---|---|---|
-| `proof-graphify` | v3.2.1 | Build a selective, source-backed map of main results and important prerequisites |
-| `stat-proof-check` | v3.2.1 | Audit written mathematical arguments with independent review and explicit findings |
+| `proof-graphify` | v3.2.3 | Build a selective, source-backed map of main results and important prerequisites |
+| `stat-proof-check` | v3.2.3 | Audit written mathematical arguments with independent review and explicit findings |
 
-The shared `paper_core` version is `3.2.1`. Source comparisons in Graphify do not establish proof validity. A new Proof Check audit starts independently from the manuscript in its own folder and database. Proof Check runs only when explicitly invoked as `$stat-proof-check`.
+The shared `paper_core` version is `3.2.3`. Skill and core versions are independent: bump the affected skill for workflow changes, and bump the core when its implementation changes. Source comparisons in Graphify do not establish proof validity. A new Proof Check audit starts independently from the manuscript in its own folder and database. Proof Check runs only when explicitly invoked as `$stat-proof-check`.
 
 ## Repository layout
 

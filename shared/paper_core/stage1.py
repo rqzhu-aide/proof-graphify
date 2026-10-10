@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 
+from .assistance import _partial_primary_predecessors
 from .audit_compatibility import validate_assignment_audit
 from .bindings import task_binding_changes
 from .controller import _assignment_assistance, submit_work
@@ -51,10 +52,12 @@ def stage_status(db, *, audit_id, stage=1, mode=None, focus=None, revision=None)
             "coordinator_actions": view["coordinator_actions"]}
 
 
-def _reuse_assignment(db, *, audit_id, mode, selection, max_bytes):
+def _reuse_assignment(db, *, audit_id, mode, selection, max_bytes, assessed):
     assigned = set(selection["assigned_task_ids"])
     state = State(db, [])
     prior_reconciliations = {}
+    partial_predecessors = (_partial_primary_predecessors(*assessed, selection["tasks"])
+                            if mode == "primary" else [])
     if mode == "reconcile" and db.head("audits", audit_id).body["protocol_version"] == "coherent-proof-audit/1":
         targets = [task["target"] for task in selection["tasks"]]
         for record in sorted(db.heads("reconciliations"), key=lambda r: (r.revision, r.id)):
@@ -79,6 +82,10 @@ def _reuse_assignment(db, *, audit_id, mode, selection, max_bytes):
         # context without making the underlying examinations stale.
         if any(pin not in manifest["read_set"] for pin in prior_reconciliations.values()):
             continue
+        # A saved partial examination is administrative predecessor context for
+        # an explicit successor, not a change to the assigned source question.
+        if any(pin not in manifest["read_set"] for _, pin in partial_predecessors):
+            continue
         raw = db.get_blob(saved["payload_sha256"])
         if len(raw) > max_bytes:
             continue
@@ -93,7 +100,7 @@ def _reuse_assignment(db, *, audit_id, mode, selection, max_bytes):
             "packet_id": saved["packet_id"], "revision": db.max_revision(), "audit_id": audit_id,
             "mode": mode, "assigned_task_ids": sorted(assigned), "manifest": manifest,
             "conditional_on_task_ids": manifest["work"].get("conditional_on_task_ids", []),
-            "packet": json.loads(raw), "selection": selection})
+            "packet": json.loads(raw), "selection": selection}, assessed=assessed)
     return None
 
 
@@ -139,7 +146,8 @@ def prepare_stage(db, *, audit_id, stage=1, mode="primary", focus=None, task_ids
         "exclude_task_ids": sorted(excluded), "max_units": max_units, "allow_provisional": allow_provisional})
     if not selection.get("prepared"):
         return _preparation_feedback({**base, **selection, "reason": "no_useful_assignment"})
-    reused = _reuse_assignment(db, audit_id=audit_id, mode=mode, selection=selection, max_bytes=max_bytes)
+    reused = _reuse_assignment(db, audit_id=audit_id, mode=mode, selection=selection,
+                               max_bytes=max_bytes, assessed=assessed)
     if reused is not None:
         return _preparation_feedback({**reused, "stage": stage, "correction": correct})
     prepared = prepare_assignment(db, audit_id=audit_id, mode=mode, selection=selection, max_bytes=max_bytes)

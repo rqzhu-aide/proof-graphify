@@ -99,7 +99,8 @@ class CompletionTests(TempCase):
             self.correct_application(db, fixture)
             result = self.new_primary(db, fixture, partial=True)
             self.assertTrue(result["remaining_task_ids"])
-            self.assertIn("partial examination", " ".join(result["next_actions"]))
+            self.assertIn("omissions", " ".join(result["next_actions"]))
+            self.assertIn("unexamined", " ".join(result["next_actions"]))
             # Explicit provisional review examines the same limited source question.
             prep = stage2.prepare(db, audit_id=fixture.audit_id, focus=R("items", "itm_thm"), allow_provisional=True)
             self.review_unit(db, fixture, "thm", prepared=prep, partial=True)
@@ -108,8 +109,36 @@ class CompletionTests(TempCase):
                 task = next(o for o in assessed["obligations"] if o["target"] == R("arguments", "arg_thm")
                             and o["kind"] == "composition" and o["role"] == role)
                 self.assertFalse(task["satisfied"], task)
+                self.assertIn("judgment recorded", task["explanation"])
+                self.assertIn("partial", task["explanation"])
             self.assertFalse(assessed["progress"]["process_complete"])
             self.assertNotEqual("available", assessed["support"]["items:itm_thm"])
+
+    def test_current_whole_unit_siblings_prevent_false_partial_coverage_diagnostics(self):
+        fixture = self.prepared_fixture()
+        with fixture.open() as db:
+            partial = fixture.check_edit("chk_partial_thm", R("arguments", "arg_thm"), "composition",
+                evidence=["anc_thm_proof"])
+            partial["body"].update(extent="partial", omissions="The closing inference remains unread.")
+            fixture.apply(db, [partial], *fixture.ITEMS, mode="primary")
+            prep, first = self.review_unit(db, fixture, "thm", partial=True)
+            self.assertTrue(first["remaining_task_ids"])
+            self.review_unit(db, fixture, "thm", prepared=prep)
+            # Keep a later current partial sibling as the active opinion in both roles.
+            _, mixed = self.review_unit(db, fixture, "thm", prepared=prep, partial=True)
+            self.assertEqual([], mixed["remaining_task_ids"])
+            self.assertEqual([], mixed["diagnostics"])
+            assessed = assessment.derive_assessment(db, audit_id=fixture.audit_id)
+            for role in ("primary", "independent"):
+                task = next(row for row in assessed["obligations"]
+                    if row["target"] == R("arguments", "arg_thm") and row["kind"] == "composition"
+                    and row["role"] == role)
+                self.assertTrue(task["satisfied"], task)
+                self.assertNotIn("coverage remains partial", task["explanation"])
+                extents = {assessed["judgments"]["checks:" + pin["id"]]["extent"] for pin in task["check_refs"]}
+                self.assertEqual({"whole_unit", "partial"}, extents)
+            prepared = stage1.prepare_stage(db, audit_id=fixture.audit_id, focus=R("items", "itm_thm"))
+            self.assertNotIn("renewal_candidates", prepared.get("coordinator_guidance", {}))
 
     def test_remaining_disposition_refreshes_only_reconciliation_context(self):
         fixture = self.prepared_fixture()

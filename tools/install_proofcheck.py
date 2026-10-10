@@ -62,8 +62,9 @@ def delivery(package: Path) -> dict:
                             (package / "SKILL.md").read_text(encoding="utf-8"), re.MULTILINE)
         if (result.get("command") != "version" or bundle.get("present") is not True
                 or bundle.get("ok") is not True or bundle.get("constants_match") is not True
-                or version is None or result.get("core_version") != version.group(1)):
+                or version is None):
             raise ValueError(f"Database runtime or skill version is inconsistent: {result}")
+        result["skill_version"] = version.group(1)
         return result
     command = [sys.executable, "-X", "utf8", "-B",
                str(package / "scripts/proofcheck.py"), "delivery-check", "--root",

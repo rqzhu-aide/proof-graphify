@@ -32,10 +32,19 @@ class RuntimeDeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runtime or skill version is inconsistent"):
             installer.delivery(self.package)
 
-    def test_skill_version_mismatch_is_rejected(self):
+    def test_skill_version_can_advance_independently_of_the_core(self):
         path = self.package / "SKILL.md"
         text = path.read_text(encoding="utf-8")
-        text = installer.re.sub(r'^  version:.*$', '  version: "0.0.0"', text, flags=installer.re.MULTILINE)
+        text = installer.re.sub(r'^  version:.*$', '  version: "9.9.9"', text, flags=installer.re.MULTILINE)
+        path.write_text(text, encoding="utf-8")
+        receipt = installer.delivery(self.package)
+        self.assertEqual(receipt["skill_version"], "9.9.9")
+        self.assertNotEqual(receipt["core_version"], receipt["skill_version"])
+        self.assertTrue(receipt["bundle"]["ok"])
+
+    def test_missing_skill_version_is_rejected(self):
+        path = self.package / "SKILL.md"
+        text = installer.re.sub(r'^  version:.*\n', '', path.read_text(encoding="utf-8"), flags=installer.re.MULTILINE)
         path.write_text(text, encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "runtime or skill version is inconsistent"):
             installer.delivery(self.package)

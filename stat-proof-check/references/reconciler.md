@@ -2,9 +2,9 @@
 
 The coordinator owns integration. Use Stage 2 integration preparation and its generated response. Read the saved primary and independent reasoning with the exact source question.
 
-Record the best-supported judgment or unresolved disagreement, and explain the material basis. Adopting a reviewer's finding from the saved reasoning is integration, not a new examination. Agreement is not required. A concern first noticed here may remain a finding or uncertainty; reflect its consequence in the affected conclusions without automatically reopening the related proofs.
+Resolve each disputed or newly added concern from its decisive inference under the exact assigned question's applicable hypotheses and regime; use the saved evidence to explain acceptance, rejection or uncertainty before selecting the whole-unit judgment. Adopting a reviewer's finding from the saved reasoning is integration, not a new examination. Agreement is not required. A concern first noticed here may remain a finding or uncertainty; reflect its consequence in the affected conclusions without automatically reopening the related proofs.
 
-For the saved whole-unit opinions, use primary_revised to adopt the independent conclusion, independent_revised to retain the primary conclusion, agree for compatible opinions, or unresolved when the disagreement remains. Scripts attach the selected saved checks. This choice does not dismiss a distinct local concern.
+For the saved whole-unit opinions, use adopt_independent to adopt the independent conclusion, adopt_primary to adopt the primary conclusion, agree for compatible opinions, or unresolved when the disagreement remains. Leave successor_checks empty or omitted with either adopt choice; scripts attach the selected saved checks. Existing primary_revised and independent_revised inputs remain supported for compatibility and advanced explicit selection. This choice does not dismiss a distinct local concern.
 
 When the adopted reasoning resolves or changes an identified finding, update that finding's lifecycle/resolution or category accordingly. A supported integration or a sentence in its rationale does not update an open finding automatically. Keep unrelated concerns and earlier reviewer records intact; uncertainty can remain open. This is disposition of the saved reasoning, not a new examination or a sweep of all findings.
 
@@ -18,4 +18,4 @@ Scripts select current references. Original response bytes and previous judgment
 
 To correct a completed comparison without changing its scientific inputs, use `stage2 prepare --mode integration --correct --task TASK_ID`, then submit its generated response normally. See [controller-workflow.md](controller-workflow.md) for partial selection and recovery. Only requested comparisons are revised.
 
-An unresolved scientific conclusion, assessed proof omission or unavailable external source can be fully examined and integrated. Missing primary work, independent review or unexamined supplied material is different and remains unfinished.
+An unresolved scientific conclusion, assessed proof omission or unavailable external source can be fully examined and integrated. Record usable partial returns with their omissions, but submit only integration tasks actually exported as ready. The unresolved decision does not waive missing required examination or unread supplied material.

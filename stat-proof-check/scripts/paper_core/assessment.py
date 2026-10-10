@@ -1101,8 +1101,11 @@ class _Derivation(_AuditScope):
             else None)
         performed = constituent["state"] == "complete" and constituent["freshness"] == "current"
         satisfied = performed and (self.local_basis is not None or not constituent["disputed"])
+        partial_coverage = False
         if self.local_basis is not None and kind == "composition" and obligation["required"]:
-            satisfied = satisfied and any(info.get("extent") == "whole_unit" for info in current)
+            whole_unit = any(info.get("extent") == "whole_unit" for info in current)
+            satisfied = satisfied and whole_unit
+            partial_coverage = performed and not whole_unit
         if self.local_basis is not None and kind == "source_fidelity":
             satisfied = satisfied and constituent["outcome"] == "supported"
         if self.local_basis is not None and constituent.get("unaccounted"):
@@ -1114,16 +1117,20 @@ class _Derivation(_AuditScope):
                            "performed": performed,
                            "freshness": constituent["freshness"], "outcome": constituent["outcome"],
                            "check_refs": constituent["check_refs"],
-                           "explanation": self._explain_obligation(obligation, constituent)})
+                           "explanation": self._explain_obligation(
+                               obligation, constituent, partial_coverage=partial_coverage)})
         self.constituents[obligation["id"]] = constituent
         return constituent
 
     @staticmethod
-    def _explain_obligation(obligation, c) -> str:
+    def _explain_obligation(obligation, c, *, partial_coverage=False) -> str:
         if c["state"] == "missing":
             parts = [f"no usable {obligation['role']} {obligation['kind']} work recorded"
                      if c.get("evidence_limitation") else
                      f"no {obligation['role']} {obligation['kind']} work recorded"]
+        elif partial_coverage:
+            parts = [f"{obligation['role']} {obligation['kind']} judgment recorded",
+                     "assigned examination coverage remains partial"]
         else:
             parts = [f"{obligation['role']} {obligation['kind']} {c['state']}"]
         if c["outcome"]:

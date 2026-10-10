@@ -55,7 +55,7 @@ class TransitionIntakeTests(TempCase):
             current = stage1.stage_status(db, audit_id=fixture.audit_id)
             self.assertIn(math_id, current["remaining_task_ids"])
 
-    def test_replay_defers_only_unchanged_work_and_reused_packet_allows_continuation(self):
+    def test_replay_defers_unchanged_work_and_refreshed_packet_allows_continuation(self):
         fixture = self.prepare_fixture(matched=True)
         with fixture.open() as db:
             prepared = stage1.prepare_stage(db, audit_id=fixture.audit_id, focus=R("items", "itm_alpha"))
@@ -74,12 +74,19 @@ class TransitionIntakeTests(TempCase):
                                          exclude_task_ids=prepared["assigned_task_ids"])
             self.assertTrue(other["prepared"])
             self.assertTrue(set(other["assigned_task_ids"]).isdisjoint(prepared["assigned_task_ids"]))
+            refreshed = stage1.prepare_stage(db, audit_id=fixture.audit_id, focus=R("items", "itm_alpha"))
+            self.assertFalse(refreshed["reused"])
+            self.assertNotEqual(prepared["packet_id"], refreshed["packet_id"])
+            self.assertEqual(prepared["assigned_task_ids"], refreshed["assigned_task_ids"])
             reused = stage1.prepare_stage(db, audit_id=fixture.audit_id, focus=R("items", "itm_alpha"))
             self.assertTrue(reused["reused"])
-            self.assertEqual(prepared["packet_id"], reused["packet_id"])
+            self.assertEqual(refreshed["packet_id"], reused["packet_id"])
+            predecessors = {row["task_id"]: row["ref"]
+                            for row in reused["coordinator_guidance"]["renewal_candidates"]}
+            response = deepcopy(reused["scaffold"])
             for row in response["results"]:
-                row.update(outcome="supported", reasoning="Now examined the remaining inference.",
-                           extent="whole_unit", omissions="")
+                row.update(state="complete", outcome="supported", reasoning="Now examined the remaining inference.",
+                           extent="whole_unit", omissions="", supersedes=predecessors[row["task_id"]])
             completed, _ = self.submit(db, fixture, reused, response)
             self.assertEqual("accepted", completed["state"], completed)
             self.assertFalse(completed["remaining_task_ids"])

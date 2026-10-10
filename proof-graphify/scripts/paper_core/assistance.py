@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from . import CONTRACT_VERSION
+from . import CONTRACT_VERSION, PROTOCOL_VERSION
 from . import contract as c
 from .errors import ConflictError, InvalidRequest
 from .ids import new_id, valid_id
@@ -235,8 +235,13 @@ def _response_guidance(mode):
                         "Keep each scaffold row's type: source_fidelity uses result, note and evidence_refs; "
                         "check uses state, outcome, reasoning and its check fields. Do not fill source rows as checks. "
                         "Return the rows actually examined; leave missing work pending rather than filling defaults. "
-                        "Author the judgments. Finding rows create new issues; cite unchanged existing findings "
-                        "during renewal instead of recreating them. A renewed check alone does not resolve a finding."}
+                        "Author the judgments. Finding rows create new issues. After an accepted submission, "
+                        "retain unchanged finding IDs from receipt.changed entries with collection=findings, "
+                        "even if the reused packet predates them; cite them in reasoning and leave new findings empty. "
+                        "record_map and existing_check_refs are not finding-ID fields. An atomically rejected "
+                        "submission committed no findings: retain its adverse concerns on retry. Add only "
+                        "materially distinct concerns; keep no-defect observations in reasoning. A renewed "
+                        "check alone does not resolve a finding."}
     if mode == "reconcile":
         from .controller import INTEGRATION_RESPONSE
         return {"mode": mode, "response_shape": describe(INTEGRATION_RESPONSE),
@@ -245,9 +250,11 @@ def _response_guidance(mode):
                          "Match each generated task's exact target to coordinator reconciliation candidates, not label or ID prefixes. "
                          "Compare saved reasoning and conditions and author the decision and rationale. "
                          "Adopting a saved finding is integration; disagreement does not require another examination. "
-                         "Use primary_revised to adopt the saved independent conclusion, independent_revised to "
+                         "Use adopt_independent to adopt the saved independent conclusion, adopt_primary to "
                          "retain the saved primary conclusion, agree for compatible opinions, or unresolved. "
-                         "Scripts select the adopted saved opinion references. "
+                         "For adopt aliases, omit successor_checks or leave it empty; scripts select the saved opinions. "
+                         "Canonical primary_revised and independent_revised remain accepted for existing responses "
+                         "and explicit saved-check selection. "
                          "Optional top-level findings use the example and related integration task IDs; scripts link current opinions. "
                          "Omit findings or leave it empty when none is new. A changed disposition of an existing finding "
                          "also needs that identified finding updated through review reconcile; a rationale alone does not update it. "
@@ -272,6 +279,30 @@ def _opinion(record, pin):
         "target", "kind", "role", "reviewer", "state", "outcome", "reasoning", "conditions",
         "evidence_refs", "next_action", "supersedes")},
         **{key: deepcopy(record.body[key]) for key in ("extent", "omissions") if key in record.body}}
+
+
+def _partial_primary_predecessors(derivation, assessment, tasks):
+    """Current partial opinions needed by these pending coherent primary tasks."""
+    if derivation.audit.body["protocol_version"] != PROTOCOL_VERSION:
+        return []
+    pending = {row["id"] for row in assessment["obligations"]
+               if row["required"] and not row["satisfied"] and row["role"] == "primary"
+               and row["kind"] == "composition"}
+    assigned = {(task["target"]["collection"], task["target"]["id"]): task
+                for task in tasks if task["id"] in pending and task["role"] == "primary"
+                and task["kind"] == "composition" and task["action"] == "check"}
+    candidates = []
+    for info in assessment["judgments"].values():
+        task = assigned.get((info["target"]["collection"], info["target"]["id"]))
+        if task is None or info["audit_id"] != assessment["audit_id"] \
+                or info["role"] != "primary" or info["kind"] != "composition" \
+                or info["state"] != "complete" or info["freshness"] != "current" \
+                or info.get("extent") != "partial" or info["superseded"]:
+            continue
+        record = derivation.snap.get(info["ref"])
+        if record is not None and not record.retired:
+            candidates.append((task, info["ref"]))
+    return candidates
 
 
 def coordinator_guidance(db, manifest, *, assessed=None):
@@ -321,11 +352,14 @@ def coordinator_guidance(db, manifest, *, assessed=None):
         raise InvalidRequest("coordinator guidance needs the current assessment for this audit",
                              code="ASSISTANCE_SNAPSHOT")
     if renewal_checks:
+        partial_pins = {(pin["id"], pin["version"]) for _, pin in
+                        _partial_primary_predecessors(derivation, assessment, tasks)}
         candidates = []
         for task, pin in renewal_checks:
             info = assessment["judgments"].get(f"checks:{pin['id']}")
-            if info is None or info["ref"] != pin or info["freshness"] not in ("needs_review", "historical") \
-                    or info["superseded"]:
+            if info is None or info["ref"] != pin or info["superseded"] \
+                    or (info["freshness"] not in ("needs_review", "historical")
+                        and (pin["id"], pin["version"]) not in partial_pins):
                 continue
             record = db.version("checks", pin["id"], pin["version"])
             candidate = {"task_id": task["id"], **_opinion(record, pin)}
@@ -337,9 +371,11 @@ def coordinator_guidance(db, manifest, *, assessed=None):
         if candidates:
             result["renewal_candidates"] = candidates
             result["renewal_note"] = (
-                "These completed checks consumed changed inputs. Their pinned opinions are reference material, "
-                "not renewed proof credit. Pass only the needed predecessor context to the assigned primary "
-                "checker, who re-examines the affected work and authors explicit supersedes before saving. "
+                "These completed checks have changed inputs or leave current examination coverage partial. "
+                "Their pinned opinions are reference material, not new proof credit. Pass only the needed "
+                "predecessor context to the assigned primary checker. Examine only changed or unexamined "
+                "material, or explicitly correct misclassified coverage when the saved examination establishes it. "
+                "Author the successor with explicit supersedes; do not infer whole-unit coverage. "
                 "Preserve negative outcomes, conditions and reasoning unless the examiner explicitly revises "
                 "them. Submit the response unchanged; keep this inventory out of independent delivery.")
     if mode != "reconcile":
@@ -430,7 +466,8 @@ def coordinator_guidance(db, manifest, *, assessed=None):
     if coherent:
         result["note"] = ("These are current eligible opinions on each exact unit. Scripts attach their references "
             "when the integration scaffold is submitted. Compare the reasoning and conditions, preserve retained "
-            "concerns, and state unresolved disagreements. Matching outcome labels alone do not establish agreement.")
+            "concerns, and state unresolved disagreements. Use adopt_independent or adopt_primary for the adopted "
+            "side, with successor_checks empty or omitted. Matching outcome labels alone do not establish agreement.")
         return result
     result["note"] = "primary_checks and independent_checks are current eligible evidence on the exact target. " \
         "required_other_opinions are accepted historical or otherwise nonqualifying opinions that validation " \

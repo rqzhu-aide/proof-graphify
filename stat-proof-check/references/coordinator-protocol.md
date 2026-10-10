@@ -6,7 +6,7 @@ You are the sole shared-database writer. During Phase 1, workers may independent
 
 Create coherent assignments with exact questions and sufficient source. Put important uses of other results in the consuming proof's assignment, for primary examination and independent review. Reserve separate cross-proof assignments for material questions that do not fit a unit. Use [controller-workflow.md](controller-workflow.md#stage-2-review-and-integrate) to establish a separate review route once and reuse it while its capability is unchanged. The protocol is not model-specific.
 
-Integrate saved responses before commissioning another. Keep relevant adverse concerns and distinguish a material scientific disagreement from a wrong field or mapping. Adopting a saved finding does not require re-examination, and integration can retain unresolved disagreement. No additional proof is required merely to make the result favorable. Use [reconciler.md](reconciler.md) for this decision.
+Record usable saved returns and inspect current remaining work before commissioning replacement or continuation work for the same assignment. Integrate current completed examinations when ready. Keep relevant adverse concerns and distinguish a material scientific disagreement from a wrong field or mapping. Adopting a saved finding does not require re-examination, and integration can retain unresolved disagreement. No additional proof is required merely to make the result favorable. Use [reconciler.md](reconciler.md) for this decision.
 
 Scripts produce IDs, pins and bookkeeping. Use stage1 add-unit for proofs, stage1 add-record for ordinary setup/shared records, and generated response scaffolds. Do not build per-edge agreement or character-coverage ledgers.
 

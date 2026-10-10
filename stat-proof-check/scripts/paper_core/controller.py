@@ -32,7 +32,7 @@ COHERENT_PROTOCOL = "coherent-proof-audit/1"
 INTEGRATION_FINDING = Obj({**WORK_FINDING.fields, "related_task_ids": Arr(Str(nonempty=True), nonempty=True)},
                          optional=("existing_check_refs", "affected_uses"))
 INTEGRATION_RESPONSE = Obj({"packet_id": Str(nonempty=True), "integrations": Arr(Obj({
-    "task_id": Str(nonempty=True), "decision": Enum(("agree", "primary_revised", "independent_revised", "unresolved")),
+    "task_id": Str(nonempty=True), "decision": Enum(("agree", "adopt_independent", "adopt_primary", "primary_revised", "independent_revised", "unresolved")),
     "rationale": Str(nonempty=True), "evidence_refs": Arr(Id("anchors")),
     "successor_checks": Arr(RefT(("checks",), pinned=True)),
     "response_dispositions": Arr(Obj({"response_id": Id("responses"),
@@ -345,6 +345,9 @@ def _reconcile_plan(db, envelope, manifest, worker):
         edits, seen, comparison_pins = [], set(), {}
         tasks = _task_map(manifest)
         for row in worker["integrations"]:
+            if row["decision"] in ("adopt_independent", "adopt_primary") and row.get("successor_checks"):
+                raise InvalidRequest("adopt aliases select saved opinions; omit successor_checks or use a canonical decision for explicit saved checks")
+            decision = {"adopt_independent": "primary_revised", "adopt_primary": "independent_revised"}.get(row["decision"], row["decision"])
             if row["task_id"] not in tasks or row["task_id"] in seen:
                 raise InvalidRequest("integration task is duplicate or unassigned", code="TASK_SCOPE")
             seen.add(row["task_id"])
@@ -356,8 +359,8 @@ def _reconcile_plan(db, envelope, manifest, worker):
             independent.extend(opinion["ref"] for opinion in candidate["required_other_opinions"]
                                if opinion["ref"] not in independent)
             successors = row.get("successor_checks", [])
-            if not successors and row["decision"] in ("primary_revised", "independent_revised"):
-                role = "independent" if row["decision"] == "primary_revised" else "primary"
+            if not successors and decision in ("primary_revised", "independent_revised"):
+                role = "independent" if decision == "primary_revised" else "primary"
                 successors = [pin for pin in candidate[f"{role}_checks"]
                               if (check := db.version("checks", pin["id"], pin["version"])) is not None
                               and check.body["kind"] == "composition" and check.body.get("extent") == "whole_unit"]
@@ -370,7 +373,7 @@ def _reconcile_plan(db, envelope, manifest, worker):
                      if record.body["audit_id"] == audit.id and record.body["target"] == target]
             prior.sort(key=lambda record: (record.revision, record.id), reverse=True)
             body = {"audit_id": audit.id, "target": target, "primary_checks": candidate["primary_checks"],
-                    "independent_checks": independent, "decision": row["decision"], "rationale": row["rationale"],
+                    "independent_checks": independent, "decision": decision, "rationale": row["rationale"],
                     "evidence_refs": row["evidence_refs"], "successor_checks": successors,
                     "supersedes": prior[0].pinned if prior else None, "adjudicator": envelope["reviewer"]}
             if row.get("response_dispositions"):
@@ -551,7 +554,11 @@ def _remaining_feedback(work, assessed, remaining):
                  and not info["superseded"] and info["target"] == task["target"]
                  and info["kind"] == task["kind"] and info["role"] == task["role"]
                  for info in assessed["judgments"].values()):
-            action = "The saved partial examination leaves declared omissions; examine only that remaining portion or disclose the coverage limitation."
+            action = ("Inspect the saved omissions against the assignment and reasoning. Continue only genuinely "
+                      "unexamined material, or explicitly correct coverage if the saved examination establishes "
+                      "that all assigned material was examined; preserve assessed defects in reasoning/findings. "
+                      "Use the primary successor or independent continuation route, retaining a coverage "
+                      "limitation when completion cannot be established.")
         else:
             action = "Continue the named unfinished examination from its saved work, or disclose the remaining limitation."
         actions.append(f"{tid}: {action}")

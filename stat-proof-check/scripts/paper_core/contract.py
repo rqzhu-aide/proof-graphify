@@ -381,7 +381,10 @@ def _checks_local(v):
             if v.get("extent") == "partial" and not v.get("omissions", "").strip():
                 yield "a partial examination names its omissions"
             if v.get("extent") == "whole_unit" and v.get("omissions", "").strip():
-                yield "an examination with omissions has partial extent"
+                yield ("omissions names assigned supplied material still unexamined; use partial for that material. "
+                       "If all assigned material was examined and this text describes an assessed manuscript defect, "
+                       "preserve the concern in reasoning/findings and explicitly correct coverage to whole_unit "
+                       "with empty omissions")
     if v["role"] == "independent" and v["response_id"] is None:
         yield "an independent check carries its response_id"
     if v["role"] == "primary" and v["response_id"] is not None:
