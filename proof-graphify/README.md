@@ -1,6 +1,6 @@
 # Proof Graphify
 
-[![Version v3.2.0](https://img.shields.io/badge/version-v3.2.0-6366f1)](SKILL.md)
+[![Version v3.2.1](https://img.shields.io/badge/version-v3.2.1-6366f1)](SKILL.md)
 
 **Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
 
@@ -32,6 +32,6 @@ proof-graphify-<paper-name>/
 
 **Share the HTML alone. Keep the database for future revisions.** See the [database guide](references/database.md) for focused initialization, editing, and export, and [SKILL.md](SKILL.md) for the current skill version.
 
-Version 3.2.0 shares paper core 3.2.0, mathematical display and reader components with Stat Proof Check. Both independently installable skills are maintained in the [same repository](https://github.com/rqzhu-aide/proof-graphify/blob/main/README.md). Graphify keeps its selected source overview workflow; it does not verify proofs. Existing overviews retain their identities and source history, and native conversion remains an explicit backed-up maintenance operation. The staging, completed-output recovery and notation fixes from 3.1.21 are retained. The [architecture notes](https://github.com/rqzhu-aide/proof-graphify/blob/main/architecture/proof-graphify/README.md) describe the common implementation and separate workflow depth.
+Version 3.2.1 shares paper core 3.2.1, mathematical display and reader components with Stat Proof Check. This patch clarifies faithful transcription of mathematical conditions, dependency endpoints and neutral source-comparison questions. Both independently installable skills are maintained in the [same repository](https://github.com/rqzhu-aide/proof-graphify/blob/main/README.md). Graphify keeps its selected source overview workflow; it does not verify proofs. Existing overviews retain their identities and source history, and native conversion remains an explicit backed-up maintenance operation. The staging, completed-output recovery and notation fixes from 3.1.21 are retained. The [architecture notes](https://github.com/rqzhu-aide/proof-graphify/blob/main/architecture/proof-graphify/README.md) describe the common implementation and separate workflow depth.
 
 [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

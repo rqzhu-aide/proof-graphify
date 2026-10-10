@@ -4,10 +4,10 @@ This repository maintains two independently installable skills for understanding
 
 | Skill | Version | Main use |
 |---|---|---|
-| `proof-graphify` | v3.2.0 | Build a selective, source-backed map of main results and important prerequisites |
-| `stat-proof-check` | v3.2.0 | Audit written mathematical arguments with independent review and explicit findings |
+| `proof-graphify` | v3.2.1 | Build a selective, source-backed map of main results and important prerequisites |
+| `stat-proof-check` | v3.2.1 | Audit written mathematical arguments with independent review and explicit findings |
 
-The shared `paper_core` version is `3.2.0`. Source comparisons in Graphify do not establish proof validity. A new Proof Check audit starts independently from the manuscript in its own folder and database. Proof Check runs only when explicitly invoked as `$stat-proof-check`.
+The shared `paper_core` version is `3.2.1`. Source comparisons in Graphify do not establish proof validity. A new Proof Check audit starts independently from the manuscript in its own folder and database. Proof Check runs only when explicitly invoked as `$stat-proof-check`.
 
 ## Repository layout
 

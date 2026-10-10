@@ -1,7 +1,7 @@
 ---
 name: stat-proof-check
 metadata:
-  version: "3.2.0"
+  version: "3.2.1"
 description: Rigorous, non-formal proof audits from manuscript and supplement sources to a graph database, findings and an Archify HTML report. Use only when explicitly invoked as $stat-proof-check.
 ---
 

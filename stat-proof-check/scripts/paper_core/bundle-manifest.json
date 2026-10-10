@@ -2,10 +2,10 @@
  "bundle": "paper_core",
  "contract": "proofcheck-records/4",
  "contract_version": 4,
- "core_version": "3.2.0",
+ "core_version": "3.2.1",
  "file_count": 67,
  "files": {
-  "__init__.py": "e712d9372568ce58025f4c7382f486e3f73fa1fd181bdaff936bf255d098bd73",
+  "__init__.py": "d1a7e70d2ce864bdbc3915c8ce1dbdd366ecded88add2f4d3542b3087bcd5892",
   "acceptance.py": "407ba5286867ac0b1f49ea8096832dc4a17dfbfff92dbbfd5adf50cdb9133fd0",
   "assessment.py": "b1d72947080727d7045ec3648c508e15e9d62d0f4f7ba780ea2f54bd5cb8d021",
   "assistance.py": "060ba4dadb1e8f6448116f44c0766c7f192048a68dfb93a6c0779cfed471de0b",
@@ -77,7 +77,7 @@
  "packet_version": 2,
  "projection_version": 2,
  "protocol_version": "coherent-proof-audit/1",
- "source_identity": "dfc8c5b3041989dc8540253508443e0f51ed5ff590a6fd576b7863c920c0190d",
+ "source_identity": "2b91c8d677e3bc5b8bd69e88cbf0acea92d964263c095f9b60fd445a67b4d349",
  "storage_formats_readable": [
   2,
   3,
