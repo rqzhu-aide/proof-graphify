@@ -1,6 +1,6 @@
 # Proof Graphify
 
-[![Version v3.2.8](https://img.shields.io/badge/version-v3.2.8-6366f1)](SKILL.md)
+[![Version v3.2.9](https://img.shields.io/badge/version-v3.2.9-6366f1)](SKILL.md)
 
 **Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
 
@@ -32,7 +32,7 @@ proof-graphify-<paper-name>/
 
 **Share the HTML alone. Keep the database for future revisions.** See the [database guide](references/database.md) for focused initialization, editing, and export, and [SKILL.md](SKILL.md) for the current skill version.
 
-Version 3.2.8 retains the source-comparison reminder and reuse of successful render checks introduced in 3.2.7. It bundles paper core 3.2.7, whose new guidance clarifies Proof Check's mathematical judgments and finding authoring. Graphify adds no proof-review stage.
+Version 3.2.9 bundles paper core 3.2.8, which corrects audit-edit recovery guidance and clarifies returned response fields. Graphify retains its existing selective source-comparison workflow and adds no proof-review stage.
 
 Version 3.2.6 updated the shared reader to Archify 3.0.1, corrected theme exports, direct detail links and shared-owner assessments, and reused search and route preparation. That release bundled paper core 3.2.6. These presentation changes add no scientific review passes or routine checks. The source-comparison, receipt-recovery, source-capture and mathematical-display corrections from previous releases are retained. Both independently installable skills are maintained in the [same repository](https://github.com/rqzhu-aide/proof-graphify/blob/main/README.md). Graphify keeps its selected source overview workflow; it does not verify proofs. Existing overviews retain their identities and source history, and native conversion remains an explicit backed-up maintenance operation. The [architecture notes](https://github.com/rqzhu-aide/proof-graphify/blob/main/architecture/proof-graphify/README.md) describe the common implementation and separate workflow depth.
 

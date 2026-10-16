@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 from support import R, TempCase, edit
-from paper_core import acceptance, assessment, assistance, authoring, contract
+from paper_core import acceptance, assessment, assistance, authoring, contract, packets
 from paper_core.errors import ConflictError, InvalidRequest
 from paper_core.semantics import exact_statement
 
@@ -80,6 +80,64 @@ class AuthoringCorrectionTests(TempCase):
             with self.assertRaises(InvalidRequest) as retired:
                 assistance.authoring_template("items", packet_id=packet["packet_id"], record_id="itm_unused", db=db)
             self.assertEqual("ASSISTANCE_RETIRED", retired.exception.code)
+
+    def test_audit_template_retry_authorizes_only_the_recovered_packet(self):
+        fixture = self.fixture().audit(independent_required=False)
+        with fixture.open() as db:
+            wrong = fixture.packet(db, "items:itm_lem", mode="author")
+            revision = db.max_revision()
+            for packet_id in ("pkt_absent", wrong["packet_id"]):
+                with self.subTest(packet_id=packet_id):
+                    with self.assertRaises(ConflictError) as caught:
+                        assistance.authoring_template("audits", packet_id=packet_id,
+                                                      record_id=fixture.audit_id, db=db)
+                    self.assertEqual("ASSISTANCE_PACKET", caught.exception.code)
+                    retry = caught.exception.retry
+                    recovered = packets.get_packet(db, targets=retry["targets"], mode=retry["mode"])
+                    template = assistance.authoring_template("audits", packet_id=recovered["packet_id"],
+                                                             record_id=fixture.audit_id, db=db)["template"]
+                    self.assertEqual(db.head("audits", fixture.audit_id).body, template["edits"][0]["body"])
+                    self.assertEqual(revision, db.max_revision())
+            template["edits"][0]["body"]["exclusions"] = [{
+                "target": R("items", "itm_thm"), "source_anchor_ids": [],
+                "reason": "The synthetic user requests only the lemma.",
+                "consequence": "No conclusion on the excluded theorem."}]
+            unauthorized = fixture.batch(deepcopy(template["edits"]), wrong["packet_id"])
+            with self.assertRaises(InvalidRequest) as caught:
+                acceptance.apply_batch(db, unauthorized)
+            self.assertEqual("WRITE_SCOPE", caught.exception.code)
+            self.assertEqual(revision, db.max_revision())
+            acceptance.apply_batch(db, template)
+            self.assertEqual(revision + 1, db.max_revision())
+            self.assertEqual(template["edits"][0]["body"], db.head("audits", fixture.audit_id).body)
+            self.assertEqual([], db.version("audits", fixture.audit_id, 1).body["exclusions"])
+
+    def test_audit_template_retry_refreshes_stale_inputs_without_weakening_versions(self):
+        fixture = self.fixture().audit(independent_required=False)
+        with fixture.open() as db:
+            old = fixture.packet(db, "audits:" + fixture.audit_id, mode="primary")
+            item = db.head("items", "itm_lem")
+            fixture.apply(db, [edit("replace", "items", item.id,
+                                   dict(item.body, label="Updated source label"), item.version)])
+            with self.assertRaises(ConflictError) as caught:
+                assistance.authoring_template("audits", packet_id=old["packet_id"],
+                                              record_id=fixture.audit_id, db=db)
+            self.assertEqual("ASSISTANCE_PACKET", caught.exception.code)
+            retry = caught.exception.retry
+            recovered = packets.get_packet(db, targets=retry["targets"], mode=retry["mode"])
+            template = assistance.authoring_template("audits", packet_id=recovered["packet_id"],
+                                                     record_id=fixture.audit_id, db=db)["template"]
+            template["edits"][0]["body"]["exclusions"] = [{
+                "target": R("items", "itm_thm"), "source_anchor_ids": [],
+                "reason": "The synthetic user requests only the lemma.",
+                "consequence": "No conclusion on the excluded theorem."}]
+            acceptance.apply_batch(db, template)
+            fresh = fixture.packet(db, "audits:" + fixture.audit_id, mode="primary")
+            stale_edit = fixture.batch(deepcopy(template["edits"]), fresh["packet_id"])
+            revision = db.max_revision()
+            with self.assertRaises(ConflictError):
+                acceptance.apply_batch(db, stale_edit)
+            self.assertEqual(revision, db.max_revision())
 
     def test_invalid_operation_names_replace_without_relaxing_edit_shape(self):
         fixture = self.authored()

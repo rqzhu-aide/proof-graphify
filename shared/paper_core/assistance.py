@@ -128,7 +128,8 @@ def authoring_template(collection, *, packet_id, record_id=None, db=None):
         target = current.ref if collection in ("papers", "items", "parts", "audits") else current.body.get("target")
         if not isinstance(target, dict) or target.get("collection") not in ("items", "parts"):
             target = current.ref if collection in ("papers", "items", "parts", "audits") else db.heads("papers")[0].ref
-        edit_mode = "reconcile" if collection == "findings" else "author"
+        edit_mode = ("primary" if collection == "audits" else
+                     "reconcile" if collection == "findings" else "author")
         retry = {"command": f"get DB --target {target['collection']}:{target['id']} --mode {edit_mode} --out PACKET.json",
                  "targets": [target], "mode": edit_mode}
         manifest = packet["manifest"] if packet else {}
@@ -183,7 +184,10 @@ def worker_guidance(mode, *, composition=False):
             "Extent is coverage, not outcome. After examining all assigned supplied material, including a proof "
             "omission (outcome=gap), use whole_unit and empty omissions. proof_gap is a primary finding category. "
             "Assessed external unavailability may finish inconclusive. For unexamined assigned material, "
-            "including necessary unreadable passages, use partial and name it in omissions. Follow scaffold types. "
+            "including necessary unreadable passages, use partial and name it in omissions. "
+            "Populate the generated scaffold rows you return, preserving their fields and types. "
+            "For each returned composition row, set extent to the actual coverage and keep omissions a string, "
+            "empty only when no assigned material remains unexamined. "
             "Preserve adverse reasoning and limitations. For a new response, leave conditions empty unless "
             "naming a restriction explicitly listed in the applicable scopes.conditions; copy such entries verbatim. "
             "This field is not a summary of the supplied setup. "

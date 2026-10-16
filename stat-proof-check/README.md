@@ -1,6 +1,6 @@
 # Stat Proof Check
 
-Version `3.2.7` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
+Version `3.2.8` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
 
 ## Use
 
@@ -32,7 +32,9 @@ Keep the database and frozen artifacts for continuation. Report what was examine
 
 ## Runtime and compatibility
 
-This package bundles `paper_core` version `3.2.7` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+This package bundles `paper_core` version `3.2.8` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+
+Version 3.2.8 corrects the recovery command for editing audit records and clarifies response coverage fields, inherited premises, unresolved interpretations and Full coverage of unnumbered arguments. These changes act within the existing workflow and add no review pass or retry loop.
 
 Version 3.2.7 emphasizes decisive mathematical structure, clarifies the response conditions field, and places concise LaTeX issue-card guidance at the point of authoring. It adds no examination, review round or publication-time rewriting. It also fixes findings whose unresolved status depended on the order of linked examinations. It retains the Archify 3.0.1 reader, export colors, detail links and shared-owner assessments introduced in 3.2.6.
 

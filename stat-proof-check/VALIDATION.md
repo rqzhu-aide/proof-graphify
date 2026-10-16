@@ -383,3 +383,13 @@ The audit found one additional display defect: a resolved linked examination cou
 Both generated 70-file core bundles match maintained source with identity `7c4185d7338e2ae69c0bb4c29d1045a64fd0ac9fc4a0de9c515088d696309498`. All five vendored Archify assets match their upstream installed source. Local audit and installation evidence is retained under `../../tmp/release-20261016/`.
 
 Limits: older generic test selections still contain retired audit-writer fixtures and outdated expectations; the complete historical suite is not green. The current release audit does not establish whole-paper timing or mathematical-accuracy gains, and generated-HTML checks are not a new browser pixel inspection.
+
+## Graphify 3.2.9 and Proof Check 3.2.8 release
+
+Date: 2026-10-16. Graphify advances to 3.2.9, Proof Check to 3.2.8, and the shared core to 3.2.8. This release corrects the recovery command for audit-record edits and clarifies returned response coverage fields, inherited premises, unresolved interpretations and coverage of unnumbered arguments. It adds no review stage, retry loop or routine check.
+
+Three independent Sol 6.1 xhigh implementation validators completed within ten minutes per job. Focused maintained tests passed 18 core cases and three interface cases; 18 independent interface probes also passed. The recovery regressions fail against the original branch and pass against the correction, including stale-input recovery with retained authority and record-version checks. Successful template requests retain their measured SQL operation counts. Scientific guidance was checked against contrasting cases within the existing reading and review workflow.
+
+A separate release validator ran 54 packaging tests: 53 passed and one was skipped for unavailable Windows symlink privilege. Both skill metadata validations passed. Both generated 70-file cores match maintained source with identity `4c84c79122b1559eb3870a354c0ddcfb09c7c51a6c70d81a0262634cbd5fafbc`. Current release references agree, and the original Archify introduction, figure and example artifacts remain unchanged.
+
+Implementation evidence is retained under `../../tmp/recovery-implementation-20261016/`; release and installation receipts are under `../../tmp/release-329-328-20261016/`. Rendering was unchanged, so browser validation was not repeated. These focused checks do not establish whole-paper timing or mathematical-accuracy gains; the historical-suite limitations described above remain.
