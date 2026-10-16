@@ -11,6 +11,7 @@ their collections. Adapted from proof-graphify ``paper_records.py``
 from __future__ import annotations
 
 import io
+import os
 import re
 from pathlib import Path
 
@@ -78,6 +79,17 @@ def _line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
+def split_source_lines(text: str) -> list[str]:
+    """Split LF source coordinates, removing CR only when it precedes an LF."""
+    lines = text.split("\n")
+    for index in range(len(lines) - 1):
+        if lines[index].endswith("\r"):
+            lines[index] = lines[index][:-1]
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
+
 # -- capture ----------------------------------------------------------------
 
 def discover(root, files: list) -> tuple[list, list]:
@@ -120,6 +132,19 @@ def discover(root, files: list) -> tuple[list, list]:
         choices = [r for r in roots if path.is_relative_to(r)]
         return max(choices, key=lambda r: len(r.parts)) if choices else path.parent
 
+    def local(candidates):
+        # Reject lexical escapes before any filesystem probe, then check local
+        # links against the resolved root. Explicit registrations stay separate.
+        normalized = [Path(os.path.normpath(candidate)) for candidate in candidates]
+        allowed = [candidate for candidate in normalized if candidate.is_relative_to(root)]
+        found = next((candidate for candidate in allowed if candidate.is_file()), None)
+        if found is not None:
+            resolved = found.resolve()
+            if not resolved.is_relative_to(root):
+                return None, True
+            return resolved, False
+        return None, len(allowed) < len(candidates)
+
     queue = [(path, compile_root(path), method, limitation) for path, method, limitation in seeds]
     captured, notes = {}, []
     while queue:
@@ -150,22 +175,22 @@ def discover(root, files: list) -> tuple[list, list]:
                 continue
             candidates = [croot / name, path.parent / name]
             candidates = [c if c.suffix else c.with_suffix(".tex") for c in candidates]
-            found = next((c for c in candidates if c.is_file()), None)
-            if found is None:
-                notes.append(f"{display}: unresolved input {name!r}; register or explain the missing source")
-            elif not found.resolve().is_relative_to(root):
+            found, escaped = local(candidates)
+            if escaped:
                 notes.append(f"{display}: input {name!r} lies outside the source root; register it explicitly")
+            elif found is None:
+                notes.append(f"{display}: unresolved input {name!r}; register or explain the missing source")
             else:
-                queue.append((found.resolve(), croot, "tex_input", None))
+                queue.append((found, croot, "tex_input", None))
         if INPUT_FORMS_RE.search(text):
             notes.append(f"{display}: an input form needs manual source registration")
         for match in PACKAGE_RE.finditer(text):
             suffix = ".cls" if match.group(1) == "documentclass" else ".sty"
             for name in match.group(2).split(","):
                 candidates = [croot / (name.strip() + suffix), path.parent / (name.strip() + suffix)]
-                found = next((c for c in candidates if c.is_file()), None)
-                if found is not None and found.resolve().is_relative_to(root):
-                    queue.append((found.resolve(), croot, "tex_input", None))
+                found, _ = local(candidates)
+                if found is not None:
+                    queue.append((found, croot, "tex_input", None))
     return list(captured.values()), list(dict.fromkeys(notes))
 
 
@@ -329,7 +354,7 @@ def _resolve_label(text: str, label: str):
 
 
 def _extract_lines(text: str, start: int, end: int) -> str:
-    lines = text.splitlines()
+    lines = split_source_lines(text)
     if end > len(lines):
         raise InvalidRequest(f"lines {start}-{end} exceed the source ({len(lines)} lines); re-anchor this passage",
                              code="LINES_OUT_OF_RANGE")

@@ -170,17 +170,20 @@ class ReferenceAuditTests(unittest.TestCase):
     ) -> None:
         report = self.report_path.read_text(encoding="utf-8")
         manifest = read_json(self.root / "AUDIT_MANIFEST.json")
-        renderer = proofcheck.report_renderer()
-        projection = renderer.build_report_projection(
-            proofcheck.report_api(), self.root, final=True,
-            finalized_at=manifest["report_release"]["finalized_at"],
-            report_context=manifest.get("report_context", {}),
-        )
-        self.assertEqual([], renderer.validate_html(report, projection))
-        self.assertEqual("FINAL", projection["release"]["status"])
-        self.assertTrue(all(projection["summary"].values()))
-        self.assertEqual(2, len(projection["results"]))
-        self.assertIn(renderer.ASSURANCE, html.unescape(report))
+        # Validate the recorded snapshot against its own identity, not a later renderer.
+        deliverable = next(row for row in manifest["report_deliverables"]
+                           if row["path"] == proofcheck.preferred_report_path(manifest))
+        self.assertEqual(deliverable["sha256"], proofcheck.sha256_file(self.report_path))
+        payload = re.search(r'<script type="application/json" id="report-data">(.*?)</script>',
+                            report, re.DOTALL)
+        self.assertIsNotNone(payload)
+        recorded = json.loads(payload.group(1))
+        self.assertEqual(manifest["report_release"]["projection_sha256"], proofcheck.canonical_sha256(recorded))
+        self.assertEqual("FINAL", recorded["release"]["status"])
+        self.assertEqual(manifest["report_release"]["finalized_at"], recorded["release"]["finalized_at"])
+        self.assertTrue(all(recorded["summary"].values()))
+        self.assertEqual(2, len(recorded["results"]))
+        self.assertIn(proofcheck.report_renderer().ASSURANCE, html.unescape(report))
         errors, summaries, _ = proofcheck.audit_ledgers(self.root, True)
         self.assertTrue(all("stale" in error for error in errors))
         checked = {
@@ -189,6 +192,21 @@ class ReferenceAuditTests(unittest.TestCase):
             if summary.get("independent_check", {}).get("required") is True
         }
         self.assertEqual(set(manifest["audit_scope"]["in_scope_units"]), checked)
+
+    def test_current_renderer_previews_historical_audit_as_nonfinal(self) -> None:
+        manifest = read_json(self.root / "AUDIT_MANIFEST.json")
+        before = proofcheck.audit_state_manifest(self.root)
+        renderer = proofcheck.report_renderer()
+        projection = renderer.build_report_projection(proofcheck.report_api(), self.root, final=False,
+            report_context=manifest.get("report_context", {}))
+        preview = renderer.render_report(projection)
+        self.assertEqual([], renderer.validate_html(preview, projection))
+        self.assertEqual("NONFINAL", projection["release"]["status"])
+        self.assertIsNone(projection["release"]["finalized_at"])
+        self.assertTrue(all(projection["summary"].values()))
+        self.assertEqual(2, len(projection["results"]))
+        self.assertIn(renderer.ASSURANCE, html.unescape(preview))
+        self.assertEqual(before, proofcheck.audit_state_manifest(self.root))
 
     def test_initial_challenges_preserve_exact_fresh_inputs_and_reasons(self) -> None:
         records = list((self.root / "audit/05_adversarial").glob("initial-*.json"))

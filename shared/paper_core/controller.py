@@ -30,7 +30,7 @@ RESPONSE_LIMIT = 2097152
 DIAGNOSTIC_LIMIT = 100
 COHERENT_PROTOCOL = "coherent-proof-audit/1"
 INTEGRATION_FINDING = Obj({**WORK_FINDING.fields, "related_task_ids": Arr(Str(nonempty=True), nonempty=True)},
-                         optional=("existing_check_refs", "affected_uses"))
+                         optional=("existing_check_refs", "affected_uses", "severity"))
 INTEGRATION_RESPONSE = Obj({"packet_id": Str(nonempty=True), "integrations": Arr(Obj({
     "task_id": Str(nonempty=True), "decision": Enum(("agree", "adopt_independent", "adopt_primary", "primary_revised", "independent_revised", "unresolved")),
     "rationale": Str(nonempty=True), "evidence_refs": Arr(Id("anchors")),
@@ -297,6 +297,8 @@ def _primary_plan(db, envelope, manifest, active, worker):
             auxiliary.append({"collection": "uses", "id": uid})
         body = {k: row[k] for k in ("target", "category", "description", "evidence_refs",
                                    "affected_uses", "impact_reason")}
+        if "severity" in row:
+            body["severity"] = row["severity"]
         body.update(audit_id=audit.id, lifecycle="open", resolution=None,
                     check_refs=linked_checks(row["related_task_ids"], row["existing_check_refs"],
                                              f"findings/{index}"))
@@ -413,6 +415,8 @@ def _reconcile_plan(db, envelope, manifest, worker):
                     raise InvalidRequest(f"{where}/existing_check_refs must name current compared opinions",
                                          code="WRITE_SCOPE", records=[pin])
             body = {key: row[key] for key in ("target", "category", "description", "evidence_refs", "impact_reason")}
+            if "severity" in row:
+                body["severity"] = row["severity"]
             body.update(audit_id=audit.id, lifecycle="open", resolution=None, check_refs=pins,
                         affected_uses=row.get("affected_uses", []))
             edits.append(_edit("findings", body))
@@ -770,7 +774,16 @@ def _assignment_assistance(db, result, *, assessed=None):
         candidates = result["coordinator_guidance"]["reconciliation_candidates"]
         for row in result["scaffold"]["integrations"]:
             target = tasks[row["task_id"]]["target"]
-            candidate = next((entry for entry in candidates if entry["target"] == target), {})
+            matches = [entry for entry in candidates if entry["target"] == target]
+            if len(matches) != 1:
+                raise InvalidRequest(
+                    f"Integration export for packet {manifest['packet_id']}, task {row['task_id']} "
+                    f"requires one opinion bundle for its exact target; found {len(matches)}. "
+                    "Retain the saved packet and responses. If inputs changed, prepare the affected current "
+                    "integration; otherwise report this local association limitation without unchanged retries.",
+                    code="ASSISTANCE_MAPPING", records=[target])
+            candidate = matches[0]
+            candidate.setdefault("integration_task_ids", []).append(row["task_id"])
             pending = {entry["response_ref"]["id"]: entry["pending_judgments"]
                        for entry in candidate.get("retained_concerns", []) if entry["pending_judgments"]}
             if pending:

@@ -54,7 +54,11 @@ def setup_digest(collection: str, body: dict, *, include_evidence=False):
 def facet_digests(collection: str, body: dict) -> dict:
     """Facet digests for one record version. Each facet is a function of that version alone."""
     facets = {"full": digest(body)}
-    if collection == "items":
+    if collection == "findings":
+        # Severity classifies the saved issue for display without changing its
+        # mathematical meaning. The storage body digest still includes it.
+        facets["full"] = digest({key: value for key, value in body.items() if key != "severity"})
+    elif collection == "items":
         statement = dict(body["statement"], origin=body["origin"], scope_id=body["scope_id"],
                          passages=[p for p in body["passages"] if p["role"] in ("statement", "definition")])
         facets["statement"] = digest(statement)

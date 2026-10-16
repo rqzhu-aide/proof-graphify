@@ -30,6 +30,12 @@ FRAGMENT_FIELDS = ("label", "statement", "reason", "needed_form", "rationale", "
                    "proof_idea", "regime", "uncertainty", "impact_reason")
 
 
+def _review_color(assessment):
+    """Display an already-derived policy, never reinterpret the logical state."""
+    return {"severe": "red", "moderate": "orange", "minor": "yellow", "checked": "green"}.get(
+        assessment.get("review_display", {}).get("status"), "gray")
+
+
 def _node_executable() -> str:
     node = shutil.which("node")
     if node is None:
@@ -221,7 +227,7 @@ def _scientific_fields(projection):
         "coverage": ("classification", "note"),
         "audits": ("mode",),
         "checks": ("kind", "state", "outcome", "reasoning", "conditions", "next_action", "extent", "omissions"),
-        "findings": ("category", "lifecycle", "description", "impact_reason", "resolution"),
+        "findings": ("category", "severity", "lifecycle", "description", "impact_reason", "resolution"),
         "repairs": ("kind", "description", "added_conditions"),
         "qualifications": ("qualified", "limitations"),
         "responses": ("coverage_note", "exposure", "exposure_note", "state"),
@@ -449,7 +455,15 @@ def _saved_limitations(projection):
 def _visible_failures(scan, projection, *, build=None):
     """Check actual visible classes/text as well as identity metadata."""
     failures = []
-    glyphs = {"green": "✓", "red": "✕", "gray": "?", "amber": "!"}
+    glyphs = {"green": "✓", "red": "✕", "gray": "?", "orange": "!", "yellow": "i"}
+    display_colors = {"checked": "green", "severe": "red", "moderate": "orange", "minor": "yellow"}
+    display_labels = {"checked": "Checked", "severe": "Severe", "moderate": "Moderate", "minor": "Minor",
+                      "unrated": "Severity not rated", "unresolved": "Unable to assess", "unassessed": "Not assessed",
+                      "dependency": "Depends on unresolved result", "historical": "Saved assessment, not rated"}
+    def display_status(assessment):
+        return assessment.get("review_display", {}).get("status", "historical")
+    def display_state(assessment):
+        return display_colors.get(display_status(assessment), "gray")
     text = lambda element: "".join(element["text"]).strip() if element else ""
     classes = lambda element: element["attrs"].get("class", "").split() if element else []
 
@@ -477,17 +491,24 @@ def _visible_failures(scan, projection, *, build=None):
         return next((child for child in descendants(element) if name in classes(child)), None) if element else None
 
     def assessment_matches(element, expected):
-        return element is not None and f"s-{expected['state']}" in classes(element) \
+        return element is not None and f"s-{display_state(expected)}" in classes(element) \
+            and element["attrs"].get("data-review-status") == display_status(expected) \
+            and text(field(element, "proof-state-badge")) == glyphs[display_state(expected)] + display_labels[display_status(expected)] \
             and text(field(element, "proof-assessment-label")) == expected["label"] \
             and text(field(element, "proof-assessment-text")) == expected["explanation"] \
-            and text(field(element, "proof-state-glyph")) == glyphs[expected["state"]] \
+            and text(field(element, "proof-state-glyph")) == glyphs[display_state(expected)] \
             and (not expected.get("availability") or text(field(element, "proof-availability"))
                  == f"Exact target support: {expected['availability']}")
 
     by_detail = {e["attrs"]["data-proof-detail"]: e for e in scan.elements if "data-proof-detail" in e["attrs"]}
-    for entry in projection["nodes"] + projection["connections"]:
-        if not assessment_matches(field(by_detail.get(entry["detail_key"]), "proof-assessment"), entry["assessment"]):
-            failures.append(f"visible assessment for {entry['id']} disagrees with its canonical state, glyph, label or support")
+    for kind, entries in (("node", projection["nodes"]), ("connection", projection["connections"])):
+        for entry in entries:
+            detail = by_detail.get(entry["detail_key"])
+            owners = [child for child in descendants(detail)
+                      if child["attrs"].get(f"data-proof-owner-{kind}") == entry["id"]] if detail else []
+            block = field(owners[0], "proof-assessment") if len(owners) == 1 else None
+            if not assessment_matches(block, entry["assessment"]):
+                failures.append(f"visible assessment for {entry['id']} disagrees with its canonical state, glyph, label or support")
     for key, detail in projection["details"].items():
         reader = detail.get("reader")
         if not reader or key not in by_detail:
@@ -509,13 +530,26 @@ def _visible_failures(scan, projection, *, build=None):
     applications = {app["use_id"]: app for edge in projection["connections"] for app in edge.get("applications", ())}
     for element in scan.elements:
         attrs = element["attrs"]
+        if "data-proof-finding" in attrs:
+            identity = attrs["data-proof-finding"]
+            cards = [child for child in descendants(element)
+                     if child["attrs"].get("data-issue-ref") == identity]
+            if len(cards) != 1 or not visible(cards[0], allow_disclosure=True):
+                failures.append(f"summary issue card {identity} is missing, duplicated or hidden")
+        if "data-issue-ref" in attrs:
+            saved = projection.get("finding_displays", {}).get(attrs["data-issue-ref"], {})
+            expected = {"review_display": saved} if saved else {}
+            status, color = display_status(expected), display_state(expected)
+            if attrs.get("data-review-status") != status or f"s-{color}" not in classes(element) \
+                    or text(field(element, "proof-state-badge")) != glyphs[color] + display_labels[status]:
+                failures.append(f"issue card {attrs['data-issue-ref']} has altered severity or status")
         if "data-node-id" in attrs and (node := nodes.get(attrs["data-node-id"])):
-            state = node["assessment"]["state"]
+            state = display_state(node["assessment"])
             if f"s-{state}" not in classes(element) or text(field(element, "proof-node-label")) != node["label"] \
                     or text(field(element, "proof-node-state")) != glyphs[state]:
                 failures.append(f"visible node {node['id']} has altered color, label or glyph")
         if "data-edge-id" in attrs and (edge := connections.get(attrs["data-edge-id"])):
-            state = edge["assessment"]["state"]
+            state = display_state(edge["assessment"])
             if f"s-{state}" not in classes(element) or attrs.get("marker-end") != f"url(#proof-arrow-{state})":
                 failures.append(f"visible connection {edge['id']} has an altered color")
         if "data-application-id" in attrs:
@@ -674,6 +708,9 @@ def _reader_fields(projection):
         reader = detail.get("reader")
         if reader is None:
             continue
+        for node in projection["nodes"]:
+            if node["detail_key"] == key and node["item_ref"] != reader["item_ref"]:
+                add(key, "legacy", node["item_ref"], "statement")
         add(key, "strategy", reader.get("strategy_ref"), "proof_idea")
         for i, target in enumerate(reader["targets"]):
             at = f"target:{i}"
@@ -700,7 +737,7 @@ def _reader_fields(projection):
             add(key, at + ":to", application["to_ref"], "label")
             scopes(key, at, application["scope_chain"])
         for i, ref in enumerate(reader["finding_refs"]):
-            add(key, f"finding:{i}", ref, "category", "description", "impact_reason")
+            add(key, f"finding:{i}", ref, "category", "description", "impact_reason", "resolution")
         for i, ref in enumerate(reader["source_limit_refs"]):
             add(key, f"source_limit:{i}", ref, "category", "description", "limitation")
     latest = {}
@@ -716,7 +753,9 @@ def _reader_fields(projection):
             ref = latest.get(("uses", identity))
             if not ref:
                 continue
-            key, at = connection["detail_key"], f"application:{i}"
+            key = connection["detail_key"]
+            shared = sum(entry["detail_key"] == key for entry in projection["nodes"] + projection["connections"]) > 1
+            at = (f"connection:{connection['id']}:" if shared else "") + f"application:{i}"
             add(key, at, ref, "reason", "regime", "uncertainty")
             body = records[(ref["collection"], ref["id"], ref["version"])]
             for direction in ("from", "to"):
@@ -738,7 +777,8 @@ def _reader_failures(scan, projection):
     records = {f"{r['ref']['collection']}:{r['ref']['id']}:{r['ref']['version']}": r["body"]
                for r in projection["records"]}
     overview_keys = [e["attrs"]["data-reader-overview"] for e in scan.elements
-                     if "data-reader-overview" in e["attrs"]]
+                     if "data-reader-overview" in e["attrs"]
+                     and "proof-reader-overview" in e["attrs"].get("class", "").split()]
     reader_keys = [key for key, detail in projection["details"].items() if detail.get("reader") is not None]
     # Older projections are readable without pretending that structured context was available.
     if any(overview_keys.count(key) != 1 for key in reader_keys):
@@ -771,7 +811,7 @@ def _reader_failures(scan, projection):
             kind, index = key[1].split(":")
             if kind == "finding":
                 identity = projection["summary"]["findings"]["refs"][int(index)]
-                collection, marker, fields = "findings", "data-proof-finding", ("description", "impact_reason")
+                collection, marker, fields = "findings", "data-proof-finding", ("category", "description", "impact_reason", "resolution")
             elif kind == "source_limit":
                 identity = projection["summary"]["source_limits"][int(index)]
                 collection, marker, fields = "source_issues", "data-proof-source-limit", ("description",)
@@ -796,9 +836,14 @@ def _reader_failures(scan, projection):
 
     for detail_key in reader_keys:
         reader = projection["details"][detail_key]["reader"]
-        overview = next((e for e in scan.elements if e["attrs"].get("data-reader-overview") == detail_key), None)
+        overview = next((e for e in scan.elements if e["attrs"].get("data-reader-overview") == detail_key
+                         and "proof-reader-overview" in e["attrs"].get("class", "").split()), None)
         if overview is None:
             continue
+        owner_id = (overview["parent"] or {}).get("attrs", {}).get("data-proof-owner-node")
+        owner = next((node for node in projection["nodes"] if node["id"] == owner_id), None)
+        if owner is None or owner["detail_key"] != detail_key or owner["item_ref"] != reader["item_ref"]:
+            failures.append(f"reader overview is placed under a different owner: {detail_key}")
         # Check contextual rows independently from field text: carrying correct text to the
         # wrong supplier or target row must not pass just because its marker moved with it.
         rows, pending = [], [overview]
@@ -876,7 +921,10 @@ def _reader_failures(scan, projection):
         identities = list(dict.fromkeys(connection["primary_use_ids"] + list(applications)))
         for index, identity in enumerate(identities):
             if explanation := applications.get(identity, {}).get("support_explanation"):
-                explanations[connection["detail_key"], f"application:{index}"] = explanation
+                key = connection["detail_key"]
+                shared = sum(entry["detail_key"] == key for entry in projection["nodes"] + projection["connections"]) > 1
+                context = (f"connection:{connection['id']}:" if shared else "") + f"application:{index}"
+                explanations[key, context] = explanation
     shown_explanations = Counter()
 
     def support_visible(element, key):
@@ -963,10 +1011,10 @@ def mechanical_acceptance(html_bytes: bytes, projection: dict, *, build=None) ->
         if scan.node_ids or scan.edge_ids:
             failures.append("index mode emitted diagram elements")
     for node in projection["nodes"]:
-        if scan.node_states.get(node["id"]) != node["assessment"]["state"]:
+        if scan.node_states.get(node["id"]) != _review_color(node["assessment"]):
             failures.append(f"node {node['id']} shows state {scan.node_states.get(node['id'])!r}")
     for connection in projection["connections"]:
-        expected = (connection["from"], connection["to"], connection["assessment"]["state"])
+        expected = (connection["from"], connection["to"], _review_color(connection["assessment"]))
         if scan.edge_states.get(connection["id"]) != expected:
             failures.append(f"connection {connection['id']} shows {scan.edge_states.get(connection['id'])!r}")
     summary = projection["summary"]

@@ -612,6 +612,238 @@ class PaperDatabaseTests(unittest.TestCase):
             database._write_export(database.export_snapshot(self.db), self.db, self.db)
         self.assertTrue(database.validate_database(self.db)["valid"])
 
+    def rich_edit_template_snapshot(self):
+        data = database.export_snapshot(self.db)
+        item, use = deepcopy(data["items"][1]), deepcopy(data["uses"][0])
+        item.update(aliases=["Variance identity", "α identity"],
+                    proof_idea=r"Expand $\operatorname{Var}(\sum_i X_i)$ into covariance terms.",
+                    issue="Retain the independence qualification: α ≤ β.")
+        item["passages"].append({"role": "proof", "anchor_id": use["evidence_refs"][0]})
+        use.update(regime="Independent observations, α ≤ β", issue="Check each cross term.")
+        use["evidence_refs"].append(data["items"][0]["passages"][0]["anchor_id"])
+        database.apply_edits(self.db, {"expected_snapshot": data["snapshot_id"], "edits": [
+            {"collection": "items", "op": "upsert", "id": item["id"], "record": item},
+            {"collection": "uses", "op": "upsert", "id": use["id"], "record": use}]})
+        self.compare_everything()
+        return database.export_snapshot(self.db)
+
+    def test_edit_template_copies_exact_records_once_without_database_mutation(self):
+        before = self.rich_edit_template_snapshot()
+        counts, db_bytes, source_bytes = self.counts(), self.db.read_bytes(), self.source.read_bytes()
+        output = self.base / "new-directory" / "correction.json"
+        item, use = before["items"][1], before["uses"][0]
+        with patch.object(database, "export_snapshot", wraps=database.export_snapshot) as export:
+            receipt = database.edit_template(self.db, output, item_ids=[item["id"]], use_ids=[use["id"]])
+        self.assertEqual(export.call_count, 1)
+        self.assertEqual(export.call_args, unittest.mock.call(self.db))
+        self.assertEqual(receipt, {"output": str(output.absolute()), "expected_snapshot": before["snapshot_id"],
+                                   "targets": [{"collection": "items", "id": item["id"]},
+                                               {"collection": "uses", "id": use["id"]}]})
+        raw = output.read_bytes()
+        self.assertTrue(raw.endswith(b"\n"))
+        self.assertIn("α".encode("utf-8"), raw)
+        self.assertEqual(json.loads(raw.decode("utf-8")), {
+            "expected_snapshot": before["snapshot_id"], "edits": [
+                {"collection": "items", "op": "upsert", "id": item["id"], "record": item},
+                {"collection": "uses", "op": "upsert", "id": use["id"], "record": use}]})
+        self.assertEqual(database.export_snapshot(self.db), before)
+        self.assertEqual(self.counts(), counts)
+        self.assertEqual(self.db.read_bytes(), db_bytes)
+        self.assertEqual(self.source.read_bytes(), source_bytes)
+
+    def test_cli_edit_template_round_trip_preserves_evidence_and_past_comparisons(self):
+        before = self.rich_edit_template_snapshot()
+        item, use = before["items"][1], before["uses"][0]
+        output = self.base / "correction.json"
+        command = [sys.executable, "-E", "-X", "utf8", "-B", str(SKILL / "scripts/paper_database.py")]
+        run = subprocess.run(command + ["edit-template", str(self.db), "--item", item["id"],
+                                        "--use", use["id"], "--item", item["id"], "--output", str(output)],
+                             capture_output=True, text=True, encoding="utf-8", timeout=20)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        receipt = json.loads(run.stdout)
+        self.assertEqual(set(receipt), {"output", "expected_snapshot", "targets"})
+        self.assertEqual(receipt["expected_snapshot"], before["snapshot_id"])
+        self.assertEqual(receipt["targets"], [{"collection": "items", "id": item["id"]},
+                                             {"collection": "uses", "id": use["id"]}])
+        batch = json.loads(output.read_text(encoding="utf-8"))
+        edited = deepcopy(item)
+        edited["caption"] = "Variance identity, α ≤ β"
+        batch["edits"][0]["record"] = edited
+        output.write_text(json.dumps(batch, ensure_ascii=False), encoding="utf-8")
+        applied = subprocess.run(command + ["apply", str(self.db), str(output)], capture_output=True,
+                                 text=True, encoding="utf-8", timeout=20)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        after = database.export_snapshot(self.db)
+        self.assertEqual(after["items"][1], edited)
+        for collection in ("uses", "anchors", "source_revision", "observations"):
+            self.assertEqual(after[collection], before[collection])
+        self.assertEqual(after["items"][0], before["items"][0])
+        self.assertEqual(database.get_packet(self.db, "variance")["target_fidelity"], "stale")
+        self.assertEqual(database.get_packet(self.db, "sampling")["target_fidelity"], "matched")
+
+    def test_edit_template_stale_batch_cannot_replace_newer_records(self):
+        output = self.base / "correction.json"
+        database.edit_template(self.db, output, item_ids=["variance"])
+        batch = json.loads(output.read_text(encoding="utf-8"))
+        batch["edits"][0]["record"]["caption"] = "Old correction"
+        database.apply_edits(self.db, self.update_caption("Intervening correction"))
+        before, counts, db_bytes = database.export_snapshot(self.db), self.counts(), self.db.read_bytes()
+        with self.assertRaisesRegex(database.DatabaseError, "Stale"):
+            database.apply_edits(self.db, batch)
+        self.assertEqual(database.export_snapshot(self.db), before)
+        self.assertEqual(self.counts(), counts)
+        self.assertEqual(self.db.read_bytes(), db_bytes)
+
+    def test_edit_template_comparison_only_change_does_not_conflict(self):
+        output = self.base / "correction.json"
+        database.edit_template(self.db, output, item_ids=["variance"])
+        batch = json.loads(output.read_text(encoding="utf-8"))
+        self.compare_everything()
+        observations = database.export_snapshot(self.db)["observations"]
+        batch["edits"][0]["record"]["caption"] = "Clarified after a comparison"
+        database.apply_edits(self.db, batch)
+        self.assertEqual(database.export_snapshot(self.db)["observations"], observations)
+
+    def test_edit_template_deduplicates_each_collection_in_selection_order(self):
+        data = database.export_snapshot(self.db)
+        shared_use = {**deepcopy(data["uses"][0]), "id": "variance", "reason": "A distinct saved use."}
+        database.apply_edits(self.db, {"expected_snapshot": data["snapshot_id"], "edits": [
+            {"collection": "uses", "op": "upsert", "id": shared_use["id"], "record": shared_use}]})
+        output = self.base / "ordered.json"
+        receipt = database.edit_template(self.db, output, item_ids=["variance", "sampling", "variance"],
+                                         use_ids=["variance", data["uses"][0]["id"], "variance"])
+        expected = [{"collection": "items", "id": "variance"}, {"collection": "items", "id": "sampling"},
+                    {"collection": "uses", "id": "variance"}, {"collection": "uses", "id": data["uses"][0]["id"]}]
+        self.assertEqual(receipt["targets"], expected)
+        batch = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual([{key: edit[key] for key in ("collection", "id")} for edit in batch["edits"]], expected)
+        single = self.base / "single.json"
+        database.edit_template(self.db, single, item_ids=["variance"])
+        self.assertEqual([edit["id"] for edit in json.loads(single.read_text(encoding="utf-8"))["edits"]], ["variance"])
+        use_only = self.base / "use-only.json"
+        database.edit_template(self.db, use_only, use_ids=["variance"])
+        self.assertEqual(json.loads(use_only.read_text(encoding="utf-8"))["edits"], [
+            {"collection": "uses", "op": "upsert", "id": "variance", "record": shared_use}])
+
+    def test_cli_edit_template_rejects_empty_and_unknown_selection_without_output(self):
+        command = [sys.executable, "-E", "-X", "utf8", "-B", str(SKILL / "scripts/paper_database.py"),
+                   "edit-template", str(self.db)]
+        for index, selection in enumerate(([], ["--item", "missing-item"])):
+            output = self.base / f"cli-rejected-{index}" / "correction.json"
+            run = subprocess.run(command + selection + ["--output", str(output)], capture_output=True,
+                                 text=True, encoding="utf-8", timeout=20)
+            self.assertEqual(run.returncode, 2)
+            self.assertEqual(run.stdout, "")
+            error = json.loads(run.stderr.strip().splitlines()[-1])["error"]
+            self.assertIn("missing-item" if selection else "at least one", error)
+            self.assertNotIn("Traceback", run.stderr)
+            self.assertFalse(output.parent.exists())
+
+    def test_edit_template_rejects_empty_unknown_and_wrong_collection_without_output(self):
+        use_id = database.export_snapshot(self.db)["uses"][0]["id"]
+        for index, selection in enumerate(({}, {"item_ids": ["missing-item"]}, {"use_ids": ["missing-use"]},
+                                            {"item_ids": [use_id]}, {"use_ids": ["variance"]},
+                                            {"item_ids": ["variance", "missing-item"]})):
+            output = self.base / f"rejected-{index}" / "correction.json"
+            with self.subTest(selection=selection), self.assertRaises(database.DatabaseError) as caught:
+                database.edit_template(self.db, output, **selection)
+            self.assertTrue(str(caught.exception))
+            self.assertFalse(output.parent.exists())
+        invalid = self.base / "correction.txt"
+        with self.assertRaisesRegex(database.DatabaseError, "json"):
+            database.edit_template(self.db, invalid, item_ids=["variance"])
+        self.assertFalse(invalid.exists())
+
+    def test_edit_template_preserves_existing_draft_database_and_registered_sources(self):
+        output = self.base / "draft.json"
+        output.write_bytes(b"An unfinished correction, retain these bytes.\n")
+        original = output.read_bytes()
+        with self.assertRaises((database.DatabaseError, FileExistsError)):
+            database.edit_template(self.db, output, item_ids=["variance"])
+        self.assertEqual(output.read_bytes(), original)
+        json_db = self.base / "database.json"
+        shutil.copyfile(self.db, json_db)
+        db_bytes = json_db.read_bytes()
+        with self.assertRaises(database.DatabaseError):
+            database.edit_template(json_db, json_db, item_ids=["variance"])
+        self.assertEqual(json_db.read_bytes(), db_bytes)
+        extra_source = self.base / "registered-source.json"
+        extra_source.write_text('{"captured": "α evidence"}\n', encoding="utf-8")
+        protected_db = self.base / "extra.sqlite"
+        database._native_init_database(protected_db, self.dataset, extra_files=[extra_source])
+        source_bytes = extra_source.read_bytes()
+        with self.assertRaisesRegex(database.DatabaseError, "manuscript"):
+            database.edit_template(protected_db, extra_source, item_ids=["variance"])
+        self.assertEqual(extra_source.read_bytes(), source_bytes)
+        extra_source.unlink()
+        with self.assertRaisesRegex(database.DatabaseError, "manuscript"):
+            database.edit_template(protected_db, extra_source, item_ids=["variance"])
+        self.assertFalse(extra_source.exists())
+
+    def test_edit_template_serializes_before_creating_output(self):
+        output = self.base / "uncreated" / "correction.json"
+        data = database.export_snapshot(self.db)
+        data["items"][1]["caption"] = float("nan")
+        with patch.object(database, "export_snapshot", return_value=data), self.assertRaises(ValueError):
+            database.edit_template(self.db, output, item_ids=["variance"])
+        self.assertFalse(output.parent.exists())
+
+    def test_edit_template_partial_write_failure_removes_only_new_output(self):
+        output = self.base / "correction.json"
+        draft = self.base / "other-draft.json"
+        draft.write_bytes(b"Preserve unrelated work.\n")
+        before, db_bytes = database.export_snapshot(self.db), self.db.read_bytes()
+        original_open = Path.open
+
+        class InterruptedWriter:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                self.stream.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+
+            def write(self, value):
+                self.stream.write(value[:25])
+                raise OSError("Injected partial write failure")
+
+        def failing_open(path, *args, **kwargs):
+            stream = original_open(path, *args, **kwargs)
+            return InterruptedWriter(stream) if path == output else stream
+
+        with patch.object(Path, "open", failing_open), self.assertRaisesRegex(OSError, "partial write"):
+            database.edit_template(self.db, output, item_ids=["variance"])
+        self.assertFalse(output.exists())
+        self.assertEqual(draft.read_bytes(), b"Preserve unrelated work.\n")
+        self.assertEqual(database.export_snapshot(self.db), before)
+        self.assertEqual(self.db.read_bytes(), db_bytes)
+        output.write_bytes(b"Existing draft after interruption.\n")
+        with patch.object(Path, "open", failing_open), self.assertRaises((database.DatabaseError, FileExistsError)):
+            database.edit_template(self.db, output, item_ids=["variance"])
+        self.assertEqual(output.read_bytes(), b"Existing draft after interruption.\n")
+
+    def test_edit_template_preserves_symlink_entries_and_protects_database_alias(self):
+        alias = self.base / "database-alias.json"
+        missing = self.base / "missing-target.json"
+        dangling = self.base / "dangling.json"
+        try:
+            alias.symlink_to(self.db)
+            dangling.symlink_to(missing)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Host does not permit creating file symlinks: {exc}")
+        db_bytes = self.db.read_bytes()
+        with self.assertRaises(database.DatabaseError):
+            database.edit_template(self.db, alias, item_ids=["variance"])
+        with self.assertRaises((database.DatabaseError, FileExistsError)):
+            database.edit_template(self.db, dangling, item_ids=["variance"])
+        self.assertTrue(alias.is_symlink())
+        self.assertTrue(dangling.is_symlink())
+        self.assertFalse(missing.exists())
+        self.assertEqual(self.db.read_bytes(), db_bytes)
+
     def test_cli_returns_small_actionable_error(self):
         run = subprocess.run([sys.executable, "-B", str(SKILL / "scripts/paper_database.py"), "get", str(self.db), "missing-item"], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(run.returncode, 2)

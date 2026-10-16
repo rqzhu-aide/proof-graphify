@@ -24,7 +24,7 @@ stage1 add-unit consumes a JSON object and generates the claim, exact specificat
 }
 ~~~
 
-Both booleans describe actual source judgments. The coordinator can record its own comparison or a primary worker's saved comparison under that examiner's `reviewer` identity. If the representation is unsettled or a continuation is missing, use false and explain it. This operation saves no proof check and makes no mathematical support claim.
+Author the exact claim from its actual statement and setup passages, not labels or a predicted proof; leave unread material provisional instead of inventing a statement. Both booleans record actual source judgments, saved by the coordinator or a primary worker under that examiner's `reviewer` identity. If the representation is unsettled or a continuation is missing, use false and explain it. This saves no proof check or mathematical support claim.
 
 Keep hypotheses and quantifiers in the exact statement, including references such as "Under Assumption A1." Supply A1's captured content as source/setup context and reuse its named-assumption record when needed. A clearly identical restatement can share that record with both source locations retained; materially different conditions stay explicit. No separate equivalence proof or node for each clause is required. An assumption is not a lemma to prove. A formal proof-supplier edge is not required merely to display its reference. Do not add private conditions or proof work just to change a conditional support status.
 
@@ -40,9 +40,9 @@ The suppliers list is optional. Each supplier entry requires target, reason and 
 
 Optional entry fields are substitutions [{symbol,value}], evidence_refs and type. Type is dependency for using a result, definition for definition context, or proof_argument for borrowing an actual argument. Supplying a theorem statement is usually enough for a result application; actual proof borrowing needs its passages. add-unit generates the corresponding application_details; its low-level template requires an existing use and is only needed for advanced edits.
 
-Routine external facts need no separate node. For a non-trivial external use, create an `items` record of kind `external_result` using the existing template/authoring path, then reference it as a supplier. Save the cited result, source location and relevant captured evidence; reuse the node across applications. If retrieval is unavailable, anchor the attributed statement to the supplied manuscript and disclose that its external source was not inspected. The `external_source` assessment can finish as inconclusive. Record this uncertainty in the assessment or findings; `source_issues` is for defects in supplied or captured evidence, not a queue of inaccessible citations. See [external-result-verification.md](external-result-verification.md).
+Routine external facts need no separate node. For a non-trivial external use, create an `items` record of kind `external_result` using the existing template/authoring path, then reference it as a supplier. Save the exact cited result and available captured evidence; reuse the node across applications. Anchor an uninspected attribution to the supplied manuscript, disclose that the publication was not inspected, and distinguish reliable mathematical knowledge from source evidence. Retrieval is not required. If the needed statement or conditions remain uncertain, the `external_source` assessment can finish as inconclusive. Record that uncertainty in assessment or findings; `source_issues` is for defects in supplied or captured evidence, not an external-reference queue. See [external-result-verification.md](external-result-verification.md).
 
-Use an exact `transcription` or `verbatim` statement for that supplier. Its current matched source comparison and supported external-source examination can establish source support without a separate target specification. A synopsis or uninspected citation cannot. Reuse the saved inspection while its source and meaning are unchanged; do not repeat it merely to add bookkeeping.
+Use an exact `transcription` or `verbatim` statement for that supplier. Its current matched source comparison and supported external-source examination can establish source support without a separate target specification. A synopsis or uninspected citation alone cannot. A knowledge-based mathematical judgment does not fabricate a matched external publication; retain source provenance and any conditional support required by uncertain assumptions. Reuse unchanged saved reasoning or inspection without another lookup merely for bookkeeping.
 
 Use aliases only after comparing the actual statement, hypotheses and context. Different numbering alone neither identifies nor distinguishes results.
 
@@ -67,6 +67,14 @@ For example, a named assumption needs its source comparison, not a proof-complet
   "source_note": "Compared the named setup with its captured source."
 }
 ~~~
+
+Registration alone does not deliver that setup to an examiner. Link it from the consuming unit using the returned `unit.item`, for example:
+
+~~~json
+"assumptions": [{"collection": "items", "id": "itm_assumption_a1"}]
+~~~
+
+This supplies the assumption and its captured passages to both examiners, and includes its exact text in the independent question's conditions. Use a supplier of type `definition` for explanatory definition context; it supplies the passage without adding an assumption to the question. Keep these scientific roles distinct.
 
 An intermediate uses its actual kind and `owner_id`. Register the owner first. An item with proof passages alone creates no separate proof assignment and receives no automatic favorable verdict. To represent a derivation actually examined inside the owner, also provide its existing `argument_id`, the selected `proof_anchors`, and any `suppliers` used to derive this result:
 
@@ -108,7 +116,7 @@ The correction is an object containing `statement` and/or `statement_anchors`, f
 
 Neither operation creates a favorable source comparison or proof verdict. An unchanged replay describes the original saved change. Advanced pairings receive a local explanation and use ordinary affected-record edits. Use stage status to identify affected work when needed; do not rebuild or repeat unrelated examinations.
 
-The optional `conditions`, `assumptions` and `binders` fields describe genuinely private assumptions, bound variables or case contexts. Ordinary theorem hypotheses already in the statement need none of these fields. Keep existing meaningful scopes; no migration or separate scope audit is required.
+The optional `assumptions` field references existing source assumptions or standing setup used by the unit. The `conditions` strings and `binders` describe additional local conditions, bound variables or case contexts. Do not duplicate ordinary theorem hypotheses already stated in full, or add private conditions to improve a support label. Keep existing meaningful scopes; no migration or separate scope audit is required.
 
 Use existing items/parts, arguments, groups, scopes and uses when an extra route, meaningful subsection, case branch or material local outcome requires them. application_details and target_specs preserve exact usage and target meanings; scripts handle paired fields where available.
 
@@ -116,4 +124,4 @@ A manuscript proof omission is represented as its exact claim without a fabricat
 
 A displayed synopsis differs from an exact claim. Do not reuse source fidelity when hypotheses or conditions differ. Checking a valid implication does not establish its supplier. An internal result can remain valid even if its owning theorem's final composition fails.
 
-New routine explanatory detail within an examined unit creates no mandatory microchecks. Changed assertions, conditions, substantive routes or evidence require attention to the affected examination. A proposed mathematical repair is separate from correcting the database's representation and is not required to finish reporting a gap.
+New routine explanatory detail within an examined unit creates no mandatory microchecks. Changed assertions, conditions, substantive routes or evidence require attention to the affected examination. A proposed mathematical repair is separate from correcting the database's representation and is not required to finish reporting a gap. An obvious one-line justification correction does not create a replacement route. For findings, use the optional severity field and canonical [rubric](evidence-and-verdicts.md#research-severity), with concise existing fields as described in [reporting-and-release.md](reporting-and-release.md). Leave severity unset in generic templates until the issue is classified; omitted severity remains a valid unrated record.

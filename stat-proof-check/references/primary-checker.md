@@ -10,6 +10,8 @@ Before recording a missing premise or scaling contradiction, check inherited hyp
 
 Assess the supplied argument. Record omissions, gaps or inconclusive judgments without requiring a constructed proof, mathematical repair or counterexample. Handle non-trivial external uses with [external-result-verification.md](external-result-verification.md).
 
+Apply the [research-severity rubric](evidence-and-verdicts.md#research-severity) to established findings within this examination and use concise existing fields following [reporting guidance](reporting-and-release.md#concise-issue-cards). Follow the bounded LLM and source-basis rules there; an obvious one-line justification correction needs no replacement route or repair reviewer, and uncertainty receives no inferred defect severity.
+
 Return your local draft or generated response. Composition uses whole_unit with empty omissions when all assigned material was examined, or partial naming unexamined material. Assessed defects and uncertainty belong in reasoning or findings. Follow [evidence-and-verdicts.md](evidence-and-verdicts.md). Missing database identities alone do not imply partial or inconclusive examination. Use source locators in drafts; never invent registered evidence IDs.
 
 Distinguish materially different local outcomes: valid supplier applications can coexist with an invalid joint probability bound. Save necessary local results or findings within this examination; routine details create no new assignments.

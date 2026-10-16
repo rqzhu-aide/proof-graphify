@@ -107,10 +107,44 @@ class EvidenceTests(TempCase):
         self.assertEqual([1, 2], response.body["pending_judgments"])
         self.assertIn("missing monotonicity", response.body["coverage_note"])
         self.assertIn("separate prerequisite", response.body["coverage_note"])
+        self.assertFalse(response.body["coverage_note"].startswith("\n"))
         self.assertEqual(raw, self.db.get_blob(response.body["original_blob"]))
         checks = [r for r in self.db.heads("checks") if r.body["response_id"] == response.id]
         self.assertEqual(1, len(checks))
         self.assertEqual("gap", checks[0].body["outcome"])
+
+    def test_mapping_preserves_concerns_without_stale_intake_status(self):
+        prepared = self.prepare([R("arguments", "arg_lem")])
+        worker = controller.response_scaffold(prepared["manifest"])
+        coverage = "  The reviewer quotes 'Unresolved judgment 99 awaits mapping'.  "
+        worker["coverage_note"] = coverage
+        worker["judgments"][0].update(state="complete", outcome="supported", reasoning="The assigned route was examined.")
+        pending = copy.deepcopy(worker["judgments"][0])
+        pending.pop("question_id")
+        pending.update(target={"source_anchor_id": "anc_lem_proof", "description": "A separate inference in this proof"},
+                       outcome="gap", reasoning="The induction base condition is missing.")
+        worker["judgments"].append(pending)
+        result, raw = self.submit(prepared, worker)
+        self.assertEqual("accepted", result["state"], result)
+        original = self.db.head("responses", result["response_id"])
+        self.assertEqual([1], original.body["pending_judgments"])
+        note = original.body["coverage_note"]
+        self.assertTrue(note.startswith(coverage + "\n"))
+        self.assertIn(pending["reasoning"], note)
+        self.assertNotIn("Unresolved judgment 1:", note)
+        self.assertNotIn("anc_lem_proof", note)
+        author = self.fx.packet(self.db, *self.fx.ITEMS, mode="primary")
+        review.map_response(self.db, mapping={"contract_version": 4, "request_id": self.fx.request_id(),
+            "packet_id": author["packet_id"], "response_id": original.id,
+            "entries": [{"judgment_index": 1, "target": R("arguments", "arg_lem"),
+                         "rationale": "The concern refers to the captured lemma proof."}], "reviewer": "coordinator"})
+        current = self.db.head("responses", original.id)
+        self.assertEqual([], current.body["pending_judgments"])
+        self.assertEqual(note, current.body["coverage_note"])
+        self.assertEqual(raw, self.db.get_blob(current.body["original_blob"]))
+        self.assertEqual(original.body, self.db.version("responses", original.id, original.version).body)
+        mapped = [r for r in self.db.heads("checks") if r.body["response_id"] == original.id and r.body["outcome"] == "gap"]
+        self.assertEqual([pending["reasoning"]], [r.body["reasoning"] for r in mapped])
 
     def test_consumer_gets_shared_source_statement_and_only_explicitly_borrowed_proof(self):
         packet = self.fx.packet(self.db)

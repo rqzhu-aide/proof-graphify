@@ -69,7 +69,7 @@ def public_assessment(assessment: dict) -> dict:
             "finding_refs": _ids(assessment["finding_refs"]),
             "missing_obligation_ids": list(assessment["missing_obligation_ids"]),
             "independent_review": assessment["independent_review"],
-            **{key: assessment[key] for key in ("availability", "local_state", "local_label") if key in assessment}}
+            **{key: assessment[key] for key in ("availability", "local_state", "local_label", "review_display") if key in assessment}}
 
 
 def factual_summary(derivation, result):
@@ -985,8 +985,10 @@ class _Projector:
                 candidate = self.A["independent"].get(key_of(ref_of(part)), "not_required")
                 if INDICATOR_RANK[candidate] > INDICATOR_RANK[indicator]:
                     indicator = candidate
-            return public_assessment(reduce(_dedupe_constituents(constituents), independent=indicator))
-        return dict(OUTSIDE_SCOPE, check_refs=[], finding_refs=[], missing_obligation_ids=[])
+            result = reduce(_dedupe_constituents(constituents), independent=indicator)
+            return public_assessment(self.d.review_display.attach(result, targets=[ref_of(item)], owners=[item.id]))
+        return self.d.review_display.attach(dict(OUTSIDE_SCOPE, check_refs=[], finding_refs=[], missing_obligation_ids=[]),
+                                            finding_ids=[])
 
     def build(self) -> tuple:
         snap, A = self.snap, self.A
@@ -1004,10 +1006,13 @@ class _Projector:
                 group = snap.live("groups", application.get("group_id"))
                 argument_id = None if group is None else group.body["argument_id"]
                 partition.setdefault((argument_id, application.get("group_id")), []).append((use, trace))
-            groups_out, all_constituents, context = [], [], OrderedDict()
+            groups_out, all_constituents, connection_targets, context = [], [], [], OrderedDict()
             for (argument_id, group_id), members in sorted(partition.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
                 constituents = []
+                display_targets = [{"collection": "groups", "id": group_id}] if group_id else []
                 for use, trace in members:
+                    display_targets.extend(ref_of(record) for kind in ("uses", "groups", "arguments")
+                                           for record in trace[kind])
                     for rep in trace["uses"]:
                         constituents.extend(self.constituents_for_use(rep))
                     for group in trace["groups"]:
@@ -1018,12 +1023,19 @@ class _Projector:
                     for record in trace["context"]:
                         context.setdefault((record.collection, record.id), record)
                 constituents = _dedupe_constituents(constituents)
+                display_targets.extend(c["target"] for c in constituents if c.get("target"))
+                connection_targets.extend(display_targets)
                 obligation_ids = sorted({c["obligation_id"] for c in constituents if c.get("obligation_id")})
+                group_assessment = reduce(constituents)
+                if A["mode"] == "triage":
+                    group_assessment = _triage_assessment(group_assessment)
                 groups_out.append({"argument_id": argument_id, "group_id": group_id,
                                    "inference_kind": snap.live("groups", group_id).body["kind"] if group_id else None,
                                    "use_ids": sorted(use.id for use, _ in members),
                                    "obligation_ids": obligation_ids,
-                                   "assessment": public_assessment(reduce(constituents))})
+                                   "assessment": public_assessment(self.d.review_display.attach(group_assessment,
+                                       targets=display_targets,
+                                       use_ids=[use.id for use, _ in members]))})
                 all_constituents.extend(constituents)
             all_constituents = _dedupe_constituents(all_constituents)
             obligation_ids = sorted({c["obligation_id"] for c in all_constituents if c.get("obligation_id")})
@@ -1057,10 +1069,11 @@ class _Projector:
                     "explanation": "mapped applications have judgments, but the summary interpretation remains draft"})
             if A["mode"] == "triage":
                 connection_assessment = _triage_assessment(connection_assessment)
-                for group in groups_out:
-                    group["assessment"] = _triage_assessment(group["assessment"])
                 for application in application_assessments:
                     application["assessment"] = _triage_assessment(application["assessment"])
+            self.d.review_display.attach(connection_assessment,
+                targets=connection_targets,
+                use_ids=[use.id for use in uses])
             connections.append({"id": cid, "from": source_id, "to": target_id,
                                 "primary_use_ids": sorted(use.id for use in uses), "groups": groups_out,
                                 "summary_use_ids": summary_uses, "applications": application_assessments,
@@ -1174,6 +1187,32 @@ class _Projector:
             "summary": summary,
             "layout": layout,
         }
+        if not self.overview:
+            displays = self.d.review_display
+            projection["finding_displays"] = {ident: displays.finding(ident) for ident in sorted(displays.findings)}
+            logical = reduce([c for statement in self.d.statements
+                              for c in self.d.statement_constituents(statement)])
+            if A["mode"] == "triage":
+                logical = _triage_assessment(logical)
+            summary["review_display"] = displays.assessment(logical, finding_ids=list(displays.findings))
+            detail_displays = {node["detail_key"]: node["assessment"]["review_display"] for node in node_list}
+            detail_displays.update({conn["detail_key"]: conn["assessment"]["review_display"] for conn in connections})
+            for detail_key, detail in details.items():
+                if detail_key in detail_displays:
+                    detail["review_display"] = detail_displays[detail_key]
+                elif detail_key.startswith("audit:"):
+                    detail["review_display"] = displays.assessment(
+                        A["assessments"].get(key_of(ref_of(self.d.audit)), reduce([])),
+                        targets=[ref_of(self.d.audit)], finding_ids=[])
+                reader = detail.get("reader") or {}
+                for target in reader.get("targets", []):
+                    if "review_display" not in target["assessment"]:
+                        displays.attach(target["assessment"], targets=[target["target_ref"]])
+                for application in reader.get("applications", []):
+                    if "assessment" in application:
+                        use_ref = application["use_ref"]
+                        displays.attach(application["assessment"],
+                                        targets=[use_ref], use_ids=[use_ref["id"]])
         report = {"problems": list(A["problems"]) + self.problems,
                   "counts": {"nodes": len(node_list), "connections": len(connections), "records": len(records),
                              "obligations": len(obligations), "details": len(details), "locations": len(locations)}}

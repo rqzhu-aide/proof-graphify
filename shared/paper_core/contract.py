@@ -536,7 +536,8 @@ BODY_SCHEMAS = {
                      "lifecycle": Enum(("open", "resolved", "superseded")), "description": Str(nonempty=True),
                      "evidence_refs": Arr(Id("anchors")), "check_refs": Arr(RefT(("checks",), pinned=True)),
                      "affected_uses": Arr(Id("uses")), "impact_reason": Str(nonempty=True),
-                     "resolution": Str(nullable=True)}, local=_findings_local),
+                     "resolution": Str(nullable=True), "severity": Enum(("minor", "moderate", "severe"))},
+                    optional=("severity",), local=_findings_local),
     "repairs": Obj({"finding_id": Id("findings"),
                     "kind": Enum(("supplemental_argument", "restricted_statement", "source_revision_proposal")),
                     "description": Str(nonempty=True), "supported_form": RefT(("items", "parts"), nullable=True),
@@ -667,7 +668,8 @@ WORK_FINDING = Obj({
     "description": Str(nonempty=True), "evidence_refs": Arr(Id("anchors")),
     "related_task_ids": Arr(Str(nonempty=True)), "existing_check_refs": Arr(RefT(("checks",), pinned=True)),
     "affected_uses": Arr(Id("uses")), "impact_reason": Str(nonempty=True),
-})
+    "severity": Enum(("minor", "moderate", "severe")),
+}, optional=("severity",))
 WORK_PRIMARY_RESPONSE = Obj({"packet_id": Str(nonempty=True),
                              "results": Arr(_WorkResult([WORK_CHECK, WORK_COMPARISON])),
                              "coverage": Arr(WORK_COVERAGE), "findings": Arr(WORK_FINDING)})

@@ -261,7 +261,7 @@ export function createReaderContent(input) {
         add('supersedes','Earlier assessment replaced'); break;
       }
       case 'findings':
-        take({target:'Affected material',category:'Finding type',lifecycle:'Finding status',description:'Finding',impact_reason:'Effect on the claim',resolution:'Recorded resolution',check_refs:'Supporting assessments'});
+        take({target:'Affected material',category:'Finding type',severity:'Research severity',lifecycle:'Finding status',description:'Finding',impact_reason:'Effect on the claim',resolution:'Recorded resolution',check_refs:'Supporting assessments'});
         ids('affected_uses','uses','Affected applications'); evidence(); break;
       case 'repairs':
         id('finding_id','findings','Finding addressed'); id('argument_id','arguments','Proposed supplemental argument');
@@ -271,9 +271,12 @@ export function createReaderContent(input) {
         take({qualified:'Independent-review qualification',limitations:'Qualification limitations'});
         if (!b.qualified) notices.push('This review does not have the recorded qualification required for independent review.'); break;
       case 'responses':
-        take({covered_targets:'Material addressed by the response',coverage_note:'Review coverage and limitations',exposure:'Review exposure level',exposure_note:'Consequential exposure explanation',state:'Review integration status'});
+        take({covered_targets:'Material addressed by the response',coverage_note:'Review coverage and limitations recorded at submission',exposure:'Review exposure level',exposure_note:'Consequential exposure explanation',state:'Review integration status'});
         id('qualification_id','qualifications','Review qualification and limitations');
-        if (Array.isArray(b.pending_judgments) && b.pending_judgments.length) notices.push('Returned judgments remain unresolved in this saved response; their substantive contents are not present in this record.');
+        if (Array.isArray(b.pending_judgments)) {
+          if (b.pending_judgments.length) notices.push('Some returned concerns are not yet linked to the examined material and are not included in the assessment.');
+          else if (b.state === 'accepted') notices.push('All returned judgments are linked to the examined material.');
+        }
         if (responseLabel(row) === 'Review with supplied argument context') notices.push('This response received supplied argument context; its exposure explanation and the combined assessment preserve how that context affects the review.');
         else if (responseLabel(row) !== 'Independent review response') notices.push(responseLabel(row) + '; the recorded exposure and qualification limit the confidence supplied by this review.'); break;
       case 'reconciliations':

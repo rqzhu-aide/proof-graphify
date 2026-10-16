@@ -10,6 +10,21 @@ from paper_core import math_render, publish
 
 
 class MathDisplayMetadataTests(unittest.TestCase):
+    def test_current_producer_identity_tracks_math_adapter_bytes(self):
+        import tempfile
+        from pathlib import Path
+        from paper_core import finalization
+        with tempfile.TemporaryDirectory() as temporary:
+            core = Path(temporary)
+            adapter = core / "math_render.py"
+            adapter.write_bytes(b"original display adapter")
+            with patch.object(finalization, "PACKAGE_DIR", core):
+                original = finalization.producer_identity()
+                adapter.write_bytes(b"changed display adapter")
+                changed = finalization.producer_identity()
+            self.assertNotEqual(original["bundle_source_identity"], changed["bundle_source_identity"])
+            self.assertEqual(original["core_version"], changed["core_version"])
+
     def projection(self):
         unsupported = r"$\privateDisplayMacro{x}$"
         item = {"ref": {"collection": "items", "id": "itm_private", "version": 7},

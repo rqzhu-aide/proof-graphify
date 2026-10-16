@@ -7,6 +7,9 @@ write, the exact error codes they raise, and the fact that a rejected command wr
 from __future__ import annotations
 
 import unittest
+import os
+from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -124,6 +127,22 @@ def anchor_entry(id, source_id, loc, expected=None):
 class PureFunctions(unittest.TestCase):
     """``media_type``, ``uncomment``, ``declarations`` and ``citations`` are pure text functions."""
 
+    def test_source_lines_use_only_lf_and_preserve_unterminated_cr(self):
+        cases = [("", []), ("\n", [""]), ("a\nb", ["a", "b"]),
+                 ("a\nb\n", ["a", "b"]), ("a\nb\n\n", ["a", "b", ""]),
+                 ("a\r\nb\r\n", ["a", "b"]), ("a\r\r\n", ["a\r"]),
+                 ("a\nb\r", ["a", "b\r"]), ("\r", ["\r"])]
+        cases += [(f"a{separator}b\nclosing\n", [f"a{separator}b", "closing"])
+                  for separator in ("\f", "\v", "\x85", "\u2028", "\u2029", "\r")]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(sources.split_source_lines(text), expected)
+                if expected:
+                    self.assertEqual(sources._extract_lines(text, 1, len(expected)), "\n".join(expected))
+                with self.assertRaises(InvalidRequest) as caught:
+                    sources._extract_lines(text, 1, len(expected) + 1)
+                self.assertEqual(caught.exception.code, "LINES_OUT_OF_RANGE")
+
     def test_media_type_classifies_every_recognised_suffix(self):
         """Each known extension maps to its contract media_type and anything else is 'other'."""
         expected = {".tex": "tex", ".ltx": "tex", ".sty": "tex", ".cls": "tex", ".bib": "bib", ".bbl": "bib",
@@ -235,6 +254,79 @@ class PureFunctions(unittest.TestCase):
 
 class Discovery(support.TempCase):
     """``discover`` resolves the listed files plus the literal local inputs they name."""
+
+    def test_unsafe_discovered_inputs_and_packages_are_rejected_before_probes(self):
+        root, _ = build_paper(self, "guard", {
+            "main.tex": "\\documentclass{article}\n\\input{inside}\n",
+            "inside.tex": "ordinary content\n"})
+        ordinary, _ = sources.discover(root, ["main.tex"])
+        outside = root.parent / "outside"
+        unsafe_names = ["../outside", outside.as_posix(), "//source-probe.invalid/share/outside"]
+        extra = []
+        for name in unsafe_names:
+            extra += [f"\\{command}{{{name}}}" for command in ("input", "include", "subfile")]
+            extra += [f"\\{command}{{{name}}}" for command in
+                      ("usepackage", "RequirePackage", "documentclass")]
+        rewrite(root / "main.tex", "\\documentclass{article}\n\\input{inside}\n" + "\n".join(extra))
+        touches = []
+
+        def guarded(method):
+            original = getattr(Path, method)
+
+            def probe(path, *args, **kwargs):
+                normalized = Path(os.path.normpath(path))
+                if str(path).replace("\\", "/").startswith("//") or (
+                        normalized.parent == outside.parent and normalized.stem == outside.name):
+                    touches.append((method, str(path)))
+                    raise AssertionError(f"unsafe source reached {method}: {path}")
+                return original(path, *args, **kwargs)
+            return probe
+
+        with patch.object(Path, "is_file", guarded("is_file")), \
+                patch.object(Path, "resolve", guarded("resolve")), \
+                patch.object(Path, "stat", guarded("stat")), \
+                patch.object(Path, "open", guarded("open")):
+            captured, notes = sources.discover(root, ["main.tex"])
+        self.assertEqual(touches, [])
+        self.assertEqual([row["path"] for row in captured], [row["path"] for row in ordinary])
+        self.assertEqual(captured[1], ordinary[1])
+        self.assertTrue(all(row["path"] != outside.as_posix() for row in captured))
+        self.assertEqual(len([note for note in notes if "lies outside" in note]), 3)
+
+    def test_lexical_guard_preserves_local_path_forms(self):
+        root, _ = build_paper(self, "local_forms", {
+            "main.tex": "\\documentclass{article}\n\\input{sec/including}\n",
+            "sec/including.tex": "\\input{../nested/ordinary}\n",
+            "nested/ordinary.tex": "ordinary\n",
+            "space name.tex": "space\n", "unicode-é.tex": "Unicode\n",
+            "local.sty": "style\n", "local.cls": "class\n"})
+        extra = [r"\input{nested/../nested/ordinary}", r"\input{space name}", r"\input{unicode-é}",
+                 f"\\input{{{(root / 'nested/ordinary.tex').as_posix()}}}",
+                 r"\usepackage{nested/../local}", r"\documentclass{nested/../local}"]
+        if os.name == "nt":
+            extra.append(r"\input{NESTED/ORDINARY}")
+        with (root / "main.tex").open("a", encoding="utf-8") as stream:
+            stream.write("\n".join(extra))
+        captured, notes = sources.discover(root, ["main.tex"])
+        self.assertEqual({row["path"].lower() for row in captured},
+                         {"main.tex", "sec/including.tex", "nested/ordinary.tex", "space name.tex",
+                          "unicode-é.tex", "local.sty", "local.cls"})
+        self.assertEqual(notes, [])
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction control")
+    def test_local_junction_escape_is_not_captured(self):
+        root, _ = build_paper(self, "junction", {
+            "main.tex": "\\documentclass{article}\n\\input{linked/outside}\n"})
+        outside = root.parent / "away"
+        outside.mkdir()
+        rewrite(outside / "outside.tex", "outside source\n")
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(root / "linked"), str(outside)],
+                                capture_output=True)
+        if result.returncode:
+            self.skipTest("junction creation unavailable in this environment")
+        captured, notes = sources.discover(root, ["main.tex"])
+        self.assertEqual([row["path"] for row in captured], ["main.tex"])
+        self.assertTrue(any("lies outside" in note for note in notes))
 
     def discovery_root(self):
         root, _ = build_paper(self, "disc", {
@@ -875,6 +967,48 @@ class SourceDiagnosticTests(support.TempCase):
 
 class AnchorCommand(support.TempCase):
     """``anchor_sources`` turns an anchor request into anchor record versions through a packet."""
+
+    def test_non_lf_separators_keep_closing_lines_and_exact_source_bytes(self):
+        for index, separator in enumerate(("\f", "\v", "\x85", "\u2028", "\u2029", "\r", " ")):
+            with self.subTest(separator=separator):
+                text = ("\\begin{lemma}\\label{lem:x}\nClaim" + separator + "text.\n\\end{lemma}\n"
+                        "\\begin{proof}\nReason.\n\\end{proof}\n")
+                if separator == " ":
+                    text = text.replace("\n", "\r\n")
+                raw = text.encode("utf-8")
+                root, path = build_paper(self, f"separator-{index}", {"main.tex": raw})
+                with storage.Database(path, write=True) as db:
+                    sources.capture_sources(db, files=["main.tex"])
+                    source = db.heads("sources")[0]
+                    from paper_core.packets import get_packet
+                    packet = get_packet(db, targets=[R("papers", source.body["paper_id"])], mode="author")
+                    sources.anchor_sources(db, request=anchor_request(packet["packet_id"], f"req_sep_{index}", [
+                        anchor_entry("anc_statement", source.id, locator(label="lem:x")),
+                        anchor_entry("anc_proof", source.id, locator(start=4, end=6))]))
+                    statement = db.head("anchors", "anc_statement").body
+                    proof = db.head("anchors", "anc_proof").body
+                    self.assertEqual(statement["locator"], locator(label="lem:x", start=1, end=3))
+                    self.assertEqual(statement["excerpt"], f"\\begin{{lemma}}\\label{{lem:x}}\nClaim{separator}text.\n\\end{{lemma}}")
+                    self.assertTrue(proof["excerpt"].endswith(r"\end{proof}"))
+                    self.assertEqual(source.body["blob_sha256"], sha(raw))
+                    self.assertEqual(db.get_blob(source.body["blob_sha256"]), raw)
+                    self.assertEqual((root / "main.tex").read_bytes(), raw)
+
+    def test_opening_a_database_keeps_an_old_truncated_anchor_and_bytes(self):
+        fx = self.fixture()
+        rewrite(fx.source_root / "paper.tex", support.PAPER_TEX.replace("For every", "For\u2028every"))
+        fx.capture()
+        with fx.open() as db:
+            packet = fx.packet(db)
+            with patch.object(sources, "split_source_lines", side_effect=lambda text: text.splitlines()):
+                sources.anchor_sources(db, request=anchor_request(packet["packet_id"], "req_historical", [
+                    anchor_entry("anc_old", fx.source_id, locator(label="lem:a"))]))
+            old = db.head("anchors", "anc_old").body
+            self.assertFalse(old["excerpt"].endswith(r"\end{lemma}"))
+        before = fx.path.read_bytes()
+        with fx.open(write=False) as db:
+            self.assertEqual(db.head("anchors", "anc_old").body, old)
+        self.assertEqual(fx.path.read_bytes(), before)
 
     def test_anchors_are_created_and_listed_with_their_resolution(self):
         """A create request commits version 1 anchors and echoes the method and excerpt hash."""

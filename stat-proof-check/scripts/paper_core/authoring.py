@@ -10,7 +10,7 @@ from .canonical import digest
 from .contract import Arr, BINDER, Bool, Enum, Id, Int, INTERMEDIATE_KINDS, Obj, STATEMENT, SUBSTITUTION, TARGET, Str, validate_shape
 from .errors import ConflictError, InvalidRequest
 from .ids import valid_id
-from .packets import get_packet
+from .packets import NO_PROOF_CUE, get_packet
 from .semantics import related
 
 UNIT_DEFINITION = Obj({
@@ -124,7 +124,7 @@ def create_unit(db, definition: dict) -> dict:
              "passages": [{"role": "statement", "anchor_id": a} for a in statements] +
                          [{"role": "proof", "anchor_id": a} for a in proof],
              "aliases": definition.get("aliases", []),
-             "uncertainty": definition["source_note"] if statement_only else None, "origin": "source", "owner_id": definition.get("owner_id"),
+             "uncertainty": NO_PROOF_CUE if statement_only else None, "origin": "source", "owner_id": definition.get("owner_id"),
              "scope_id": scope}),
         _edit("scopes", scope, {"argument_id": None, "parent_id": owner.body.get("scope_id") if owner else None, "assumptions": definition.get("assumptions", []),
              "binders": definition.get("binders", []), "conditions": definition.get("conditions", []), "evidence_refs": statements}),

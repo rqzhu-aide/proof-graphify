@@ -120,7 +120,7 @@ class ReaderInteractionTests(unittest.TestCase):
         cls.temporary.cleanup()
 
     def run_harness(self, mode):
-        packet = self.index_packet if mode == "index" else self.packet
+        packet = self.index_packet if mode == "index" or mode.endswith("-index") else self.packet
         result = subprocess.run([NODE, str(SKILL / "tests/fixtures/reader-interaction.mjs"), str(packet), mode],
                                 capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -137,6 +137,9 @@ class ReaderInteractionTests(unittest.TestCase):
         self.assertTrue(result["controls_preserved_selection"])
         self.assertTrue(result["background_and_fit_cleared_details"])
 
+    def test_audit_details_keep_their_product_context_after_relocation(self):
+        self.assertTrue(self.run_harness("audit")["details_outside_diagram"])
+
     def test_graph_and_index_share_source_search_print_and_focus_restoration(self):
         for mode in ("interact", "index"):
             with self.subTest(mode=mode):
@@ -150,6 +153,13 @@ class ReaderInteractionTests(unittest.TestCase):
         self.assertTrue(result["template_bytes_preserved"])
         self.assertTrue(result["pointer_and_keyboard_preview"])
         self.assertTrue(result["leave_selection_and_print_dismissal"])
+
+    def test_initial_public_item_and_connection_fragments_reveal_saved_content(self):
+        for mode in ("fragment", "fragment-use", "fragment-index", "fragment-use-index"):
+            with self.subTest(mode=mode):
+                result = self.run_harness(mode)
+                self.assertTrue(result["public_fragment_resolved"])
+                self.assertTrue(result["index_visible"])
 
 
 if __name__ == "__main__":

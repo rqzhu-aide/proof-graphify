@@ -19,7 +19,7 @@ from .contract import (BATCH, CHECK_TARGETS, EDIT_CREATE, INTERMEDIATE_KINDS, JU
                        Hash, Obj, Str, validate_body, validate_shape)
 from .errors import ConflictError, InvalidRequest
 from .ids import new_id
-from .packets import independent_context_changes, load_packet
+from .packets import copied_unit_notes_in_packet, independent_context_changes, load_packet
 from .storage import Database
 from .semantics import application
 
@@ -238,7 +238,15 @@ def plan_review_submission(db: Database, *, submission: dict, response_bytes: by
             resolved = scoped
             pending.sort(key=lambda entry: entry[0])
     review_basis = manifest.get("review_basis", "source_only")
-    if submission["exposure"] == review_basis and worker_exposure["status"] == "none_known":
+    copied_notes = review_basis == "source_only" and copied_unit_notes_in_packet(db, packet)
+    if copied_notes:
+        exposure = "compromised"
+        exposure_note = "Issued packet contained a copied primary examiner note; a fresh blind context is required."
+        if submission["exposure_note"]:
+            exposure_note += " Coordinator: " + submission["exposure_note"]
+        if worker_exposure.get("note"):
+            exposure_note += " Worker: " + worker_exposure["note"]
+    elif submission["exposure"] == review_basis and worker_exposure["status"] == "none_known":
         exposure, exposure_note = review_basis, submission["exposure_note"]
     else:
         exposure = "compromised"
@@ -257,11 +265,12 @@ def plan_review_submission(db: Database, *, submission: dict, response_bytes: by
         response_body["intake_diagnostics"] = list(diagnostics) + [f"judgment {index}: {reason}" for index, reason in pending]
         if pending:
             retained = []
-            for index, reason in pending:
+            for index, _ in pending:
                 row = worker["judgments"][index]
                 concern = row.get("reasoning", "") if isinstance(row, dict) else str(row)
-                retained.append(f"Unresolved judgment {index}: {reason}. {concern}")
-            response_body["coverage_note"] = "\n".join([coverage_note, *retained]).strip()
+                if concern:
+                    retained.append(f"Reviewer concern recorded with this response: {concern}")
+            response_body["coverage_note"] = "\n".join(part for part in [coverage_note, *retained] if part)
     edits = [{"op": "create", "collection": "responses", "id": response_id, "expected_version": None,
               "body": response_body}]
     annotations, checks = {}, []

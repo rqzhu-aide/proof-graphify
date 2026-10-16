@@ -1,7 +1,7 @@
 ---
 name: stat-proof-check
 metadata:
-  version: "3.2.3"
+  version: "3.2.7"
 description: Rigorous, non-formal proof audits from manuscript and supplement sources to a graph database, findings and an Archify HTML report. Use only when explicitly invoked as $stat-proof-check.
 ---
 
@@ -29,7 +29,7 @@ The coordinator maintains the shared database and carries the audit through deli
 
 Local Phase 1 drafts need no shared database IDs. After a group's returns arrive, the coordinator merges the same source claim in the same context, keeps separate consuming uses and returned opinions, and registers the shared records. Workers need not negotiate who creates a shared equation. Unavailable returns remain explicit limitations; they do not hold up unrelated groups. See [phase1-drafts.md](references/phase1-drafts.md).
 
-Use [database-audit.md](references/database-audit.md) to start and [controller-workflow.md](references/controller-workflow.md) for the commands. A ready proof can proceed while an unrelated source is unavailable. No perfect whole-database gate is required.
+Use [database-audit.md](references/database-audit.md) to start and [controller-workflow.md](references/controller-workflow.md) for the commands. Examine primary groups serially. After a coherent group's accepted primary work is current and complete, follow the workflow's explicit task selection to start its independent review while the next primary group proceeds, when the host supports background review. Unrelated unfinished work needs no whole-database gate.
 
 Use [coordinator-protocol.md](references/coordinator-protocol.md) for assignment ownership, [reconciler.md](references/reconciler.md) for integration and [reporting-and-release.md](references/reporting-and-release.md) for delivery.
 
@@ -45,9 +45,11 @@ Show decisive mathematical reasoning, hypotheses and limitations. Preserve AND p
 
 A theorem's hypotheses belong in its statement, including clear references to named assumptions whose passages are supplied as context. Reuse those assumptions; ordinary hypotheses need no duplicate private scope. Private scopes are for genuine local assumptions or cases.
 
-For a non-trivial use of an external result, use available tools to identify and inspect its source, record an external-result node, and check applicability. Routine facts need no separate lookup or node. An unavailable source can finish as an inconclusive limitation; do not expand the work into auditing the external paper. See [external-result-verification.md](references/external-result-verification.md).
+For a non-trivial use of an external result, record an external-result node and check its statement and applicability from supplied passages and reliably known mathematics. External retrieval is not required in the default audit. Distinguish mathematical knowledge from an inspected publication, and state uncertain conditions honestly. Routine facts need no separate lookup or node. See [external-result-verification.md](references/external-result-verification.md).
 
-Do not use simulations, numerical searches or empirical experiments as proof evidence. Source extraction, database checks and software tests are ordinary tooling.
+This is an LLM mathematical assessment. Use short hand-written deductions or an immediately apparent exact witness where useful; do not run simulations, numerical solvers, optimization or counterexample searches, interval validation, computer algebra or proof assistants to establish mathematical truth. Source extraction, PDF inspection, database checks, rendering and software tests are ordinary tooling.
+
+Rate established findings by their consequence for the paper, apparent repairability and intended scope using the canonical [severity rubric](references/evidence-and-verdicts.md#research-severity). Severity is separate from the logical outcome and review coverage. Classify within the existing examination and integration; no extra reviewer, repair search or publication-time scientific pass is required. An obvious one-line justification correction needs no replacement route or repair review.
 
 Use [mathematical-checking.md](references/mathematical-checking.md) and [evidence-and-verdicts.md](references/evidence-and-verdicts.md) for scientific standards. Load only relevant portions of [domain-risk-checks.md](references/domain-risk-checks.md).
 

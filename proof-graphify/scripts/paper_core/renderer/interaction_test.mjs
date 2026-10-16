@@ -38,8 +38,13 @@ function disconnectedLayout() {
     mixed_components:graph.components.length, stable_layout:true};
 }
 
-function runFixture(name, withWork = false, withReader = false, buildKind = null) {
+function runFixture(name, withWork = false, withReader = false, buildKind = null, sharedOwners = false) {
   const input = withReader ? readerFixture() : JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
+  if (sharedOwners) {
+    // The article's saved assessment is shared too; only graph identity differs.
+    input.projection.nodes[1].detail_key = input.projection.nodes[0].detail_key;
+    input.projection.nodes[1].assessment = structuredClone(input.projection.nodes[0].assessment);
+  }
   if (buildKind) input.build.kind = buildKind;
   if (withWork) {
     input.projection.projection_version = 2;
@@ -76,15 +81,18 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     'A working report must state that promised audit coverage is not established.');
   const scripts = scan.elements.filter(e => e.tag === 'script' && e.attrs.type !== 'application/json');
   scripts.forEach((script, i) => new vm.Script(script.text, { filename: `generated-${i}.js` }));
-  const native = scripts.find(s => s.text.includes('var Archify = {}')).text;
+  const native = scripts.find(s => s.text.includes('var Archify = {}'))?.text || '';
+  if (native) {
   for (const api of ['Archify.focus =', 'Archify.view =', 'Archify.exportMenu =', 'Archify.presentation ='])
     assert(native.includes(api), `Native runtime missing ${api}`);
-  assert(native.includes("probe.className = 'proof-svg'"), 'Export theme probes must resolve audit variables.');
+  assert(!native.includes('Archify.readerLayout = (function'), 'Scientific output must omit the unused adaptive layout.');
+  assert(!native.includes('Archify.outline = (function'), 'Scientific output must not build a competing outline.');
   const filter = native.match(/if \((\/\(\^\|,\).*?\/)\.test\(sel\)\)/);
   assert(filter, 'Native export style filter must remain available.');
   const selectorFilter = vm.runInNewContext(filter[1]);
   for (const selector of ['.proof-node-box', '.proof-node.s-red', '.proof-edge.s-amber', '.k-theorem', '.proof-arrowhead'])
     assert(selectorFilter.test(selector), `Export would omit verdict/kind style ${selector}`);
+  }
 
   const callbacks = new Map(), observers = [], moves = [];
   let timer = 0, document;
@@ -156,7 +164,19 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     }
     querySelectorAll(selector) {
       const result = [], selectors = selector.split(',').map(s => s.trim());
-      const walk = e => e.children.forEach(child => { if (selectors.some(s => child.matches(s))) result.push(child); walk(child); });
+      const matches = (child, s) => {
+        const terms = s.split(/\s+/), last = terms.pop();
+        if (!child.matches(last)) return false;
+        let ancestor = child.parentElement;
+        while (terms.length) {
+          const term = terms.pop();
+          while (ancestor && !ancestor.matches(term)) ancestor = ancestor.parentElement;
+          if (!ancestor) return false;
+          ancestor = ancestor.parentElement;
+        }
+        return true;
+      };
+      const walk = e => e.children.forEach(child => { if (selectors.some(s => matches(child,s))) result.push(child); walk(child); });
       walk(this); return result;
     }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
@@ -195,12 +215,14 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     }
   }
   let active = null, relation = null, reset = 0, centers = 0;
+  const location = {hash: ''};
   const focus = {
     active: () => active, relationship: () => relation,
-    set(id,options) { if (active === id && options?.toggle !== false) return this.clear(); active = id; relation = null; chip.hidden = false; svg.setAttribute('data-focus-active', id); notify('data-focus-active'); },
-    clear() { active = null; relation = null; chip.hidden = true; svg.removeAttribute('data-focus-active'); notify('data-focus-active'); },
-    inspectRelationshipById(id) {
+    set(id,options) { if (active === id && options?.toggle !== false) return this.clear(); active = id; relation = null; chip.hidden = false; svg.setAttribute('data-focus-active', id); if (options?.updateUrl !== false) location.hash = '#focus='+id; notify('data-focus-active'); return true; },
+    clear(options) { active = null; relation = null; chip.hidden = true; svg.removeAttribute('data-focus-active'); if (options?.updateUrl !== false) location.hash = ''; notify('data-focus-active'); },
+    inspectRelationshipById(id,options) {
       relation = input.projection.connections.find(c => c.id === id); active = relation.from; chip.hidden = false;
+      if (options?.updateUrl !== false) location.hash = '#relation='+id;
       svg.setAttribute('data-relationship-pin-active', id); notify('data-relationship-pin-active'); return true;
     },
   };
@@ -209,17 +231,48 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     const native = scripts.flatMap(script => [...script.text.matchAll(/svg\.addEventListener\('click', function \(event\) \{\s*if \(container\.getAttribute\('data-just-panned'\) === 'true'\) return;[\s\S]*?\n      \}\);/g)]).find(([source]) => source.includes('set(id,'))?.[0];
     assert(native,'Emitted native node handler is missing.');
     vm.runInNewContext(native,{svg,container,set:(id,options)=>focus.set(id,options),clear:()=>focus.clear(),get activeIds(){return active?[active]:[];},Archify});
-    const outside = scripts.flatMap(script => [...script.text.matchAll(/document\.addEventListener\('click', function \(event\) \{\s*var target = event\.target;[\s\S]*?\}, true\);/g)]).find(([source])=>source.includes('chip.hidden || !target'))?.[0];
+    const outside = scripts.flatMap(script => [...script.text.matchAll(/document\.addEventListener\('click', function \(event\) \{[\s\S]*?\}, true\);/g)]).find(([source])=>source.includes('chip.hidden || !target'))?.[0];
     assert(outside,'Emitted outside-click handler is missing.');
-    vm.runInNewContext(outside,{document,chip,container,clear:()=>focus.clear()});
+    vm.runInNewContext(outside,{document,chip,container,lensDragClickPointer:null,clear:()=>focus.clear()});
   }
   const windowEvents = new Map();
-  const context = vm.createContext({ document, window: { Archify, addEventListener(type,callback) { windowEvents.set(type,callback); } }, location: { hash: '' },
+  const initialArticle = document.querySelector('[data-reader-article]');
+  location.hash = '#'+initialArticle.id;
+  const context = vm.createContext({ document, window: { Archify, addEventListener(type,callback) { windowEvents.set(type,callback); } }, location,
     MutationObserver: class { constructor(callback) { this.callback = callback; } observe(target, options) { observers.push({ callback: this.callback, options }); } },
     requestAnimationFrame: schedule, setTimeout: schedule, clearTimeout: id => callbacks.delete(id) });
   const stateBeforeInteraction = document.querySelector('[data-reader-report-state]').textContent;
   const runtime = scripts.find(s => s.attrs.id === 'proof-runtime');
   vm.runInContext(runtime.text, context); flush();
+  assert.equal(location.hash,'#'+initialArticle.id,'Fresh article links retain their public address.');
+  assert(initialArticle.classList.contains('is-active'));
+  assert(initialArticle.contains(document.activeElement),'Fresh links focus the requested scientific content.');
+  assert(moves.length,'Fresh links must bring the content into view.');
+  if (svg) {
+    const hashHandler = native.match(/function syncFocusFromHash\(\) \{[\s\S]*?\n      \}/)?.[0];
+    assert(hashHandler,'Native hash integration must be exercised.');
+    const hashContext = {location,URLSearchParams,html:document.documentElement,set:(...args)=>focus.set(...args),clear:(...args)=>focus.clear(...args),inspectRelationshipById:(...args)=>focus.inspectRelationshipById(...args),applyReachability(){}};
+    const nativeHashChange = vm.runInNewContext(hashHandler+'; syncFocusFromHash;',hashContext);
+    const navigateHash = hash => { location.hash = hash; nativeHashChange(); windowEvents.get('hashchange')(); flush(); };
+    for (const owner of [input.projection.nodes[1],input.projection.connections[0],input.projection.nodes[0]]) {
+      const article = document.querySelector(`[data-proof-detail="${owner.detail_key}"]`);
+      navigateHash('#'+article.id);
+      assert.equal(location.hash,'#'+article.id,'Same-document links must survive native hash changes.');
+      assert(article.classList.contains('is-active'));
+      assert(article.contains(document.activeElement));
+    }
+    navigateHash('#focus='+input.projection.nodes[1].id);
+    assert.equal(active,input.projection.nodes[1].id,'Native graph focus links remain available.');
+    navigateHash('#relation='+input.projection.connections[0].id);
+    assert.equal(relation.id,input.projection.connections[0].id,'Native connection links remain available.');
+    for (const hash of ['#unknown-fragment','#lens=theorem','#route=start,end']) {
+      navigateHash('#focus='+input.projection.nodes[0].id);
+      navigateHash(hash);
+      assert.equal(location.hash,hash,'Mirroring native dismissal must not erase unrelated or reserved hashes.');
+      assert(!document.querySelector('.proof-detail.is-active'));
+    }
+    focus.clear(); flush();
+  }
   assert.equal(centers, 0, 'Opening a report must retain the complete graph instead of zooming into an arbitrary node.');
   const detail = key => document.querySelector(`[data-proof-detail="${key}"]`);
   if (withWork) {
@@ -247,6 +300,7 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
   if (svg) {
     assert(!container.contains(chip));
     assert(!container.contains(document.getElementById('proof-details')));
+    assert.equal(chip.parentElement.id,'proof-selection-host');
     const nativeNode = svg.querySelector('[data-node-id]');
     nativeNode.click(); flush(); nativeNode.click(); flush();
     assert.equal(active,first.id,'Repeated native activation must retain its scientific selection.');
@@ -260,8 +314,9 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     assert(!detail(first.detail_key).classList.contains('is-active'));
     focus.clear(); flush();
     assert(!detail(edge.detail_key).classList.contains('is-active'), 'Native close must clear the reader.');
-    const main = document.querySelector('[data-proof-main]'); main.click(); flush();
-    assert.equal(active, main.getAttribute('data-proof-main'));
+    const main = document.querySelector('.proof-results [data-reader-node]'); main.click(); flush();
+    assert.equal(active, main.getAttribute('data-reader-node'));
+    assert.equal(main.getAttribute('aria-current'),'true');
     document.getElementById('proof-full-structure').click(); flush(); assert.equal(reset, 1);
     const beforeReadable = centers;
     document.getElementById('proof-readable-view').click(); assert(centers > beforeReadable);
@@ -276,8 +331,27 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     const badge = svg.querySelector('[data-edge-badge]');
     if (badge) { badge.click(); flush(); assert.equal(relation.id, badge.getAttribute('data-edge-badge')); }
   } else {
-    assert(document.getElementById('btn-export').disabled, 'Index fallback must not export an empty hidden graph.');
-    document.querySelector('[data-proof-main]').click();
+    assert.equal(native,'','Index mode must not initialize an unused graph viewer.');
+    assert.equal(document.getElementById('btn-export'),null, 'Index fallback must omit graph-only controls.');
+    assert(document.getElementById('proof-index-theme'),'Index mode retains theme selection.');
+    assert.equal(document.querySelector('.proof-results'),null, 'Index mode uses its complete scientific index.');
+  }
+  if (sharedOwners) {
+    const owners = input.projection.nodes.slice(0,2);
+    const article = detail(owners[0].detail_key);
+    assert.equal(document.querySelectorAll(`[data-proof-detail="${owners[0].detail_key}"]`).length,1,
+      'Shared ownership must not duplicate the scientific article.');
+    for (const owner of owners) {
+      const link = document.querySelector(`.proof-results [data-reader-node="${owner.id}"]`);
+      assert(link,'Each graph owner needs its own Results entry.');
+      link.click(); flush();
+      assert.equal(active,owner.id,'Selecting a shared article must focus the clicked graph owner.');
+      assert(article.classList.contains('is-active'));
+      assert.equal(link.getAttribute('aria-current'),'true');
+      assert.equal(document.querySelectorAll('.proof-results [aria-current="true"]').length,1);
+      dispatch(article,{type:'keydown',key:'Escape'}); flush();
+      assert.equal(document.activeElement,link,'Closing shared content must restore the clicked owner entry.');
+    }
   }
   const hidden = input.projection.records.find(r => r.body.kind === 'intermediate_result');
   const record = hidden || input.projection.records.find(r => r.ref.collection === 'uses');
@@ -336,7 +410,7 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     'Navigation and printing must preserve registered completion and the working scope limitation.');
   const notices = scan.elements.filter(e => Object.hasOwn(e.attrs, 'data-proof-limitation'));
   assert.deepEqual(notices.map(e => textOf(scan, e)), input.projection.summary.limitations);
-  return { fixture: name, compiled_scripts: scripts.length, canonical_reader_bridge: true, worklist:withWork, contextual_reader:withReader, print_state_restored:true };
+  return { fixture: name, compiled_scripts: scripts.length, canonical_reader_bridge: true, worklist:withWork, contextual_reader:withReader, shared_detail_owners:sharedOwners, print_state_restored:true };
 }
 
 console.log(JSON.stringify([
@@ -345,4 +419,5 @@ console.log(JSON.stringify([
   runFixture('dag_small.json', true), runFixture('index_fallback.json', true),
   runFixture('dag_small.json', false, true),
   runFixture('long_math.json', false, false, 'release'),
+  runFixture('dag_small.json', false, false, null, true),
 ]));

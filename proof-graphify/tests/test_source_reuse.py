@@ -108,6 +108,36 @@ class SourceReuseTests(unittest.TestCase):
         with self.assertRaisesRegex(records.RecordError, 'unexpected control character'):
             self.normalize()
 
+    def test_text_excerpt_keeps_non_lf_whitespace_without_relaxing_authored_text(self):
+        self.source = self.base / 'paper.txt'
+        raw = 'Opening\nInside\fFF\vVT\x85NEL\u2028LS\u2029PS\rCR\nClosing\n'.encode('utf-8')
+        self.source.write_bytes(raw)
+        self.seed['source']['file'] = 'paper.txt'
+        for item in self.seed['items']:
+            item['source'] = {'start_line': 1, 'end_line': 3}
+        data = self.normalize()
+        expected = raw.decode('utf-8')[:-1]
+        self.assertTrue(all(anchor['excerpt'] == expected for anchor in data['anchors']))
+        self.assertTrue(all(anchor['excerpt_hash'] == records._sha(expected.encode('utf-8'))
+                            for anchor in data['anchors']))
+        self.assertEqual(base64.b64decode(data['source_revision']['files'][0]['content_base64']), raw)
+        self.assertEqual(self.validate(data), data)
+        for control in ('\f', '\v'):
+            with self.subTest(control=repr(control)):
+                self.seed['items'][0]['statement']['text'] = 'Authored ' + control + ' corruption'
+                with self.assertRaisesRegex(records.RecordError, 'unexpected control character'):
+                    self.normalize()
+
+    def test_pdf_retained_excerpts_still_reject_control_whitespace(self):
+        for control in ('\f', '\v'):
+            with self.subTest(control=repr(control)):
+                data = self.normalize()
+                data.pop('snapshot_id')
+                data['anchors'][0]['excerpt'] += control
+                data['anchors'][0]['excerpt_hash'] = records._sha(data['anchors'][0]['excerpt'].encode())
+                with self.assertRaisesRegex(records.RecordError, 'unexpected control character'):
+                    self.validate(data)
+
     def test_degraded_diagnostics_preserve_anchor_identities_and_locate_all_owners(self):
         self.pages[0].extract_text.return_value = 'A\x00 + B\x10'
         self.pages[1].extract_text.return_value = 'A plausible but unchecked symbol ↵'
@@ -409,26 +439,28 @@ runpy.run_path(entry, run_name='__main__')
 
     def test_text_decoding_and_splitting_are_reused_but_ranges_are_checked(self):
         self.source = self.base / 'paper.tex'
-        self.source.write_text('First line\nSecond line\nThird line\n', encoding='utf-8')
+        self.source.write_bytes('First\u2028part\nSecond line\nThird line\n'.encode('utf-8'))
         self.seed['source']['file'] = 'paper.tex'
         for item in self.seed['items']:
             item['source'] = {'start_line': 1, 'end_line': 2}
-        calls = {'decode': 0, 'splitlines': 0}
-
-        class CountedText(str):
-            def splitlines(self, *args, **kwargs):
-                calls['splitlines'] += 1
-                return super().splitlines(*args, **kwargs)
+        calls = {'decode': 0}
 
         class CountedBytes(bytes):
             def decode(self, *args, **kwargs):
                 calls['decode'] += 1
-                return CountedText(super().decode(*args, **kwargs))
+                return super().decode(*args, **kwargs)
 
         original_reader = records._source_bytes
-        with patch.object(records, '_source_bytes', side_effect=lambda row: CountedBytes(original_reader(row))):
+        with patch.object(records, '_source_bytes', side_effect=lambda row: CountedBytes(original_reader(row))), \
+                patch.object(records, 'split_source_lines', wraps=records.split_source_lines) as split:
             data = records.normalize(self.seed, self.base)
-        self.assertEqual(calls, {'decode': 1, 'splitlines': 1})
+        self.assertEqual(calls, {'decode': 1})
+        self.assertEqual(split.call_count, 1)
+        self.assertEqual([anchor['excerpt'] for anchor in data['anchors']],
+                         ['First\u2028part\nSecond line'] * 4)
+        prepared = records._prepare_records_validated(data, self.base)
+        self.assertTrue(all(row['source_excerpt'] == 'First\u2028part\nSecond line'
+                            and 'lines 1-2' in row['source_display'] for row in prepared['items']))
         for locator, excerpt, message in (({'start_line': 3, 'end_line': 4}, None, 'outside or reversed'),
                                           ({'start_line': 2, 'end_line': 3}, None, 'excerpt differs'),
                                           ({'start_line': 1, 'end_line': 2}, 'Wrong text', 'excerpt differs')):
@@ -440,6 +472,21 @@ runpy.run_path(entry, run_name='__main__')
                     candidate['anchors'][-1].update(excerpt=excerpt, excerpt_hash=records._sha(excerpt.encode()))
                 with self.assertRaisesRegex(records.RecordError, message):
                     records.validate_records(candidate)
+
+    def test_captured_line_cache_preserves_other_separators_and_raw_hashes(self):
+        text = 'First\fpart\vpart\x85part\u2028part\u2029part\rpart\r\nClosing\r'
+        raw = text.encode('utf-8')
+        row = {'path': 'paper.tex', 'sha256': records._sha(raw),
+               'content_base64': base64.b64encode(raw).decode('ascii')}
+        cache = records._SourceContent()
+        with patch.object(records, 'split_source_lines', wraps=records.split_source_lines) as split:
+            first = cache.lines(row)
+            second = cache.lines(dict(row))
+        self.assertEqual(split.call_count, 1)
+        self.assertIs(first, second)
+        self.assertEqual(first, ['First\fpart\vpart\x85part\u2028part\u2029part\rpart', 'Closing\r'])
+        self.assertEqual(cache.raw(row), raw)
+        self.assertEqual(records._sha(cache.raw(row)), row['sha256'])
 
 
 if __name__ == '__main__':

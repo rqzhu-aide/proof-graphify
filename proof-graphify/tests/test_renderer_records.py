@@ -144,8 +144,8 @@ class RendererRecordsTests(unittest.TestCase):
         self.assertIn("Selected statements and connections (2 statements, 2 connections)", html)
         self.assertTrue('<p class="proof-scope-lead">Synthetic renderer fixture.</p>' in html,
                         'The selected scope must remain visible above the graph.')
-        self.assertIn('data-proof-main="rate"', html)
-        self.assertNotIn('data-proof-main="bound"', html)
+        self.assertEqual(re.findall(r'data-reader-node="([^"]+)"', html), ["rate", "bound"],
+                         'The shared navigator leads with the main result and retains its prerequisite once.')
         self.assertNotIn("Intermediate steps (", html)
 
     def test_missing_connections_are_disclosed_in_graph_and_index(self):

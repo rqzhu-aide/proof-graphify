@@ -146,6 +146,12 @@ def _accept_artifact(prepared, html, receipt, input_bytes):
 
 def _renderer_version():
     paths = list(SCRIPT_DIR.glob('*.py')) + [SCRIPT_DIR / 'render.mjs'] + list((SCRIPT_DIR.parent / 'assets' / 'archify').glob('*'))
+    # These nested files are the display inputs imported by render.mjs and
+    # scientific_reader.mjs. Other common-core code does not render this page.
+    paths += [SCRIPT_DIR / 'paper_core' / 'math_render.py']
+    reader = SCRIPT_DIR / 'paper_core' / 'renderer'
+    paths += [reader / name for name in ('scientific_reader.mjs', 'scientific_reader.css', 'html_scan.mjs')]
+    paths += [reader / 'assets' / 'archify' / name for name in ('utils.mjs', 'i18n.mjs', 'template.html')]
     identity = hashlib.sha256()
     for path in sorted(p for p in paths if p.is_file()):
         identity.update(path.relative_to(SCRIPT_DIR.parent).as_posix().encode())

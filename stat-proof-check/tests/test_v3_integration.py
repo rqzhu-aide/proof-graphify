@@ -1,9 +1,11 @@
 """Integrate saved unit/member opinions without another examination."""
 from copy import deepcopy
 import json
+from pathlib import Path
+from unittest.mock import patch
 
 from support import R, TempCase, edit
-from paper_core import assessment, controller, finalization, review, stage2
+from paper_core import assessment, assistance, controller, finalization, review, stage2
 from paper_core.errors import InvalidRequest
 from paper_core.work import derive_work
 
@@ -112,6 +114,146 @@ class CoherentIntegrationTests(TempCase):
                     db.get_blob(row.body["original_blob"]) if collection == "responses" else None)
                 for row in db.heads(collection)}
                 for collection in ("checks", "responses", "reconciliations", "findings")}
+
+    def test_integration_task_mapping_preserves_native_opinions_and_unauthored_scaffold(self):
+        conditions = ["The closing argument requires an additional restriction."]
+        fixture = self.prepared_fixture(conditions=conditions)
+        with fixture.open() as db:
+            for name in ("lem", "thm"):
+                prepared = stage2.prepare(db, audit_id=fixture.audit_id, focus=R("items", f"itm_{name}"))
+                response = deepcopy(prepared["scaffold"])
+                for row in response["judgments"]:
+                    row.update(state="complete", outcome="gap" if name == "thm" else "supported",
+                               reasoning="The saved source examination identifies its stated conclusion.")
+                if name == "thm":
+                    response["coverage_note"] = "Retain both distinct local premise concerns."
+                    for description in ("The located joint inference.", "A separate unassigned premise."):
+                        response["judgments"].append({"target": {"source_anchor_id": "anc_thm_proof",
+                            "description": description}, "kind": "derivation", "state": "complete",
+                            "outcome": "gap", "reasoning": description, "evidence_refs": ["anc_thm_proof"],
+                            "conditions": ["This premise has not been established."], "next_action": None,
+                            "supersedes": None})
+                accepted = self.submit(db, fixture, prepared, response, independent=True)
+                if name == "thm":
+                    mapping_packet = fixture.packet(db, *fixture.ITEMS, mode="primary")
+                    review.map_response(db, mapping={"contract_version": 4, "request_id": fixture.request_id(),
+                        "packet_id": mapping_packet["packet_id"], "response_id": accepted["response_id"],
+                        "entries": [{"judgment_index": 1, "target": R("groups", "grp_thm"),
+                                     "rationale": "This is the located joint inference."}], "reviewer": "coordinator"})
+            saved, revision = self.saved_records(db), db.max_revision()
+            prepared = stage2.prepare(db, audit_id=fixture.audit_id, mode="reconcile",
+                                      focus=R("items", "itm_thm"), allow_provisional=True)
+            self.assertTrue(prepared["prepared"], prepared)
+            native_guidance = assistance.coordinator_guidance(db, prepared["manifest"])
+            candidates = prepared["coordinator_guidance"]["reconciliation_candidates"]
+            self.assertEqual(native_guidance["reconciliation_candidates"],
+                [{key: value for key, value in candidate.items() if key != "integration_task_ids"}
+                 for candidate in candidates])
+            tasks = {task["id"]: task for task in prepared["manifest"]["work"]["tasks"]}
+            mapped_ids = [task_id for candidate in candidates for task_id in candidate.get("integration_task_ids", [])]
+            self.assertCountEqual(tasks, mapped_ids)
+            self.assertEqual(len(tasks), len(mapped_ids))
+            native_scaffold = controller.response_scaffold(prepared["manifest"])
+            for row in prepared["scaffold"]["integrations"]:
+                matches = [candidate for candidate in candidates if row["task_id"] in candidate.get("integration_task_ids", [])]
+                self.assertEqual(1, len(matches))
+                self.assertEqual(tasks[row["task_id"]]["target"], matches[0]["target"])
+                self.assertEqual("unresolved", row["decision"])
+                self.assertEqual("", row["rationale"])
+                self.assertTrue(all(disposition["rationale"] == "" for disposition in row.get("response_dispositions", [])))
+            self.assertEqual(native_scaffold,
+                dict(prepared["scaffold"], integrations=[{key: value for key, value in row.items()
+                    if key != "response_dispositions"} for row in prepared["scaffold"]["integrations"]]))
+            unit = next(candidate for candidate in candidates if candidate["target"] == R("arguments", "arg_thm"))
+            self.assertEqual(conditions, unit["primary_opinions"][0]["conditions"])
+            self.assertEqual("gap", unit["independent_opinions"][0]["outcome"])
+            member = next(candidate for candidate in candidates if candidate["target"] == R("groups", "grp_thm"))
+            self.assertFalse(member.get("integration_task_ids"))
+            self.assertEqual("gap", member["independent_opinions"][0]["outcome"])
+            self.assertEqual(member["independent_opinions"][0]["ref"], unit["required_other_opinions"][0]["ref"])
+            self.assertTrue(unit["retained_concerns"])
+            self.assertEqual([2], unit["retained_concerns"][0]["pending_judgments"])
+            integration = next(row for row in prepared["scaffold"]["integrations"]
+                               if row["task_id"] in unit["integration_task_ids"])
+            self.assertEqual([{"response_id": accepted["response_id"], "judgment_indexes": [2], "rationale": ""}],
+                             integration["response_dispositions"])
+            exported = controller.write_artifacts(db, prepared, self.path("mapping-export"))
+            self.assertEqual(prepared["coordinator_guidance"],
+                json.loads(Path(exported["coordinator-guidance.json"]["path"]).read_text(encoding="utf-8")))
+            self.assertEqual(prepared["scaffold"],
+                json.loads(Path(exported["response-scaffold.json"]["path"]).read_text(encoding="utf-8")))
+            self.assertEqual(saved, self.saved_records(db))
+            self.assertEqual(revision, db.max_revision())
+
+    def test_missing_or_ambiguous_integration_mapping_stops_before_export_and_keeps_saved_work(self):
+        for count in (0, 2):
+            with self.subTest(candidate_count=count):
+                fixture = self.prepared_fixture(name=f"mapping-{count}")
+                with fixture.open() as db:
+                    self.examine(db, fixture, "gap")
+                    saved, revision = self.saved_records(db), db.max_revision()
+                    packets_before = {row["packet_id"] for row in db.conn.execute("SELECT packet_id FROM packets")}
+                    native_guidance = assistance.coordinator_guidance
+                    target = R("arguments", "arg_thm")
+                    captured = {}
+
+                    def broken_guidance(database, manifest, **kwargs):
+                        guidance = native_guidance(database, manifest, **kwargs)
+                        candidate = next(entry for entry in guidance["reconciliation_candidates"] if entry["target"] == target)
+                        guidance["reconciliation_candidates"] = [entry for entry in guidance["reconciliation_candidates"]
+                                                                  if entry["target"] != target]
+                        guidance["reconciliation_candidates"].extend(deepcopy(candidate) for _ in range(count))
+                        captured.update(packet_id=manifest["packet_id"], task_id=next(task["id"]
+                            for task in manifest["work"]["tasks"] if task["target"] == target))
+                        return guidance
+
+                    output = self.path(f"mapping-error-{count}")
+                    with patch.object(assistance, "coordinator_guidance", side_effect=broken_guidance), \
+                            patch.object(controller, "write_artifacts", wraps=controller.write_artifacts) as writer:
+                        with self.assertRaises(InvalidRequest) as caught:
+                            prepared = stage2.prepare(db, audit_id=fixture.audit_id, mode="reconcile", focus=R("items", "itm_thm"))
+                            controller.write_artifacts(db, prepared, output)
+                    self.assertEqual("ASSISTANCE_MAPPING", caught.exception.code)
+                    self.assertIn(captured["packet_id"], caught.exception.message)
+                    self.assertIn(captured["task_id"], caught.exception.message)
+                    self.assertIn(f"found {count}", caught.exception.message)
+                    self.assertIn(target, caught.exception.records)
+                    writer.assert_not_called()
+                    self.assertFalse(output.exists())
+                    packets_after = {row["packet_id"] for row in db.conn.execute("SELECT packet_id FROM packets")}
+                    self.assertEqual({captured["packet_id"]}, packets_after - packets_before)
+                    packet = db.packet(captured["packet_id"])
+                    self.assertIsNotNone(db.get_blob(packet["payload_sha256"]))
+                    self.assertEqual(saved, self.saved_records(db))
+                    self.assertEqual(revision, db.max_revision())
+
+    def test_mapping_shape_allows_shared_candidate_without_copying_its_science(self):
+        fixture = self.prepared_fixture()
+        with fixture.open() as db:
+            self.examine(db, fixture, "gap")
+            prepared = stage2.prepare(db, audit_id=fixture.audit_id, mode="reconcile", focus=R("items", "itm_thm"))
+            # Only the assistance shape is under test; this extra task is not a native assignment.
+            synthetic = deepcopy(prepared)
+            task = synthetic["manifest"]["work"]["tasks"][0]
+            other_task = dict(task, id=task["id"] + "_second")
+            synthetic["manifest"]["work"]["tasks"].append(other_task)
+            native_guidance = assistance.coordinator_guidance(db, prepared["manifest"])
+            candidate = next(entry for entry in native_guidance["reconciliation_candidates"] if entry["target"] == task["target"])
+            # Similar IDs in another collection or with a longer suffix must not redirect the exact target.
+            decoys = [dict(deepcopy(candidate), target=R("items", task["target"]["id"])),
+                      dict(deepcopy(candidate), target=R("arguments", task["target"]["id"] + "_similar"))]
+            native_guidance["reconciliation_candidates"] = decoys + native_guidance["reconciliation_candidates"]
+            with patch.object(assistance, "coordinator_guidance", return_value=deepcopy(native_guidance)):
+                result = controller._assignment_assistance(db, synthetic)
+            candidates = result["coordinator_guidance"]["reconciliation_candidates"]
+            exact = next(entry for entry in candidates if entry["target"] == task["target"])
+            self.assertEqual([task["id"], other_task["id"]], exact["integration_task_ids"])
+            self.assertEqual(candidate, {key: value for key, value in exact.items() if key != "integration_task_ids"})
+            self.assertFalse(any(entry.get("integration_task_ids") for entry in candidates[:2]))
+            self.assertEqual(native_guidance["reconciliation_candidates"],
+                [{key: value for key, value in entry.items() if key != "integration_task_ids"} for entry in candidates])
+            self.assertTrue(all(row["decision"] == "unresolved" and row["rationale"] == ""
+                                for row in result["scaffold"]["integrations"]))
 
     def test_adopt_independent_alias_selects_gap_and_stores_canonical_decision(self):
         self.adoption("supported", "gap", "adopt_independent", "defect")

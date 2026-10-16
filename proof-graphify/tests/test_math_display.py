@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from xml.etree import ElementTree as ET
 
 
@@ -24,13 +25,225 @@ sys.path.insert(0, str(SKILL / "scripts"))
 import overview_math as math_display
 import paper_records as records
 import proof_overview as overview
+from paper_core import math_render as common_math
 
 
 NODE = shutil.which("node")
 RENDERER = SKILL / "scripts" / "render.mjs"
 
 
+class FaithfulEquationDisplayTests(unittest.TestCase):
+    def test_align_blocks_do_not_invent_numbers_and_keep_original_tex(self):
+        namespace = {"m": math_display.MATHML_NS}
+        expressions = [r"\begin{align}a&=b\\c&=d\nonumber\end{align}",
+                       r"\begin{align}e&=f\notag\end{align}"]
+        diagnostics = []
+        markup = math_display.render_text(" ".join(r"\[" + tex + r"\]" for tex in expressions), diagnostics)
+        root = ET.fromstring("<div>" + markup + "</div>")
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(len(root.findall(".//m:mtr", namespace)), 3)
+        self.assertEqual(root.findall(".//m:mlabeledtr", namespace), [])
+        self.assertEqual(root.findall(".//m:mtext", namespace), [])
+        self.assertEqual([node.text for node in root.findall(".//m:annotation", namespace)], expressions)
+        self.assertEqual([node.get("aria-label") for node in root.findall("m:math", namespace)],
+                         ["LaTeX: " + tex for tex in expressions])
+
+    def test_existing_unnumbered_row_environments_keep_their_behavior(self):
+        namespace = {"m": math_display.MATHML_NS}
+        for environment in ("align*", "split"):
+            tex = "\\begin{" + environment + r"}a&=b\\c&=d\end{" + environment + "}"
+            with self.subTest(environment=environment):
+                markup, reason = math_display._convert(tex, "block")
+                self.assertIsNotNone(markup, reason)
+                root = ET.fromstring(markup)
+                self.assertEqual(len(root.findall(".//m:mtr", namespace)), 2)
+                self.assertEqual(root.findall(".//m:mtext", namespace), [])
+                self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
+
+    def test_every_explicit_tag_keeps_the_whole_expression_as_escaped_literal(self):
+        import html
+        cases = [r"a=b\tag{1}", r"a=b\tag*{A}", r"a=b\tag{{1}a}",
+                 r"a=b\tag{1}\tag{2}", r"a<b\tag{<script>&}",
+                 r"\begin{align}a&=b\tag{3}\\c&=d\end{align}"]
+        for tex in cases:
+            for opening, closing in (("$", "$"), (r"\[", r"\]")):
+                with self.subTest(tex=tex, opening=opening):
+                    literal = opening + tex + closing
+                    diagnostics = []
+                    markup = common_math.render_text(literal, diagnostics)
+                    self.assertNotIn("<math", markup)
+                    self.assertIn('class="math-fallback"', markup)
+                    self.assertIn("LaTeX (not rendered):", markup)
+                    self.assertIn("<code>" + html.escape(literal, quote=True) + "</code>", markup)
+                    self.assertEqual(diagnostics[0]["kind"], "unsupported_expression")
+                    self.assertIn("tags", diagnostics[0]["reason"])
+                    self.assertEqual(diagnostics[0]["excerpt"], literal)
+
+    def test_tag_detection_respects_command_boundaries_and_escaping(self):
+        common_math._check_tex(r"\tagged{A}")
+        with self.assertRaises(ValueError) as caught:
+            common_math._check_tex(r"\\tag{A}")
+        self.assertNotIn("equation tags", str(caught.exception))
+
+    def test_sim_is_a_relation_in_plain_scripted_and_overset_forms(self):
+        namespace = {"m": math_display.MATHML_NS}
+        for tex in (r"X\sim N(0,1)", r"x^{\sim}", r"\overset{iid}{\sim}"):
+            with self.subTest(tex=tex):
+                markup, reason = math_display._convert(tex, "inline")
+                self.assertIsNotNone(markup, reason)
+                root = ET.fromstring(markup)
+                self.assertIn("∼", [node.text for node in root.findall(".//m:mo", namespace)])
+                self.assertNotIn("~", [node.text for node in root.findall(".//m:mi", namespace)])
+                self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
+
+    def test_tilde_spaces_accents_text_and_other_relations_are_unchanged(self):
+        from latex2mathml.converter import convert
+        for tex in ("a~b", r"\tilde{x}", r"\widetilde{x}", r"\text{a~b}", r"a\nsim b", r"a\simeq b"):
+            with self.subTest(tex=tex):
+                # Compare converter tokens, excluding the adapter's annotation.
+                raw = ET.fromstring(convert(tex, display="inline"))
+                markup, reason = math_display._convert(tex, "inline")
+                self.assertIsNotNone(markup, reason)
+                adapted = ET.fromstring(markup)
+                def tokens(root):
+                    return [(node.tag.rsplit("}", 1)[-1], node.text, dict(node.attrib))
+                            for node in root.iter() if node.tag.rsplit("}", 1)[-1] in {"mi", "mo", "mtext", "mspace"}]
+                self.assertEqual(tokens(adapted), tokens(raw))
+
+    def test_unavailable_converter_keeps_original_inspectable(self):
+        literal = r"\[X\sim N(0,1)\]"
+        common_math._convert.cache_clear()
+        try:
+            with mock.patch.dict(sys.modules, {"latex2mathml.converter": None}):
+                diagnostics = []
+                markup = common_math.render_text(literal, diagnostics)
+            self.assertIn("<code>" + literal + "</code>", markup)
+            self.assertIn("unavailable", diagnostics[0]["reason"])
+        finally:
+            common_math._convert.cache_clear()
+
+
 class ConverterAdaptationTests(unittest.TestCase):
+    def test_standalone_aligned_preserves_columns_and_original_tex(self):
+        namespace = {"m": common_math.MATHML_NS}
+        for tex in (r"\begin{aligned}a&=b\\c&=d\end{aligned}",
+                    r"\begin{aligned}&{\mathbb E\!\left[X\right]}\\ &=\Big\langle U^{\!\top},v\Big\rangle\end{aligned}"):
+            with self.subTest(tex=tex):
+                markup, reason = common_math._convert(tex, "block")
+                self.assertIsNotNone(markup, reason)
+                root = ET.fromstring(markup)
+                table = root.find(".//m:mtable", namespace)
+                self.assertEqual(table.get("displaystyle"), "true")
+                self.assertEqual(len(table.findall("m:mtr", namespace)), 2)
+                self.assertEqual([cell.get("columnalign") for cell in table.findall("m:mtr/m:mtd", namespace)],
+                                 ["right", "left", "right", "left"])
+                self.assertFalse(root.findall(".//m:mlabeledtr", namespace))
+                self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
+                self.assertEqual(root.get("aria-label"), "LaTeX: " + tex)
+
+    def test_aligned_outside_bounded_contract_stays_visible(self):
+        for tex, display in (
+            (r"\begin{aligned}a&=b\end{aligned}", "inline"),
+            (r"x+\begin{aligned}a&=b\end{aligned}", "block"),
+            (r"\begin{aligned}[t]a&=b\end{aligned}", "block"),
+            (r"\begin{aligned}a&=b\\[2pt]c&=d\end{aligned}", "block"),
+            (r"\begin{aligned}a&=b\\\gamma&=d\end{aligned}", "block"),
+            (r"\begin{aligned}a&=b\tag{1}\end{aligned}", "block"),
+            (r"\begin{aligned}\begin{matrix}a\end{matrix}\end{aligned}", "block"),
+            ("\\begin{aligned}a&=b% comment\n\\end{aligned}", "block"),
+            (r"\\begin{aligned}a&=b\end{aligned}", "block"),
+            (r"\begin{aligned}a&=b\\end{aligned}", "block"),
+        ):
+            with self.subTest(tex=tex, display=display):
+                markup, reason = common_math._convert(tex, display)
+                self.assertIsNone(markup)
+                self.assertTrue(reason)
+
+    def test_sized_angles_keep_converter_attributes_and_original_tex(self):
+        from latex2mathml.converter import convert
+        namespace = {"m": common_math.MATHML_NS}
+        for size in ("big", "Big", "bigg", "Bigg"):
+            tex = "\\" + size + r"l\langle\frac{x}{y}" + "\\" + size + r"r\rangle_{\mathcal H}"
+            raw = ET.fromstring(convert(tex, display="block"))
+            markup, reason = common_math._convert(tex, "block")
+            self.assertIsNotNone(markup, reason)
+            root = ET.fromstring(markup)
+            before = [n for n in raw.findall(".//m:mo", namespace) if n.get("minsize")]
+            after = [n for n in root.findall(".//m:mo", namespace) if n.get("minsize")]
+            self.assertEqual([n.text for n in after], ["⟨", "⟩"])
+            self.assertEqual([n.attrib for n in before], [n.attrib for n in after])
+            self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
+            scripted = root.find(".//m:msub", namespace)
+            self.assertEqual(scripted[0].tag, "{" + common_math.MATHML_NS + "}mrow")
+            self.assertEqual(scripted[0][0].text, "⟩")
+
+    def test_bounded_spacing_preserves_nonspacing_tree_and_evidence(self):
+        namespace = {"m": common_math.MATHML_NS}
+        for tex in (r"\mathbb E\!\left[X\right]", r"f\!\left(x\right)",
+                    r"U^{\!\top}", r"\int\!\!\int f(x,y)\,dx\,dy"):
+            with self.subTest(tex=tex):
+                markup, reason = common_math._convert(tex, "block")
+                plain, plain_reason = common_math._convert(tex.replace(r"\!", ""), "block")
+                self.assertIsNotNone(markup, reason)
+                self.assertIsNotNone(plain, plain_reason)
+                actual, expected = ET.fromstring(markup), ET.fromstring(plain)
+                self.assertEqual(actual.find(".//m:annotation", namespace).text, tex)
+                self.assertEqual(actual.get("aria-label"), "LaTeX: " + tex)
+                actual.attrib.pop("aria-label")
+                expected.attrib.pop("aria-label")
+                for root in (actual, expected):
+                    root.find(".//m:annotation", namespace).text = "source"
+                self.assertEqual(ET.tostring(actual), ET.tostring(expected))
+
+    def test_other_spacing_forms_remain_unsupported(self):
+        for tex in (r"E\!\!\left[X\right]", r"U^{\!\!\top}", r"U^{\!\top+1}",
+                    r"U_{\!\top}", r"U^{\!T}", r"\int\!\int f", r"\int\!\!\!\int f",
+                    r"\int_A\!\!\int_B f", r"\sum\!\!\int f", r"\frac\!\left[x\right]",
+                    r"\begin{aligned}&\mathbb E\!\left[X\right]\end{aligned}"):
+            with self.subTest(tex=tex):
+                markup, reason = common_math._convert(tex, "block")
+                self.assertIsNone(markup)
+                self.assertTrue(reason)
+
+    def test_spacing_normalization_never_discards_markup_or_text(self):
+        shapes = (
+            '<mrow><mi>E</mi><mspace width="negativethinmathspace"/><mo fence="true" form="prefix">[</mo></mrow>',
+            '<msup><mi>U</mi><mrow><mspace width="negativethinmathspace"/><mo>⊤</mo></mrow></msup>',
+            '<mrow><mo>∫</mo><mspace width="negativethinmathspace"/><mspace width="negativethinmathspace"/><mo>∫</mo></mrow>',
+        )
+        for shape in shapes:
+            for bad_space in (
+                '<mspace width="negativethinmathspace" height="1em"/>',
+                '<mspace width="negativethinmathspace">x</mspace>',
+                '<mspace width="negativethinmathspace"/>tail',
+                '<mspace width="negativethinmathspace"><mi>x</mi></mspace>',
+                '<f:mspace width="negativethinmathspace"/>',
+            ):
+                value = '<math xmlns:f="urn:foreign">' + shape.replace(
+                    '<mspace width="negativethinmathspace"/>', bad_space, 1) + '</math>'
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    common_math._safe_mathml(value, "original", "block")
+            for tag in ("mrow", "mo"):
+                foreign = shape.replace('<' + tag, '<f:' + tag).replace('</' + tag + '>', '</f:' + tag + '>')
+                with self.subTest(foreign=foreign), self.assertRaises(ValueError):
+                    common_math._safe_mathml('<math xmlns:f="urn:foreign">' + foreign + '</math>', "original", "block")
+        for row in ('text<mspace width="negativethinmathspace"/><mo>⊤</mo>',
+                    '<mspace width="negativethinmathspace"/><mo>⊤</mo>tail'):
+            with self.assertRaises(ValueError):
+                common_math._safe_mathml('<math><msup><mi>U</mi><mrow>' + row + '</mrow></msup></math>', "original", "block")
+
+    def test_decoded_beta_is_diagnosed_without_guessing_a_replacement(self):
+        literal = '$' + '\b' + r'eta_{smp}(\lambda)$'
+        diagnostics = []
+        markup = common_math.render_text(literal, diagnostics)
+        self.assertEqual(diagnostics[0]["classification"], "damaged_escape")
+        self.assertIn("backspace", diagnostics[0]["reason"])
+        self.assertIn(literal, markup)
+        self.assertNotIn("<math", markup)
+        clean = []
+        self.assertIn("<math", common_math.render_text(r'$\beta_{smp}(\lambda)$', clean))
+        self.assertEqual(clean, [])
+
     def test_sized_braces_render_through_overview_wrapper_with_original_tex(self):
         namespace = {"m": math_display.MATHML_NS}
         for tex in (r"\Bigl\{x\Bigr\}_{i}^{2}", r"\biggl\lbrace\frac{x}{y}\biggr\rbrace"):
@@ -294,12 +507,10 @@ class ConverterAdaptationTests(unittest.TestCase):
                 root = ET.fromstring(markup)
                 self.assertGreaterEqual(len(root.findall(".//m:mtr", namespace)), 2)
                 self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
-        # aligned already lacks reliable converter support. Preserve that
-        # existing fallback instead of blaming its valid row separator.
+        # The standalone display adapter also preserves a bare next-row word.
         markup, reason = math_display._convert(r"\begin{aligned}x&=1\\beta&=2\end{aligned}", "block")
-        self.assertIsNone(markup)
-        self.assertIn("unsupported environment", reason)
-        self.assertNotIn("doubled", reason)
+        self.assertIsNotNone(markup, reason)
+        self.assertEqual(len(ET.fromstring(markup).findall(".//m:mtr", namespace)), 2)
 
     def test_commands_after_a_row_environment_are_still_checked(self):
         tex = r"\begin{matrix}a\\beta\end{matrix}+\\mathbf{U}"
@@ -463,6 +674,10 @@ class PrepareDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("A dependency reason", math_warnings[0])
 
     def test_display_adaptation_leaves_snapshot_identity_and_comparison_unchanged(self):
+        statement = (r"\[\begin{aligned}a&=b\\c&=d\end{aligned}\] "
+                     r"$\Big\langle U^{\!\top},v\Big\rangle$ "
+                     r"$\mathbb E\!\left[X\right]$ and $\int\!\!\int f(x,y)\,dx\,dy$.")
+        self.seed["items"][0]["statement"]["text"] = statement
         data = records.normalize(deepcopy(self.seed), self.base)
         snapshot = data["snapshot_id"]
         targets = [{"collection": group, "id": row["id"]}
@@ -470,7 +685,12 @@ class PrepareDiagnosticsTests(unittest.TestCase):
         data["observations"].extend(records.make_observations(
             data, targets, reviewer="Synthetic source reviewer", note="Compared the synthetic passages."))
         data = records.validate_records(data)
+        original = deepcopy(data)
         prepared = records.prepare_records(data, self.base)
+        self.assertEqual(data, original)
+        self.assertEqual(prepared["items"][0]["statement"], statement)
+        self.assertEqual(prepared["items"][0]["statement_html"].count("<math"), 4)
+        self.assertNotIn('class="math-fallback"', prepared["items"][0]["statement_html"])
         self.assertEqual(prepared["build_context"]["input_snapshot"], snapshot)
         self.assertEqual(prepared["build_context"]["source_comparison"]["status"], "complete")
         self.assertTrue(all(row["fidelity"] == "matched"

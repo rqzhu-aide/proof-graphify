@@ -1193,6 +1193,46 @@ def export_database(db_path, output_path, snapshot_id=None):
             "source_comparison": records.comparison_status(data)}
 
 
+def edit_template(db_path, output_path, *, item_ids=(), use_ids=()):
+    """Prepare full current records for an ordinary apply batch, without editing them."""
+    targets = [{"collection": collection, "id": identity}
+               for collection, identities in (("items", item_ids), ("uses", use_ids))
+               for identity in dict.fromkeys(identities)]
+    if not targets:
+        raise DatabaseError("Name at least one selected item or use for the edit template.")
+    # Keep the original directory entry for exclusive creation, including a
+    # dangling symlink. Resolution is only for protected-path comparisons.
+    output_path = Path(output_path).absolute()
+    resolved_output = output_path.resolve()
+    if output_path.suffix.lower() != ".json" or resolved_output == Path(db_path).resolve():
+        raise DatabaseError("Choose a new .json edit path distinct from the database.")
+    data = export_snapshot(db_path)
+    selected = {collection: {row["id"]: row for row in data[collection]}
+                for collection in ("items", "uses")}
+    unknown = [target for target in targets if target["id"] not in selected[target["collection"]]]
+    if unknown:
+        names = ", ".join(f"{target['collection']}:{target['id']}" for target in unknown)
+        raise DatabaseError(f"Unknown or unselected edit targets: {names}. Use list for selected IDs.")
+    source_root = _source_root(db_path)
+    if resolved_output in {(source_root / row["path"]).resolve() for row in data["source_revision"]["files"]}:
+        raise DatabaseError("Choose an edit path distinct from captured manuscript files.")
+    batch = {"expected_snapshot": data["snapshot_id"], "edits": [
+        {**target, "op": "upsert", "record": copy.deepcopy(selected[target["collection"]][target["id"]])}
+        for target in targets]}
+    serialized = json.dumps(batch, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with output_path.open("x", encoding="utf-8", newline="\n") as stream:
+            created = True
+            stream.write(serialized)
+    except BaseException:
+        if created:
+            output_path.unlink(missing_ok=True)
+        raise
+    return {"output": str(output_path), "expected_snapshot": data["snapshot_id"], "targets": targets}
+
+
 def backup_database(db_path, output_path):
     output_path = Path(output_path).resolve()
     if output_path == Path(db_path).resolve() or output_path.exists():
@@ -1233,9 +1273,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     help_text = {"list": "List stored item/use IDs, evidence locations, and comparison states without excerpts or history",
+                 "edit-template": "Copy named current items/uses into a new editable apply batch; does not change the database",
                  "apply": 'Apply full-record upserts/removals with expected_snapshot; metadata belongs in top-level set',
                  "compare": "Record one result and note for explicitly named item/use targets"}
-    for name in ("init", "get", "list", "apply", "compare", "refresh", "changes", "export", "validate", "render", "backup", "candidates", "scaffold", "reconcile"):
+    for name in ("init", "get", "list", "edit-template", "apply", "compare", "refresh", "changes", "export", "validate", "render", "backup", "candidates", "scaffold", "reconcile"):
         command = commands.add_parser(name, help=help_text.get(name), description=help_text.get(name))
         command.add_argument("database", type=Path)
         if name == "init":
@@ -1250,6 +1291,10 @@ def main():
         if name == "list":
             command.add_argument("--collection", choices=("items", "uses", "anchors"), help="Default: items and uses; anchors lists locators without excerpts")
             command.add_argument("--degraded", action="store_true", help="List PDF anchors with detected replacement characters, source locations, and affected record IDs; no excerpts")
+        if name == "edit-template":
+            command.add_argument("--item", action="append", default=[], help="Selected item ID to edit; repeat as needed")
+            command.add_argument("--use", action="append", default=[], help="Selected connection ID to edit; repeat as needed")
+            command.add_argument("--output", type=Path, required=True, help="New .json edit batch; existing files are never overwritten")
         if name == "reconcile":
             command.add_argument("audits", type=Path, help="Filled edge-audit JSON file or the folder scaffold wrote")
         if name in ("apply", "compare"):
@@ -1282,6 +1327,8 @@ def main():
                 result = compact_evidence_packet(result)
         elif args.command == "list":
             result = list_records(args.database, args.collection, args.snapshot, degraded=args.degraded)
+        elif args.command == "edit-template":
+            result = edit_template(args.database, args.output, item_ids=args.item, use_ids=args.use)
         elif args.command == "apply":
             result = apply_edits(args.database, _read_json(args.batch))
         elif args.command == "compare":

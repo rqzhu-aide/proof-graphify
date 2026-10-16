@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { esc, textUnits } from './paper_core/renderer/assets/archify/utils.mjs';
-import { KINDS as kinds, BOX as box, archifyPage, mainResultNavigation, scientificSearchPanel, readerRuntime, readingSection, sourceDisclosure, mathDisplayNotes } from './paper_core/renderer/scientific_reader.mjs';
+import { KINDS as kinds, BOX as box, archifyPage, resultsNavigation, viewControls, scientificSearchPanel, readerRuntime, readingSection, sourceDisclosure, mathDisplayNotes } from './paper_core/renderer/scientific_reader.mjs';
 import { scanHtml, textOf } from './paper_core/renderer/html_scan.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -251,8 +251,17 @@ function layoutGraph(data) {
     width = Math.max(width, left + component.width);
     left += component.width + gapX;
   });
+  const adjacentGapUses = new Map();
+  // Retain the outgoing-map order used by the original per-route scan.
+  for (const uses of outgoing.values()) for (const use of uses) {
+    const from = nodes.get(use.from), to = nodes.get(use.to);
+    if (to.rank !== from.rank + 1) continue;
+    const key = `${from.component}:${from.rank}:${to.rank}`;
+    if (!adjacentGapUses.has(key)) adjacentGapUses.set(key, []);
+    adjacentGapUses.get(key).push(use);
+  }
   return {
-    nodes, components, incoming, outgoing, longUses, cycles, ...detailIndex(data),
+    nodes, components, incoming, outgoing, longUses, adjacentGapUses, cycles, ...detailIndex(data),
     width,
     height: rowBottom + box.margin,
   };
@@ -294,9 +303,7 @@ function edgePoints(use, graph) {
     const enter = end[0] - 18 - (ins.indexOf(use) + 1) / (ins.length + 1) * 24;
     return [start, [exit, start[1]], [exit, rail], [enter, rail], [enter, end[1]], end];
   }
-  const sameGap = [...graph.outgoing.values()].flat().filter((entry) => {
-    return graph.nodes.get(entry.from).component === a.component && graph.nodes.get(entry.from).rank === a.rank && graph.nodes.get(entry.to).rank === b.rank;
-  });
+  const sameGap = graph.adjacentGapUses.get(`${a.component}:${a.rank}:${b.rank}`);
   const channel = start[0] + 25 + (sameGap.indexOf(use) + 1) / (sameGap.length + 1) * (box.column - box.w - 50);
   return [start, [channel, start[1]], [channel, end[1]], end];
 }
@@ -719,15 +726,15 @@ function renderIndex(data) {
   const graph = indexGraph(data);
   const warnings = readerWarnings(data).map((warning) => `<li>${esc(warning)}</li>`).join('');
   const mainItems = data.main_items || data.items.map(node => node.id);
-  const beforeGraph = `<div class="proof-reader"><p class="proof-kicker">Source overview</p><p class="proof-caption">${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Index view.</strong> All selected statements and connections are displayed below. This overview explains the written argument; it does not verify the proofs. Cyclic mappings alone do not establish a circular proof.</p>${emptyConnectionsHtml(data)}${scopeHtml(data.scope, data.scope_display)}${buildContextHtml(data)}${warnings ? `<div class="proof-render-warnings"><ul>${warnings}</ul></div>` : ''}${mathDiagnosticsHtml(data)}</div>${mainResultNavigation({entries:mainItems.map(id=>{const node=graph.nodes.get(id);return {key:'item:'+id,nodeId:id,label:node.label,caption:node.caption,kind:node.kind};}),graphAvailable:false})}`;
-  const html = archifyPage({templatePath:path.join(root,'scripts/paper_core/renderer/assets/archify/template.html'),title:data.title,index:true,svg:'<svg class="proof-index-placeholder" viewBox="0 0 100 100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"></svg>',beforeGraph,afterGraph:`<div class="proof-reader">${scientificSearchPanel()}${fullIndexHtml(data,graph,true)}</div>`,css:graphCss(data),data:recordsHtml(data,'index')+runtimeHtml(data,graph,false,mainItems)});
+  const beforeGraph = `<div class="proof-reader"><p class="proof-kicker">Source overview</p><p class="proof-caption">${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Index view.</strong> All selected statements and connections are displayed below. This overview explains the written argument; it does not verify the proofs. Cyclic mappings alone do not establish a circular proof.</p>${emptyConnectionsHtml(data)}${scopeHtml(data.scope, data.scope_display)}${buildContextHtml(data)}${warnings ? `<div class="proof-render-warnings"><ul>${warnings}</ul></div>` : ''}${mathDiagnosticsHtml(data)}</div>`;
+  const html = archifyPage({templatePath:path.join(root,'scripts/paper_core/renderer/assets/archify/template.html'),title:data.title,index:true,svg:'<svg class="proof-index-placeholder" viewBox="0 0 100 100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"></svg>',beforeGraph,afterGraph:`<div class="proof-reader">${scientificSearchPanel()}${fullIndexHtml(data,graph,true)}</div>`,css:graphCss(data),data:recordsHtml(data,'index')+overviewData(data,graph,mainItems),runtime:readerRuntime({targets:readerTargets(data,true),searchEntries:searchEntries(data,graph),graphAvailable:false})});
   const graph_preservation = representationReceipt(data, html, 'index');
   if (graph_preservation.status !== 'pass') throw new Error('Rendered index does not preserve the supplied item and use identities.');
   return { html, items: data.items.length, uses: data.uses.length, viewBox: null, graph_mode: 'index', graph_preservation, geometry: { status: 'not_applicable', checks: [], diagnostics: [], reason: 'The complete records are shown as an index; no dependency geometry is drawn.' } };
 }
 
 function graphCss(data) {
-  return Object.entries(kinds).map(([kind,[,dark,light]]) => `[data-theme="dark"] .c-${kind}{--proof-tone:${dark}}[data-theme="light"] .c-${kind}{--proof-tone:${light}}.c-${kind}{stroke:var(--proof-tone,${dark});fill:color-mix(in srgb,var(--proof-tone,${dark}) 13%,transparent)}[data-theme="dark"] [data-kind="${kind}"]{--proof-kind:${dark}}[data-theme="light"] [data-kind="${kind}"]{--proof-kind:${light}}.overview-map-node[data-kind="${kind}"]{fill:var(--proof-kind,${dark});stroke:var(--proof-kind,${dark})}.semantic-lens-kind[data-kind="${kind}"]{--lens-color:var(--proof-kind,${dark})}.proof-legend [data-kind="${kind}"]::before{background:var(--proof-kind,${dark})}`).join('\n') + data.uses.filter(use => use.type !== 'dependency' || use.regime || use.group).map(use => `svg[data-focus-active]:not([data-reach-active]):has([data-edge-id="${use.id}"][data-focus-match]) [data-proof-use="${use.id}"],svg[data-reach-active]:has([data-edge-id="${use.id}"][data-reach-match]) [data-proof-use="${use.id}"]{opacity:1}`).join('');
+  return Object.keys(kinds).map(kind => `.c-${kind}{--proof-tone:var(--kind-${kind});stroke:var(--proof-tone);fill:color-mix(in srgb,var(--proof-tone) 13%,transparent)}[data-kind="${kind}"]{--proof-kind:var(--kind-${kind})}.overview-map-node[data-kind="${kind}"]{fill:var(--proof-kind);stroke:var(--proof-kind)}.semantic-lens-kind[data-kind="${kind}"]{--lens-color:var(--proof-kind)}.proof-legend [data-kind="${kind}"]::before{background:var(--proof-kind)}`).join('\n') + data.uses.filter(use => use.type !== 'dependency' || use.regime || use.group).map(use => `svg[data-focus-active]:not([data-reach-active]):has([data-edge-id="${use.id}"][data-focus-match]) [data-proof-use="${use.id}"],svg[data-reach-active]:has([data-edge-id="${use.id}"][data-reach-match]) [data-proof-use="${use.id}"]{opacity:1}`).join('');
 }
 function readerTargets(data, index = false) {
   return [...data.items.map(node => ({key:'item:'+node.id,articleId:(index?'proof-index-item-':'proof-detail-')+node.id,nodeId:node.id})),...data.uses.map(use => ({key:'use:'+use.id,articleId:(index?'proof-index-use-':'proof-use-')+use.id,edgeId:use.id}))];
@@ -750,9 +757,9 @@ function searchEntries(data, graph) {
   for (const use of data.uses) index(use,'use:'+use.id,graph.nodes.get(use.from).label+' applied to '+graph.nodes.get(use.to).label,fullUseHtml(use,graph));
   return entries;
 }
-function runtimeHtml(data, graph, graphAvailable, mainItems) {
+function overviewData(data, graph, mainItems) {
   const payload = {items:[...graph.nodes.values()].map(({id,x,y})=>({id,x:x+box.w/2,y:y+box.h/2})),uses:data.uses.map(({id})=>({id})),main_items:mainItems};
-  return `<div id="proof-tooltip" role="tooltip" hidden></div><script id="proof-overview-data" type="application/json">${jsonForScript(payload)}</script><script id="proof-runtime">${readerRuntime({targets:readerTargets(data,!graphAvailable),searchEntries:searchEntries(data,graph),graphAvailable})}</script>`;
+  return `<div id="proof-tooltip" role="tooltip" hidden></div><script id="proof-overview-data" type="application/json">${jsonForScript(payload)}</script>`;
 }
 
 function render(input) {
@@ -781,18 +788,14 @@ function render(input) {
     error.diagnostics = geometry.diagnostics; error.stage = 'geometry';
     throw error;
   }
-  let html = archifyPage({templatePath,title:data.title,svg,afterGraph:cards,css:graphCss(data)});
-  html = html.replace(/<title>[\s\S]*?<\/title>/, () => `<title>${esc(data.title)} | Proof overview</title>`);
   const warningNotes = readerWarnings(data);
   const warnings = warningNotes.length ? `<div class="proof-render-warnings" role="note"><strong>Source and rendering notes</strong><ul>${warningNotes.map((warning) => `<li>${esc(warning)}</li>`).join('')}</ul></div>` : '';
-  const navigation = mainResultNavigation({entries:mainItems.map(id=>{const node=graph.nodes.get(id);return {key:'item:'+id,nodeId:id,label:node.label,caption:node.caption,kind:node.kind};}),heading:data.main_items?'Main results':terminalCycles.length?'Results and terminal cycle groups':'Terminal results in the recorded graph',graphAvailable:true,traceHtml:hasRegimes?'<p class="proof-trace-note" role="note">Some connections apply only in a named regime. Dependency tracing follows all recorded arrows, including alternative routes. Regime labels still apply; a trace is not one required or verified proof route.</p>':''});
-  html = html.replace('<div class="diagram-container"', () => `<div class="proof-caption"><p class="proof-kicker">Source overview</p><p>${esc(data.source?.title || data.title)} · ${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Selected main results and important prerequisites.</strong> Select a result for its statement, source, and connections. This map explains the written argument; it does not verify the proofs.</p>${buildContextHtml(data)}</div>${emptyConnectionsHtml(data)}${scopeHtml(data.scope, data.scope_display)}${warnings}${mathDiagnosticsHtml(data)}${cycleContextHtml(graph)}${navigation}\n<div class="diagram-container"`);
+  const resultsHtml = resultsNavigation({entries:data.items.map(node=>({key:'item:'+node.id,nodeId:node.id,articleId:'proof-index-item-'+node.id,label:node.label,caption:node.caption,kind:node.kind})),mainIds:mainItems,heading:data.main_items?'Main results':terminalCycles.length?'Results and terminal cycle groups':'Terminal results in the recorded graph'});
+  const beforeGraph = `<div class="proof-reader"><div class="proof-caption"><p class="proof-kicker">Source overview</p><p>${esc(data.source?.title || data.title)} · ${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Selected main results and important prerequisites.</strong> Select a result for its statement, source, and connections. This map explains the written argument; it does not verify the proofs.</p>${buildContextHtml(data)}</div>${emptyConnectionsHtml(data)}${scopeHtml(data.scope, data.scope_display)}${warnings}${mathDiagnosticsHtml(data)}${cycleContextHtml(graph)}</div>${viewControls({traceHtml:hasRegimes?'<p class="proof-trace-note" role="note">Some connections apply only in a named regime. Dependency tracing follows all recorded arrows, including alternative routes. Regime labels still apply; a trace is not one required or verified proof route.</p>':''})}`;
   const fragments = data.items.map((node) => `<template id="proof-detail-${esc(node.id)}">${fullItemHtml(node, graph)}</template><template id="proof-hover-${esc(node.id)}">${fullItemHtml(node, graph, { hover: true })}</template>`).join('');
   const useFragments = data.uses.map((use) => `<template id="proof-use-${esc(use.id)}">${fullUseHtml(use, graph)}</template>`).join('');
-  const index = `<div class="proof-reader">${scientificSearchPanel()}${fullIndexHtml(data, graph)}</div><p class="proof-attribution">Viewer adapted from Archify 2.17 by tt-a1i and Cocoon AI, MIT licensed. Proof-specific dataset and rendering by proof-graphify.</p>`;
-  // applyTemplate replaces the complete cards slot including its sentinels.
-  html = html.replace(cards, () => `${cards}${index}`);
-  html = html.replace('</body>', () => `${fragments}${useFragments}${recordsHtml(data, graphMode)}${runtimeHtml(data,graph,true,mainItems)}</body>`);
+  const index = `<div class="proof-reader">${scientificSearchPanel()}${fullIndexHtml(data, graph, true)}</div><p class="proof-attribution">Viewer adapted from Archify 3.0.1 by tt-a1i and Cocoon AI, MIT licensed. Proof-specific dataset and rendering by proof-graphify.</p>`;
+  const html = archifyPage({templatePath,title:data.title,svg,beforeGraph,resultsHtml,afterGraph:cards+index,css:graphCss(data),data:fragments+useFragments+recordsHtml(data,graphMode)+overviewData(data,graph,mainItems),runtime:readerRuntime({targets:readerTargets(data),searchEntries:searchEntries(data,graph),graphAvailable:true})});
   const graph_preservation = representationReceipt(data, html, graphMode);
   if (graph_preservation.status !== 'pass') throw new Error('Rendered SVG does not preserve the supplied item and use identities.');
   return { html, items: data.items.length, uses: data.uses.length, viewBox: [graph.width, graph.height], graph_mode: graphMode, graph_preservation, geometry };

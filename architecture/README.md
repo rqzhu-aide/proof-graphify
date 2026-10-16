@@ -1,6 +1,6 @@
 # Shared paper-core and proof-check architecture
 
-This folder describes the common backend and current `stat-proof-check` architecture, and retains labeled change records and proposals. Both skills and `paper_core` are version `3.2.3` for this release. Their versions can advance independently in this repository. The audit skill's [entry point](../stat-proof-check/SKILL.md) and references define its agent workflow; the [Graphify architecture](proof-graphify/README.md) describes the selective overview. This folder explains code ownership and package boundaries.
+This folder describes the common backend and current `stat-proof-check` architecture, and retains labeled change records and proposals. `proof-graphify` is version `3.2.8`; `stat-proof-check` and `paper_core` are version `3.2.7`. Their versions can advance independently in this repository. The audit skill's [entry point](../stat-proof-check/SKILL.md) and references define its agent workflow; the [Graphify architecture](proof-graphify/README.md) describes the selective overview. This folder explains code ownership and package boundaries.
 
 | Source | Responsibility |
 |---|---|

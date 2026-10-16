@@ -9,7 +9,7 @@ from .audit_compatibility import validate_assignment_audit
 from .bindings import task_binding_changes
 from .controller import _assignment_assistance, submit_work
 from .errors import CoreError, InvalidRequest
-from .packets import independent_context_changes, prepare_assignment
+from .packets import copied_unit_notes_in_packet, independent_context_changes, prepare_assignment
 from .validation import State
 from .work import derive_work, select_assignment
 
@@ -89,6 +89,9 @@ def _reuse_assignment(db, *, audit_id, mode, selection, max_bytes, assessed):
         raw = db.get_blob(saved["payload_sha256"])
         if len(raw) > max_bytes:
             continue
+        packet = json.loads(raw)
+        if mode == "independent" and copied_unit_notes_in_packet(db, packet):
+            continue
         drift = [task_binding_changes(state, task, packet=manifest) for task in tasks]
         if any(change["records"] or change["relations"] for change in drift):
             continue
@@ -100,7 +103,7 @@ def _reuse_assignment(db, *, audit_id, mode, selection, max_bytes, assessed):
             "packet_id": saved["packet_id"], "revision": db.max_revision(), "audit_id": audit_id,
             "mode": mode, "assigned_task_ids": sorted(assigned), "manifest": manifest,
             "conditional_on_task_ids": manifest["work"].get("conditional_on_task_ids", []),
-            "packet": json.loads(raw), "selection": selection}, assessed=assessed)
+            "packet": packet, "selection": selection}, assessed=assessed)
     return None
 
 

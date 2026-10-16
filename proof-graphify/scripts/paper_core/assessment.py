@@ -799,6 +799,8 @@ class _Derivation(_AuditScope):
         self.routes: dict = {}               # statement key -> list of argument ids
         self.route_records: dict = {}        # statement key -> set of keys (arguments/groups/uses)
         self._index()
+        from .review_display import ReviewDisplay
+        self.review_display = ReviewDisplay(self)
 
     # -- indexes ---------------------------------------------------------
     def _index(self):
@@ -1887,7 +1889,8 @@ class _Derivation(_AuditScope):
         local = reduce([dict(c, support=None) for c in constituents])
         assessment = reduce(constituents)
         assessment.update(availability=self.use_support(use), local_state=local["state"], local_label=local["label"])
-        return _triage_assessment(assessment) if self.audit is not None and self.audit.body["mode"] == "triage" else assessment
+        assessment = _triage_assessment(assessment) if self.audit is not None and self.audit.body["mode"] == "triage" else assessment
+        return self.review_display.attach(assessment, targets=[ref_of(use)], use_ids=[use.id])
 
     def _examined_display(self, record: Record, assessment: dict) -> dict:
         """Describe examined content without supplying a separate local verdict."""
@@ -2024,6 +2027,15 @@ class _Derivation(_AuditScope):
                 assessments[key] = self._examined_display(snap.live(collection, identity), value)
         if self.audit is not None and self.audit.body["mode"] == "triage":
             assessments = {key: _triage_assessment(value) for key, value in assessments.items()}
+        for key, value in assessments.items():
+            collection, identity = key.split(":", 1)
+            target = {"collection": collection, "id": identity}
+            targets = [target] + [{"collection": k.split(":", 1)[0], "id": k.split(":", 1)[1]}
+                                  for k in sorted(self.route_records.get(key, ()))]
+            owner = self.snap.get(target) if collection == "items" else None
+            owners = [identity] if owner and owner.body["kind"] in MAJOR_KINDS else []
+            self.review_display.attach(value, targets=targets, owners=owners,
+                                       use_ids=[identity] if collection == "uses" else [])
         return assessments
 
 
@@ -2097,6 +2109,8 @@ def derive_full(db: Database, *, revision: int | None = None, audit_id: str | No
                                           else derivation.independent_indicator(key_of(obligation["target"])))
         if audit is not None and audit.body["mode"] == "triage":
             obligation["assessment"] = _triage_assessment(obligation["assessment"])
+        derivation.review_display.attach(obligation["assessment"], targets=[obligation["target"]],
+            use_ids=[obligation["target"]["id"]] if obligation["target"]["collection"] == "uses" else [])
     judgments = derivation.judgments
     for check in derivation.all_checks:
         derivation.judgment_info(check)

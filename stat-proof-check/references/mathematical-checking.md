@@ -3,7 +3,17 @@
 Use the assigned packet, role brief, and relevant [domain checks](domain-risk-checks.md).
 Examine the full assigned unit, recording decisive reasoning and material exceptions. Routine lines need no separate node.
 
-Assess the supplied argument using the provided material and mathematical knowledge. Short calculations and routine reasoning may clarify a judgment; constructing a missing proof, repairing the argument or finding a counterexample is not required. When substantive assessment cannot resolve a step, record what needs further verification and continue.
+Assess the supplied argument using the provided material and mathematical knowledge. Short hand-written calculations and routine reasoning may clarify a judgment; constructing a missing proof, repairing the argument or finding a counterexample is not required. An immediately apparent exact witness is allowed. Do not invoke numerical or symbolic verification, solvers, computational searches, computer algebra or proof assistants to establish truth. When substantive assessment cannot resolve a step, state the precise uncertainty and continue.
+
+## Proportionate attention
+
+Use the [research-severity rubric](evidence-and-verdicts.md#research-severity) to direct additional investigation by potential consequence. This working estimate is provisional, requires no extra field, and changes neither assigned coverage nor required independent review. Each examiner makes it from the evidence available in that examiner's permitted context.
+
+- For a clear minor issue, once the obvious correction or justification and its unchanged consequence are understood, record the concise reason and continue. Do not search for alternative repairs.
+- For a potentially moderate issue, concentrate on the affected derivation or bounded qualification, including loss of an ancillary claim. Explain its consequence using available reasoning and the severity rubric; constructing a repair is not required.
+- Before calling a concern severe, scrutinize the decisive inference, applicable inherited setup and its immediately apparent consequences, and the claimed impact on an important result or intended regime. Use the relevant source context and short mathematical reasoning, reusing what the examination already established rather than performing a second pass.
+
+Judge mathematical effect, not the size of a typographical change. Uncertainty alone implies no severity; uncertainty about impact or repairability does not erase an established gap. If substantive assessment cannot settle the mathematical question, record the exact uncertainty and continue; do not repeat unchanged reasoning or search for a repair to force a rating.
 
 ## Mathematical text and JSON
 
@@ -45,8 +55,10 @@ For
 \Gamma,A_1,\ldots,A_m\Longrightarrow C,
 \]
 examine the decisive written transition using actual inputs, substitutions, scope,
-operation, rule, side conditions, and source location. Explain the basis for the judgment, with a calculation or logical derivation where useful;
-a familiar final formula or “standard algebra” does not justify an invalid transition.
+operation, rule, side conditions, and source location. Explain the basis for the judgment, with a calculation or logical derivation where useful.
+Retain decisive conditioning, identities or quantitative slack already available in the setup;
+failure of a weaker estimate introduced by the examiner does not by itself establish a defect.
+A familiar final formula or “standard algebra” does not justify an invalid transition.
 
 Separate a consequential change of premise, operation, event, measure, quantifier,
 regime or scope when it needs a distinct judgment. Record useful intermediate bounds
@@ -82,9 +94,10 @@ Distinguish the correct applications from the defective combination in the exami
 
 ## Premises, definitions, and witnesses
 
-A theorem's asserted conclusion is not its own premise. Use its hypotheses,
-meaning-determining definitions, authorized setup, or actually available earlier
-results. Ordinary algebraic and logical rules belong in the justification and need no
+A theorem's asserted conclusion is not its own premise. Before calling a premise
+missing, use its explicit and inherited hypotheses, meaning-determining definitions,
+authorized setup, actually available earlier results and their immediately apparent
+consequences. Ordinary algebraic and logical rules belong in the justification and need no
 separate source investigation. For a non-trivial use of an external result, follow
 [external-result-verification.md](external-result-verification.md).
 
@@ -166,9 +179,12 @@ one route establishes the target or every registered excerpt has coverage.
 If the manuscript omits the argument, assess what is actually supplied and record the omission or uncertainty. Do not invent a route to fill it. This is different from leaving an available proof unread.
 
 Use [evidence-and-verdicts.md](evidence-and-verdicts.md) for outcome and
-counterexample standards when a refutation is actually claimed. Repairs are optional; preserve defects when supplying one. A new route
-for the unchanged statement has its own provenance; a restricted statement has
-its own target. A candidate repair remains provisional until the claimed
-mathematics and required independent review are completed.
+counterexample standards and research-severity calibration. An obvious one-line
+correction or routine justification may explain repairability within this examination;
+it is not an authored replacement proof and needs no separate route or repair reviewer.
+Preserve the original defect. An actually authored replacement route for the unchanged
+statement has its own provenance; a restricted replacement statement has its own target.
+Its sufficiency remains provisional until that mathematics and its required review
+are completed. Do not construct a replacement proof merely to choose severity.
 
 Record these mathematical distinctions within the coherent proof examination. Use graph-records.md for v3 authoring; the older probability fixture is historical.

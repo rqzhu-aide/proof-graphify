@@ -32,6 +32,12 @@ class RecordError(ValueError):
     """A record problem that can be corrected without changing the manuscript."""
 
 
+def split_source_lines(text):
+    # Let the database entry point validate its bundle before importing the core.
+    from paper_core.sources import split_source_lines as common_split
+    return common_split(text)
+
+
 def _fields(value, required, optional, context):
     if not isinstance(value, dict):
         raise RecordError(f"{context}: expected an object.")
@@ -46,10 +52,11 @@ def _fields(value, required, optional, context):
         raise RecordError(f"{context}: {'; '.join(detail)}. Check the record contract.")
 
 
-def _text(value, context, empty=False):
+def _text(value, context, empty=False, source_whitespace=False):
     if not isinstance(value, str) or (not empty and not value.strip()):
         raise RecordError(f"{context}: expected {'text' if empty else 'nonempty text'}.")
-    if any(ord(c) < 32 and c not in '\n\r\t' for c in value):
+    controls = '\n\r\t\f\v' if source_whitespace else '\n\r\t'
+    if any(ord(c) < 32 and c not in controls for c in value):
         raise RecordError(f"{context}: unexpected control character; check JSON escaping.")
     return value
 
@@ -139,7 +146,7 @@ class _SourceContent:
     def lines(self, row):
         entry = self._entry(row)
         if 'lines' not in entry:
-            entry['lines'] = self.text(row).splitlines()
+            entry['lines'] = split_source_lines(self.text(row))
         return entry['lines']
 
     def uncommented(self, row):
@@ -1130,7 +1137,9 @@ def _validate_records(data, sources):
         file = file_map.get(row.get('file_id'))
         if 'file_id' in row and not file:
             raise RecordError(f"Anchor {row['id']}: unknown file {row['file_id']!r}.")
-        _text(row['excerpt'], 'Anchor excerpt', empty=True)
+        _text(row['excerpt'], 'Anchor excerpt', empty=True,
+              source_whitespace=bool(file and file['media_type'] != 'application/pdf'
+                                     and 'start_line' in row['locator']))
         if row['excerpt_hash'] != _sha(row['excerpt'].encode()):
             raise RecordError(f"Anchor {row['id']}: excerpt hash mismatch.")
         excerpt, checked = _binding(row['locator'], file, row['id'], sources)

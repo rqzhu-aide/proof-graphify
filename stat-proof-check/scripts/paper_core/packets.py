@@ -683,11 +683,96 @@ def _independent(db: Database, targets: list, extra_anchor_ids=(), extra_paths=(
 BLIND_SAFE_GUARDS = ("parts_of_item",)
 
 
-def _packet_record(record, mode):
+NO_PROOF_CUE = "No proof passage was supplied with this statement."
+
+
+def copied_unit_note(db, item, text):
+    """Identify the known statement-only unit copy using its original receipt.
+
+    This recognizes the helper's historical layout, not arbitrary equal notes or
+    an authenticated author identity. Later caveats are not the original copy.
+    """
+    if not text or text == NO_PROOF_CUE or not item.id.startswith("itm_"):
+        return False
+    first = db.version("items", item.id, 1)
+    if (first is None or first.retired or first.body.get("uncertainty") != text
+            or item.body.get("uncertainty") != text
+            or first.body.get("origin") != "source"
+            or any(p["role"] == "proof" for p in first.body["passages"])
+            or any(p["role"] == "proof" for p in item.body["passages"])):
+        return False
+    # A changed caveat remains authored even if a later edit restores the old words.
+    if db.conn.execute("SELECT 1 FROM record_versions WHERE collection='items' AND id=? "
+                       "AND version <= ? AND (retired != 0 OR "
+                       "json_extract(body_json, '$.uncertainty') IS NOT ?) LIMIT 1",
+                       (item.id, item.version, text)).fetchone() is not None:
+        return False
+    commit = db.commit_row(first.revision)
+    if commit is None:
+        return False
+    request_digest = commit["request_digest"]
+    if (not isinstance(request_digest, str) or len(request_digest) != 64
+            or any(c not in "0123456789abcdef" for c in request_digest)
+            or commit["request_id"] != "req_unit_" + request_digest[:32]):
+        return False
+    key = item.id[4:]
+    expected = [("items", item.id), ("scopes", "scp_" + key),
+                ("target_specs", "tgt_" + key), ("observations", "obs_" + key)]
+    receipt = json.loads(commit["receipt_json"])
+    changed = receipt.get("changed", [])
+    if (receipt.get("request_id") != commit["request_id"] or receipt.get("revision") != first.revision
+            or [(r.get("collection"), r.get("id")) for r in changed[:4]] != expected
+            or any(r.get("op") != "create" or r.get("version") != 1 for r in changed)):
+        return False
+    extras = changed[4:]
+    if extras and extras[0].get("collection") == "source_issues":
+        if extras[0].get("id") != "iss_" + key:
+            return False
+        extras = extras[1:]
+    if any((r.get("collection"), r.get("id")) != ("uses", f"use_{key}_{i + 1}")
+           for i, r in enumerate(extras)):
+        return False
+    originals = [db.version(collection, identity, 1) for collection, identity in expected]
+    if any(r is None or r.retired or r.revision != first.revision for r in originals):
+        return False
+    _, scope, spec, observation = originals
+    statements = [p["anchor_id"] for p in first.body["passages"] if p["role"] == "statement"]
+    return bool(statements and first.body.get("scope_id") == scope.id
+                and scope.body.get("argument_id") is None
+                and scope.body.get("evidence_refs") == statements
+                and spec.body.get("target") == first.ref
+                and spec.body.get("statement_ref") == first.pinned
+                and spec.body.get("scope_id") == scope.id
+                and spec.body.get("evidence_refs") == statements
+                and observation.body.get("target") == first.ref
+                and observation.body.get("evidence_refs") == statements
+                and observation.body.get("note") == text)
+
+
+def copied_unit_notes_in_packet(db, packet):
+    """Inspect the delivered pins and text, without replacing saved payloads."""
+    found = []
+    for entry in packet.get("records", []):
+        pin, body = entry["ref"], entry["body"]
+        if pin["collection"] != "items":
+            continue
+        text = body.get("uncertainty")
+        if not text or text == NO_PROOF_CUE:
+            continue
+        item = db.version("items", pin["id"], pin["version"])
+        if item is not None and copied_unit_note(db, item, text):
+            found.append(pin)
+    return found
+
+
+def _packet_record(record, mode, db=None):
     body = record.body
     if mode == "independent" and record.collection == "items" and "proof_idea" in body:
         # This authored explanation is not captured source for a blind review.
         body = {key: value for key, value in body.items() if key != "proof_idea"}
+    if (mode == "independent" and record.collection == "items" and db is not None
+            and copied_unit_note(db, record, body.get("uncertainty"))):
+        body = dict(body, uncertainty=NO_PROOF_CUE)
     return {"ref": record.pinned, "body": body}
 
 
@@ -795,7 +880,7 @@ def _build(db: Database, *, targets: list, mode: str, extra_anchor_ids=(), extra
                 "mode": mode, "targets": list(targets), "read_set": read_set, "membership_guards": guards,
                 "source_context_digest": source_context_digest(db), "write_scope": write_scope}
     packet = dict(manifest)
-    packet["records"] = [_packet_record(r, mode) for r in records]
+    packet["records"] = [_packet_record(r, mode, db) for r in records]
     packet["declared_scope"] = declared_scope
     packet["omitted"] = closure.omitted
     packet["extends"] = extends
@@ -1401,7 +1486,7 @@ def _assignment_packet(closure, *, audit_id, mode, selection, units, tasks, spec
                 "mode": mode, "targets": targets, "read_set": [r.pinned for r in records],
                 "membership_guards": guards, "source_context_digest": source_context_digest(closure.db),
                 "write_scope": write_scope, "protocol_version": closure.db.head("audits", audit_id).body["protocol_version"]}
-    packet = dict(manifest, records=[_packet_record(r, mode) for r in records],
+    packet = dict(manifest, records=[_packet_record(r, mode, closure.db) for r in records],
                   declared_scope=declared_scope, omitted=closure.omitted, extends=None, truncated=False)
     if mode == "independent" and closure.db.head("audits", audit_id).body["protocol_version"] == COHERENT_PROTOCOL:
         packet["assignments"] = [dict(spec["neutral_question"], extent="whole_unit", omissions="")
@@ -1832,6 +1917,9 @@ def extend_work_assignment(db: Database, *, packet_id: str, request: dict) -> di
         prior = json.loads(db.get_blob(stored["payload_sha256"]).decode("utf-8"))
         if blinding_violations(prior):
             raise InvalidRequest("the original assignment is not source-only", code="WORK_CONTEXT_MODE")
+        if copied_unit_notes_in_packet(db, prior):
+            raise InvalidRequest("the issued assignment contains a copied examiner note; prepare a new "
+                                 "assignment for a fresh blind reviewer context", code="WORK_CONTEXT_MODE")
         work = original["work"]
         audit = db.head("audits", work["audit_id"])
         validate_assignment_audit(db, original)
@@ -1890,7 +1978,7 @@ def extend_work_assignment(db: Database, *, packet_id: str, request: dict) -> di
                   "read_set": [r.pinned for r in records], "source_context_digest": source_context_digest(db)}
         manifest.update(common)
         packet.update(common)
-        packet["records"] = [_packet_record(r, "independent") for r in records]
+        packet["records"] = [_packet_record(r, "independent", db) for r in records]
         packet["omitted"] = prior.get("omitted", []) + [row for row in closure.omitted if row not in prior.get("omitted", [])]
         size = {"unique_records": len(records),
                 "source_excerpt_bytes": sum(len(r.body["excerpt"].encode("utf-8")) for r in records if r.collection == "anchors"),

@@ -279,7 +279,7 @@ class ManifestTests(unittest.TestCase):
         manifest = bundle.build_manifest(SOURCE_FILES)
         self.assertEqual({key: manifest[key] for key in RELEASE_CONSTANTS}, {
             "bundle": "paper_core",
-            "core_version": "3.2.3",
+            "core_version": "3.2.7",
             "storage_formats_readable": [2, 3, 4],
             "storage_formats_writable": [4],
             "contract_version": 4,
@@ -561,7 +561,7 @@ class InstalledPackageTests(TempCase):
 
     def assert_healthy_report(self, payload):
         self.assertEqual(payload["command"], "version")
-        self.assertEqual(payload["core_version"], "3.2.3")
+        self.assertEqual(payload["core_version"], "3.2.7")
         self.assertEqual(payload["storage_format"], 4)
         self.assertEqual(payload["contract_version"], 4)
         self.assertEqual(payload["contract"], "proofcheck-records/4")
@@ -601,21 +601,21 @@ class InstalledPackageTests(TempCase):
     def test_installed_wrapper_imports_the_core_beside_it_not_the_repository_one(self):
         """The core the wrapper runs is the adjacent copy: its constants, not shared/paper_core's.
 
-        Only the install copy's ``__init__.py`` is edited. The repository still says 3.2.3, so a
+        Only the install copy's ``__init__.py`` is edited. The repository still says 3.2.7, so a
         wrapper that reached back into the repository - or into a sibling skill - could not report
         9.9.9 here.
         """
         root = self.mutable_install()
         init = shipped(root) / "__init__.py"
         source = init.read_text(encoding="utf-8")
-        self.assertIn('CORE_VERSION = "3.2.3"', source)
-        init.write_text(source.replace('CORE_VERSION = "3.2.3"', 'CORE_VERSION = "9.9.9"'),
+        self.assertIn('CORE_VERSION = "3.2.7"', source)
+        init.write_text(source.replace('CORE_VERSION = "3.2.7"', 'CORE_VERSION = "9.9.9"'),
                         encoding="utf-8", newline="\n")
         payload, _ = run_wrapper(root, "version")
         self.assertEqual(payload["core_version"], "9.9.9")
         self.assertEqual(payload["bundle"]["changed"], ["__init__.py"])
         self.assertIs(payload["bundle"]["constants_match"], False)
-        self.assertEqual(CORE_VERSION, "3.2.3")  # the repository source is untouched
+        self.assertEqual(CORE_VERSION, "3.2.7")  # the repository source is untouched
         self.assertIs(bundle.verify_bundle(shipped(PROOFCHECK))["ok"], True)
 
     def test_installed_wrapper_verifies_the_copy_it_imported_not_the_repository(self):
@@ -646,7 +646,7 @@ class InstalledPackageTests(TempCase):
                           encoding="utf-8", newline="\n")
         payload, stderr = run_wrapper(root, "version")
         self.assertEqual(stderr, "")
-        self.assertEqual(payload["core_version"], "3.2.3")
+        self.assertEqual(payload["core_version"], "3.2.7")
         self.assertIs(payload["bundle"]["ok"], True)
 
     def test_installed_package_ships_the_wrapper_and_bundle_it_needs(self):

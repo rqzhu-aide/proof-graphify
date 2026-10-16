@@ -21,7 +21,7 @@ _ENVIRONMENTS = frozenset((
     "substack displaylines eqalign eqalignno"
 ).split())
 CONFIGURATION = {
-    "adapter_version": 11,
+    "adapter_version": 14,
     "delimiters": [["$", "$"], ["$$", "$$"], [r"\(", r"\)"], [r"\[", r"\]"]],
     "output": "static native MathML with original LaTeX annotation",
     "maximum_formula_characters": 8192,
@@ -44,9 +44,10 @@ _ATTRIBUTES = frozenset((
 _DECODED_ESCAPE = re.compile(
     r"\t(?:heta|au|imes|ilde|riangle|frac|o(?!\s*\())(?![A-Za-z])"
     r"|\n(?:abla|otin)(?![A-Za-z])"
-    r"|\r(?:Vert|vert|ho|ight(?:arrow)?|angle|floor|ceil|brace)(?![A-Za-z])")
-_CONTROL_NAMES = {"\t": "tab", "\n": "newline", "\r": "carriage return"}
-_CONTROL_LETTERS = {"\t": "t", "\n": "n", "\r": "r"}
+    r"|\r(?:Vert|vert|ho|ight(?:arrow)?|angle|floor|ceil|brace)(?![A-Za-z])"
+    r"|\x08eta(?![A-Za-z])")
+_CONTROL_NAMES = {"\t": "tab", "\n": "newline", "\r": "carriage return", "\b": "backspace"}
+_CONTROL_LETTERS = {"\t": "t", "\n": "n", "\r": "r", "\b": "b"}
 
 
 _ALPHABET_NAMES = {
@@ -191,8 +192,28 @@ def _spans(text: str):
         index = finish
 
 
+def _outer_aligned(tex: str, display: str) -> str:
+    """Adapt only an unmodified standalone display wrapper for the converter."""
+    match = re.fullmatch(r"\s*\\begin\s*\{aligned\}(.*?)\\end\s*\{aligned\}\s*", tex, re.S)
+    if display != "block" or match is None or _escaped(tex, match.end(1)):
+        return tex
+    body = match[1]
+    if body.lstrip().startswith("[") or any(c == "%" and not _escaped(body, i) for i, c in enumerate(body)):
+        return tex
+    if re.search(r"\\(?:begin|end|tag|label|notag|nonumber|cr|hline|hdashline|intertext|shortintertext|noalign|omit|span|multicolumn)(?![A-Za-z])", body):
+        return tex
+    # Conservatively leave adjacent row-break/command slashes and modifiers alone.
+    if re.search(r"\\{3,}|(?<!\\)\\\\\s*[\[*]", body):
+        return tex
+    return (tex[:match.start(1)].replace("{aligned}", "{align*}") + body
+            + tex[match.end(1):].replace("{aligned}", "{align*}"))
+
+
 def _check_tex(tex: str) -> None:
     """Reject structures the converter can otherwise silently discard or expand."""
+    for match in re.finditer(r"\\tag(?![A-Za-z])", tex):
+        if not _escaped(tex, match.start()):
+            raise ValueError("explicit equation tags are not displayed")
     # JSON accepts \t, \n and \r, so an under-escaped \rVert becomes a carriage
     # return followed by Vert (likewise \theta, \rho, \nabla). The converter then
     # renders the remaining letters as mathematics without an error. Only flag
@@ -257,6 +278,46 @@ def _in_row_argument(tex: str, position: int) -> bool:
     return False
 
 
+def _ordinary_spacing(elements) -> None:
+    """Use ordinary spacing for three bounded kerning shapes, retaining symbols."""
+    def tagged(element, name):
+        return element.tag in (name, "{" + MATHML_NS + "}" + name)
+
+    def thin(element):
+        return (tagged(element, "mspace") and element.attrib == {"width": "negativethinmathspace"}
+                and not len(element) and not element.text and not element.tail)
+
+    def operator(element, text):
+        return (tagged(element, "mo") and not len(element)
+                and element.text == text and not element.tail)
+
+    for parent in elements:
+        if tagged(parent, "msup") and len(parent) == 2:
+            exponent = parent[1]
+            if (tagged(exponent, "mrow") and not exponent.text and not exponent.tail
+                    and len(exponent) == 2 and thin(exponent[0]) and operator(exponent[1], "⊤")):
+                exponent.remove(exponent[0])
+        if not tagged(parent, "mrow"):
+            continue
+        siblings = list(parent)
+        for index, space in enumerate(siblings[:-1]):
+            fence = siblings[index + 1]
+            if tagged(fence, "mrow") and len(fence):
+                fence = fence[0]
+            previous = siblings[index - 1] if index else None
+            if (thin(space) and tagged(fence, "mo") and not len(fence)
+                    and fence.text in ("[", "(") and fence.get("fence") == "true"
+                    and fence.get("form") == "prefix"
+                    and not (previous is not None and tagged(previous, "mspace")
+                             and previous.get("width", "").strip().startswith(("negative", "-")))):
+                parent.remove(space)
+        for index in range(1, len(siblings) - 2):
+            if (operator(siblings[index - 1], "∫") and thin(siblings[index])
+                    and thin(siblings[index + 1]) and operator(siblings[index + 2], "∫")):
+                parent.remove(siblings[index])
+                parent.remove(siblings[index + 1])
+
+
 def _safe_mathml(value: str, tex: str, display: str) -> str:
     if len(value) > 250_000 or re.search(r"<!\s*(?:DOCTYPE|ENTITY)", value, re.I):
         raise ValueError("unsupported converter output")
@@ -264,7 +325,8 @@ def _safe_mathml(value: str, tex: str, display: str) -> str:
     elements = list(root.iter())
     if len(elements) > 10_000:
         raise ValueError("formula is too large")
-    for element in elements:
+    _ordinary_spacing(elements)
+    for element in root.iter():
         tag = element.tag
         if tag.startswith("{" + MATHML_NS + "}"):
             tag = tag[len(MATHML_NS) + 2:]
@@ -279,11 +341,17 @@ def _safe_mathml(value: str, tex: str, display: str) -> str:
         # It is a relation, including when used as the base of a script.
         if tag == "mi" and element.text == "⫫" and not len(element):
             tag = "mo"
-        # Sized braces can remain escaped in converter output. Repair only
+        # The converter emits \\sim as an ASCII tilde identifier. Only this
+        # exact leaf is a relation; spaces, accents and text tildes stay intact.
+        if tag == "mi" and element.text == "~" and not len(element):
+            tag = "mo"
+            element.text = "∼"
+        # Sized delimiters can remain escaped in converter output. Repair only
         # exact operator leaves at one explicit size, retaining every attribute.
         if (tag == "mo" and not len(element) and element.get("minsize")
                 and element.get("minsize") == element.get("maxsize")):
-            element.text = {r"\{": "{", r"\}": "}", r"\lbrace": "{", r"\rbrace": "}"}.get(
+            element.text = {r"\{": "{", r"\}": "}", r"\lbrace": "{", r"\rbrace": "}",
+                            r"\langle": "⟨", r"\rangle": "⟩"}.get(
                 element.text, element.text)
         if tag == "mo" and element.text in {r"\{", r"\}", r"\lbrace", r"\rbrace"}:
             raise ValueError("an unconverted LaTeX brace remains literal: " + element.text)
@@ -295,13 +363,13 @@ def _safe_mathml(value: str, tex: str, display: str) -> str:
         if arity is not None and len(element) != arity:
             raise ValueError("incomplete mathematical structure")
         element.tag = tag
-    # Native MathML can leave a directly scripted bar unstretched despite its
+    # Native MathML can leave a directly scripted fence unstretched despite its
     # explicit size. A one-child row supplies the same stretch context as the
     # opposite fence without changing the script's base or the original TeX.
     for element in elements:
         if element.tag in {"msub", "msup", "msubsup"}:
             base = element[0]
-            if (base.tag == "mo" and base.text in {"|", "‖"}
+            if (base.tag == "mo" and base.text in {"|", "‖", "⟨", "⟩"}
                     and base.get("minsize")
                     and base.get("minsize") == base.get("maxsize")):
                 element.remove(base)
@@ -429,8 +497,14 @@ def _convert(tex: str, display: str) -> tuple[str | None, str]:
     except ImportError:
         return None, "The shared LaTeX converter is unavailable."
     try:
-        _check_tex(tex)
-        adapted = _independence_symbol(_argument_operator(_sized_named_bars(_group_scripted_binomials(tex))))
+        converter_tex = _outer_aligned(tex, display)
+        _check_tex(converter_tex)
+        adapted = _independence_symbol(_argument_operator(_sized_named_bars(_group_scripted_binomials(converter_tex))))
+        # Suppress converter-invented numbers without rewriting source TeX.
+        adapted = re.sub(r"\\(?:begin|end)\s*\{align\}", lambda match: (
+            match.group(0) if _escaped(adapted, match.start()) else
+            match.group(0).replace("{align}", "{align*}")
+        ), adapted)
         return _safe_mathml(convert(adapted, display=display), tex, display), ""
     except Exception as exc:
         # Converter failures must never remove the original mathematical text.

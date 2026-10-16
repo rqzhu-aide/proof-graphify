@@ -107,6 +107,7 @@ class Element {
   }
   scrollIntoView() { scrolls.push(this.id || this.tagName); }
   focus() { document.activeElement = this; }
+  click() { dispatch(this,{type:'click'}); }
   getBoundingClientRect() { return { left: 0, top: 0, bottom: this.clientHeight, right: this.clientWidth, width: this.clientWidth, height: this.clientHeight }; }
   dispatchEvent(event) { dispatch(this, event); return true; }
 }
@@ -117,9 +118,9 @@ document.createElement = tag => new Element({ tag });
 document.createTextNode = text => new Element({ tag: '#text', text });
 document.body = document.querySelector('body'); document.documentElement = document.querySelector('html');
 window.innerWidth = 1200; window.innerHeight = 800;
-const svg = document.querySelector('.diagram-container svg'), container = svg.parentElement;
+const svg = document.querySelector('.diagram-container svg'), container = svg?.parentElement;
 const chip = document.getElementById('focus-chip');
-assert(container.contains(chip), 'Fixture must begin with the upstream embedded details panel.');
+if (svg) assert(container.contains(chip), 'Fixture must begin with the upstream embedded details panel.');
 
 function schedule(callback) { callbacks.set(++callbackId, callback); return callbackId; }
 function flush() {
@@ -151,24 +152,27 @@ const focus = {
   reposition() {},
 };
 // Execute the emitted native handler, including its event ordering and toggle policy.
+const routeContext = {mode:'idle',container,svg,chosen:null,choose(id){this.chosen=id;}};
+if (svg) {
 const nativeNodeClick = packet.scripts.flatMap(source => [...source.matchAll(/svg\.addEventListener\('click', function \(event\) \{\s*if \(container\.getAttribute\('data-just-panned'\) === 'true'\) return;[\s\S]*?\n      \}\);/g)]).find(([source]) => source.includes('set(id,'))?.[0];
 assert(nativeNodeClick, 'Emitted native node click is missing.');
 vm.runInNewContext(nativeNodeClick, {svg,container,set:(id,options)=>focus.set(id,options),clear:()=>focus.clear(),get activeIds(){return active?[active]:[];},Archify:{view:{reveal(){}}}});
 const routeIntercept = packet.scripts.flatMap(source => [...source.matchAll(/function interceptSelection\(event\) \{[\s\S]*?\n      \}/g)]).find(([source]) => source.includes('stopImmediatePropagation'))?.[0];
 assert(routeIntercept, 'Native route interception is missing.');
-const routeContext = {mode:'idle',container,svg,chosen:null,choose(id){this.chosen=id;}};
 routeContext.choose = id => {routeContext.chosen=id;};
 vm.runInNewContext(routeIntercept+"\nsvg.addEventListener('click', interceptSelection, true);",routeContext);
 document.getElementById('btn-focus-clear').addEventListener('click', () => focus.clear());
 // Exercise the actual emitted outside-click handler as well as the proof
 // adapter: its capture phase can erase selection before a control runs.
 const outsideClick = packet.scripts.flatMap(source => [...source.matchAll(
-  /document\.addEventListener\('click', function \(event\) \{\s*var target = event\.target;[\s\S]*?\}, true\);/g,
+  /document\.addEventListener\('click', function \(event\) \{[\s\S]*?\}, true\);/g,
 )]).find(([source]) => source.includes('chip.hidden || !target'))?.[0];
 assert(outsideClick, 'Generated outside-click handler is missing.');
-vm.runInNewContext(outsideClick, { document, chip, container, clear: () => focus.clear() });
+vm.runInNewContext(outsideClick, { document, chip, container, lensDragClickPointer:null, clear: () => focus.clear() });
+}
 const context = vm.createContext({
   document, window, Archify: { focus, view: { centerAt() { centers++; }, reset() {} } },
+  location: {hash:process.argv[3]?.startsWith('fragment') ? (process.argv[3].includes('use') ? '#proof-index-use-independence-use' : '#proof-index-item-result') : ''},
   MutationObserver: class { constructor(callback) { this.callback = callback; } observe() { observers.push(this.callback); } },
   requestAnimationFrame: schedule, cancelAnimationFrame: id => callbacks.delete(id),
   setTimeout: schedule, clearTimeout: id => callbacks.delete(id),
@@ -177,8 +181,31 @@ const context = vm.createContext({
 window.Archify = { focus, view: { centerAt() { centers++; }, reset() {} } };
 const runtime = packet.scripts.find(source => source.includes('function initializeScientificReader'));
 assert(runtime, 'Generated proof runtime is missing.');
+const auditMode = process.argv[3] === 'audit';
+if (auditMode) {
+  document.querySelector('.proof-reader').classList.add('proof-audit');
+}
 vm.runInContext(runtime, context); flush();
 assert.equal(centers, 0, 'Opening the overview must retain the complete selected graph.');
+if (process.argv[3]?.startsWith('fragment')) {
+  const isUse = process.argv[3].includes('use');
+  const linked = document.getElementById(isUse ? 'proof-index-use-independence-use' : 'proof-index-item-result');
+  assert(linked,'Public fragments must resolve to real scientific articles.');
+  if (svg) {
+    assert(!document.getElementById('proof-full-index').hasAttribute('open'),'A direct link must not expand a duplicate full index when the selected panel is visible.');
+    if (isUse) assert.equal(relation?.id,'independence-use');
+    else assert.equal(active,'result');
+    const panel = document.getElementById('proof-selection');
+    assert.match(panel.innerHTML,isUse ? /RELATION_TEXT/ : /RESULT_TEXT/);
+  } else {
+    for (let ancestor=linked;ancestor;ancestor=ancestor.parentElement)
+      if (ancestor.tagName==='details') assert(ancestor.hasAttribute('open'),'Graphless fragments reveal their containing disclosures.');
+    assert(linked.classList.contains('is-active'));
+    assert.equal(active,null);
+  }
+  console.log(JSON.stringify({public_fragment_resolved:true,graph_selection_preserved:!!svg,index_visible:true}));
+  process.exit(0);
+}
 function sharedSourceSearchAndPrint() {
   const search = document.getElementById('proof-search'); search.value = 'SOURCE_QUOTE';
   dispatch(search,{type:'input'}); flush();
@@ -228,17 +255,30 @@ if (process.argv[3]==='preview') {
   console.log(JSON.stringify({template_bytes_preserved:true,pointer_and_keyboard_preview:true,leave_selection_and_print_dismissal:true}));process.exit(0);
 }
 if (process.argv[3]==='index') {
-  assert(document.getElementById('btn-export').disabled,'An index must not export its hidden camera.');
+  assert.equal(document.getElementById('btn-export'),null,'An index must omit unused graph controls.');
+  assert.equal(svg,null);
+  assert(document.getElementById('proof-index-theme'));
   assert.equal(document.getElementById('proof-full-structure'),null);
-  dispatch(document.querySelector('[data-proof-main="result"]'),{type:'click'});flush();
-  assert(document.getElementById('proof-index-item-result').classList.contains('is-active'));
+  assert.equal(document.querySelector('.proof-results'),null,'Index mode must not duplicate the complete index.');
   assert.equal(active,null,'Index navigation must work without graph selection.');
+  const theme = document.getElementById('proof-index-theme');
+  theme.click();
+  const firstTheme = document.documentElement.getAttribute('data-theme');
+  dispatch(document.body,{type:'keydown',key:'t'});
+  assert.notEqual(document.documentElement.getAttribute('data-theme'),firstTheme,'Index keyboard theme selection must work without the graph runtime.');
+  const editingTheme = document.documentElement.getAttribute('data-theme');
+  dispatch(document.getElementById('proof-search'),{type:'keydown',key:'t'});
+  assert.equal(document.documentElement.getAttribute('data-theme'),editingTheme,'Typing a search must not toggle the theme.');
   console.log(JSON.stringify(sharedSourceSearchAndPrint()));process.exit(0);
 }
 assert(!container.contains(chip), 'Details remain constrained by the shallow diagram instead of following it in document flow.');
-assert.equal(chip.parentElement, container.parentElement, 'Details must remain in the reader document beside the diagram.');
+assert.equal(chip.parentElement.id, 'proof-selection-host', 'Details must use the full-width slot below the graph and Results.');
+assert.equal(chip.parentElement.parentElement, container.parentElement);
 const panel = document.getElementById('proof-selection');
 assert(chip.contains(panel), 'The statement reader is missing from the details panel.');
+assert.equal(panel.classList.contains('proof-audit'), auditMode, 'Relocated panel must retain only its own product styling.');
+if (document.getElementById('proof-details'))
+  assert.equal(document.getElementById('proof-details').classList.contains('proof-audit'), auditMode);
 
 dispatch(svg.querySelector('[data-node-id="assumption"]'), { type: 'click' }); flush();
 assert(!chip.hidden); assert.match(panel.innerHTML, /ASSUMPTION_TEXT/);
@@ -251,9 +291,13 @@ dispatch(svg.querySelector('[data-node-id="result"]'),{type:'click'});flush();
 assert.equal(routeContext.chosen,'result');assert.equal(active,'assumption','Route-probe capture must precede ordinary node selection.');
 routeContext.mode='idle';
 
-dispatch(document.querySelector('[data-proof-main="result"]'), { type: 'click' }); flush();
+const resultLink = document.querySelector('.proof-results [data-reader-node="result"]');
+assert.equal(resultLink.tagName,'a');
+assert.equal(resultLink.getAttribute('href'),'#proof-index-item-result');
+dispatch(resultLink, { type: 'click' }); flush();
 assert(centers > 0, 'Explicit result navigation must retain its readable camera view.');
 assert.match(panel.innerHTML, /RESULT_TEXT/);
+assert.equal(resultLink.getAttribute('aria-current'),'true','The current Results entry must be announced.');
 assert.equal(scrolls.at(-1), 'proof-selection', 'Result navigation must reveal the reading panel.');
 for (const selector of ['#btn-theme', '#btn-preset', '#proof-readable-view', '[data-view="in"]']) {
   dispatch(document.querySelector(selector), { type: 'click' }); flush();

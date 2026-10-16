@@ -68,7 +68,9 @@ class OmittedProofTests(TempCase):
                 self.assertEqual([], db.heads(collection))
             self.assertTrue(create_unit(db, self.definition())["reused"])
             self.assertEqual(revision, db.max_revision())
-            self.assertEqual(self.definition()["source_note"], db.head("items", "itm_omitted").body["uncertainty"])
+            self.assertEqual("No proof passage was supplied with this statement.",
+                             db.head("items", "itm_omitted").body["uncertainty"])
+            self.assertEqual(self.definition()["source_note"], db.head("observations", "obs_omitted").body["note"])
 
     def test_omission_can_finish_uncertain_only_after_primary_review_and_integration(self):
         fixture = self.make_case()

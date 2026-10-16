@@ -1,6 +1,7 @@
 // Shared display components. Scientific records, evidence and graph layouts stay in adapters.
 import { readFileSync } from 'node:fs';
 import { applyTemplate, esc } from './assets/archify/utils.mjs';
+import { scanHtml } from './html_scan.mjs';
 
 export const KINDS = {
   assumption: ['Assumption', '#60a5fa', '#2563eb'], definition: ['Definition', '#94a3b8', '#475569'],
@@ -16,18 +17,33 @@ function replaceOnce(template, original, replacement) {
   return template.replace(original, () => replacement);
 }
 export function adaptScientificReaderTemplate(template) {
+  // These native owners are replaced, not initialized and then overridden.
+  for (const name of ['readerLayout', 'outline']) {
+    const start = template.indexOf(`    Archify.${name} = (function () {`);
+    const end = template.indexOf('\n    })();', start);
+    if (start < 0 || end < start) throw new Error(`Missing Archify ${name} block`);
+    template = template.slice(0, start) + template.slice(end + '\n    })();'.length);
+  }
+  const cssStart = template.indexOf('\n    .cards {');
+  const cssEnd = template.indexOf('\n    .node-outline-item {', cssStart);
+  if (cssStart < 0 || cssEnd < cssStart) throw new Error('Missing Archify rail style boundaries');
+  template = template.slice(0, cssStart) + template.slice(cssEnd);
   const changes = [
     ['if (chip.hidden || activeIds.length !== 1) return;', 'if (chip.hidden || !container.contains(chip) || activeIds.length !== 1) return;'],
     ['if (chip && !chip.hidden) {', 'if (chip && !chip.hidden && container.contains(chip)) {'],
     ['if (!passport || passport.hidden || passportYielded) return passportYielded;', 'if (!passport || passport.hidden || !container.contains(passport) || passportYielded) return passportYielded;'],
-    ['var desiredWidth = availableSvgHeight * ratio + chrome.diagramX;', 'var desiredWidth = maxWidth;'],
-    ['settleOverflow(minWidth);', '// Scientific disclosures use document scrolling without resizing the graph.'],
     ['meta.textContent = [viewerKindLabel(item.type), item.id, item.sublabel, item.tag]', 'meta.textContent = [viewerKindLabel(item.type), item.context, item.sublabel, item.tag]'],
     ['meta.title = [viewerKindLabel(item.type), item.id, item.context, item.sublabel, item.tag]', 'meta.title = [viewerKindLabel(item.type), item.context, item.sublabel, item.tag]'],
-    ["if (target.closest('[data-node-id], [data-relationship-hit-key], .overview-map')) return;", "if (target.closest('[data-node-id], [data-relationship-hit-key], .overview-map, .toolbar, .diagram-nav, .proof-view-controls, .proof-reader, #proof-selection, .proof-index, .proof-main-navigation')) return;"],
+    ["if (target.closest('[data-node-id], [data-relationship-hit-key], .overview-map')) return;", "if (target.closest('[data-node-id], [data-relationship-hit-key], .overview-map, .toolbar, .diagram-nav, .proof-view-controls, .proof-reader, #proof-selection, .proof-index, .proof-results')) return;"],
     [String.raw`\.c-|\.t-|\.a-|\.m-`, String.raw`\.c-|\.t-|\.a-|\.m-|\.proof-|\.k-`],
-    ["probe.setAttribute('data-theme', themeAttr);", "probe.setAttribute('data-theme', themeAttr); probe.className = 'proof-svg';"],
-    ["var themeHost = document.querySelector('[data-theme=\"' + theme + '\"]') || document.documentElement;", "var themeHost = document.querySelector('svg.proof-svg') || document.documentElement;"],
+    ["var probe = document.createElement('div');\n          probe.setAttribute('data-theme', themeAttr);", "var probe = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n          probe.setAttribute('class', svg.getAttribute('class') || 'proof-svg');\n          probe.setAttribute('data-theme', themeAttr);"],
+    ['var resolvedTheme = requestedTheme && resolveVars(lockedTheme);\n          var computed = getComputedStyle(document.documentElement);', 'var resolvedTheme = requestedTheme && resolveVars(lockedTheme);\n          var computed = getComputedStyle(svg);'],
+    ['":root, svg { " + darkTheme.vars', '":root, svg.proof-svg { " + darkTheme.vars'],
+    ['"@media (prefers-color-scheme: light) { :root, svg { " + lightTheme.vars', '"@media (prefers-color-scheme: light) { :root, svg.proof-svg { " + lightTheme.vars'],
+    ['":root, svg { " + vars', '":root, svg.proof-svg { " + vars'],
+    ['if (requestedTheme) clone.setAttribute(\'data-theme\', lockedTheme);', 'clone.setAttribute(\'data-theme\', lockedTheme);'],
+    ['function beginLensDrag(event) {', 'function beginLensDrag(event) {\n        if (!container.contains(chip)) return;'],
+    ['id="btn-focus-move" type="button"', 'id="btn-focus-move" type="button" hidden disabled tabindex="-1"'],
   ];
   for (const [original, replacement] of changes) template = replaceOnce(template, original, replacement);
   // Keep native node events below route-probe capture and make ordinary activation idempotent.
@@ -36,18 +52,49 @@ export function adaptScientificReaderTemplate(template) {
   template = template.replaceAll('set(id);', 'set(id, { toggle: false });');
   return template;
 }
-export function archifyPage({ templatePath, template, title, svg, beforeGraph = '', afterGraph = '', css = '', runtime = '', data = '', fontStyle, index = false }) {
+export function archifyPage({ templatePath, template, title, svg, beforeGraph = '', resultsHtml = '', afterGraph = '', css = '', runtime = '', data = '', fontStyle, index = false }) {
   let source = adaptScientificReaderTemplate(template ?? readFileSync(templatePath, 'utf8'));
   if (fontStyle) source = source.replace(/<style id="archify-fonts">[\s\S]*?<\/style>/, () => fontStyle);
-  let html = applyTemplate(source, { title, subtitle: '', svg, cards: afterGraph, locale: 'en' });
-  html = html.replace('<div class="diagram-container"', () => `${beforeGraph}\n<div class="diagram-container"`);
+  let html = applyTemplate(source, { title, subtitle: '', svg, cards: resultsHtml, locale: 'en' });
+  const scan = scanHtml(html);
+  const edits = [];
+  for (const element of scan.elements) {
+    const classes = (element.attrs.class || '').split(/\s+/);
+    if (classes.includes('diagram-container')) {
+      edits.push([element.start, index ? element.closeEnd : element.start, `<section class="proof-reader-before">${beforeGraph}</section>\n`]);
+    } else if (element.attrs.id === 'reader-rail') {
+      edits.push([element.closeEnd, element.closeEnd, `<section id="proof-selection-host" aria-label="Selected scientific content"></section><section class="proof-reader-after">${afterGraph}</section>`]);
+      if (index || !resultsHtml) edits.push([element.start, element.closeEnd, '']);
+    } else if (element.attrs.id === 'node-outline' || classes.includes('rail-controls') || element.attrs.id === 'rail-reveal') {
+      // The entire rail/stage may already be removed in index mode.
+      if (!index && (resultsHtml || element.attrs.id === 'rail-reveal')) edits.push([element.start, element.closeEnd, '']);
+    } else if (index && classes.includes('toolbar')) {
+      edits.push([element.start, element.closeEnd, '<div class="toolbar no-print"><button type="button" id="proof-index-theme" aria-label="Toggle light and dark theme">Theme</button></div>']);
+    } else if (index && element.tag === 'script' && html.slice(element.openEnd, element.closeStart).includes('var Archify = {};')) {
+      edits.push([element.start, element.closeEnd, '']);
+    }
+  }
+  for (const [start, end, value] of edits.sort((a, b) => b[0] - a[0] || b[1] - a[1])) html = html.slice(0, start) + value + html.slice(end);
   html = html.replace('</head>', () => `<style id="scientific-reader-style">${SCIENTIFIC_READER_CSS}\n${css}</style>\n</head>`);
-  html = html.replace('<body>', () => `<body data-reader-layout="${index ? 'index' : 'graph'}" data-proof-layout="${index ? 'index' : 'dag'}"><script>document.documentElement.setAttribute('data-js','');</script>`);
+  const viewBox = scanHtml(svg).elements.find(element => element.tag === 'svg')?.attrs.viewbox?.trim().split(/[\s,]+/).map(Number);
+  const wide = !index && viewBox?.[3] > 0 && viewBox[2] / viewBox[3] >= 1.55;
+  if (wide) html = html.replace('class="diagram-container"', 'class="diagram-container" data-wide-diagram="true"');
+  html = html.replace('<body>', () => `<body data-reader-layout="${index ? 'index' : 'graph'}" data-proof-layout="${index ? 'index' : 'dag'}"><script>document.documentElement.setAttribute('data-js','');${wide ? 'document.documentElement.setAttribute("data-diagram-shape","wide");' : ''}${index ? 'document.documentElement.removeAttribute("data-present");document.documentElement.removeAttribute("data-embed");' : ''}</script>`);
   html = html.replace('</body>', () => `${data}${runtime ? `<script id="proof-runtime">${runtime}</script>` : ''}</body>`);
   return html;
 }
-export function mainResultNavigation({ entries, heading = 'Main results', graphAvailable = true, traceHtml = '' }) {
-  return `<section class="proof-main-navigation proof-navigation" aria-labelledby="proof-main-title"><h2 id="proof-main-title">${esc(heading)}</h2><div class="proof-main-list" id="proof-main-results">${entries.map(entry => `<button type="button" data-reader-open="${esc(entry.key)}" data-proof-main="${esc(entry.nodeId || '')}" class="k-${esc(entry.kind)} c-${esc(entry.kind)}" aria-pressed="false" title="${esc(`${entry.label}: ${entry.caption || ''}. Open statement and supporting dependencies.`)}"><strong>${esc(entry.label)}</strong><span>${esc(entry.caption || '')}</span></button>`).join('')}</div>${graphAvailable ? '<div class="proof-view-controls"><button id="proof-full-structure" type="button">Fit complete structure</button><button id="proof-readable-view" type="button">Readable view</button><p id="proof-view-status" role="status" aria-live="polite">Select a result or connection to read its statement and supporting evidence.</p></div>' : ''}${traceHtml}</section>`;
+export function resultsNavigation({ entries, mainIds = [], heading = 'Main results', graphAvailable = true }) {
+  if (!graphAvailable || !entries.length) return '';
+  const remaining = new Map(entries.map(entry => [entry.nodeId, entry]));
+  const main = mainIds.map(id => { const entry = remaining.get(id); remaining.delete(id); return entry; }).filter(Boolean);
+  const groups = main.length ? [{heading, entries:main}] : [];
+  for (const kind of [...new Set([...remaining.values()].map(entry => entry.kind))]) {
+    groups.push({heading:KINDS[kind]?.[0] || 'Other results', entries:[...remaining.values()].filter(entry => entry.kind === kind)});
+  }
+  return `<nav class="proof-results" id="proof-results" aria-labelledby="proof-results-title"><h2 id="proof-results-title">Results</h2>${groups.map(group => `<section class="proof-results-group"><h3>${esc(group.heading)}</h3><ul class="proof-results-list">${group.entries.map(entry => `<li><a class="node-outline-item proof-result-link k-${esc(entry.kind)}" href="#${esc(entry.articleId)}" data-reader-open="${esc(entry.key)}" data-reader-node="${esc(entry.nodeId)}"><span class="node-outline-dot" aria-hidden="true"></span><strong>${esc(entry.label)}</strong>${entry.caption ? `<small>${esc(entry.caption)}</small>` : ''}</a></li>`).join('')}</ul></section>`).join('')}</nav>`;
+}
+export function viewControls({ traceHtml = '' } = {}) {
+  return '<div class="proof-view-controls"><button id="proof-full-structure" type="button">Fit complete structure</button><button id="proof-readable-view" type="button">Readable view</button><p id="proof-view-status" role="status" aria-live="polite">Select a result or connection to read its statement and supporting evidence.</p></div>' + traceHtml;
 }
 function attributes(attrs = {}) {
   return Object.entries(attrs).map(([key, value]) => ` ${key}="${esc(value)}"`).join('');
@@ -77,16 +124,28 @@ function initializeScientificReader(data) {
   var svg = data.graphAvailable ? doc.querySelector('.diagram-container svg') : null;
   var chip = doc.getElementById('focus-chip'), container = doc.querySelector('.diagram-container');
   var details = doc.getElementById('proof-details'), panel = doc.getElementById('proof-selection');
-  var current = '', activator = null, printState = null;
+  var auditReader = !!doc.querySelector('.proof-reader.proof-audit');
+  var current = '', currentTarget = null, activator = null, printState = null;
   var targets = data.targets, nodeList = svg ? Array.from(svg.querySelectorAll('g[data-node-id]')) : [];
+  var byKey = new Map(), byNode = new Map(), byEdge = new Map();
+  targets.forEach(function (target) {
+    if (!byKey.has(target.key)) byKey.set(target.key, target);
+    if (target.nodeId) byNode.set(target.nodeId, target);
+    if (target.edgeId) byEdge.set(target.edgeId, target);
+  });
+  var articles = Array.from(new Set(targets.map(function (target) { return doc.getElementById(target.articleId); }).filter(Boolean)));
+  var navigation = Array.from(doc.querySelectorAll('[data-reader-node]'));
   var preview = doc.getElementById('proof-tooltip'), previewTimer = null, previewFrame = null;
   var keyboardNavigation = false, previewNode = null;
   var previewEnabled = !!(svg && preview && nodeList.some(function (node) { return doc.getElementById('proof-hover-' + node.getAttribute('data-node-id')); }));
   root.setAttribute('data-js', '');
-  if (svg && chip && container) {
-    container.insertAdjacentElement('afterend', chip);
+  var selectionHost = doc.getElementById('proof-selection-host');
+  var fullIndex = doc.getElementById('proof-full-index');
+  if (svg && fullIndex) fullIndex.removeAttribute('open');
+  if (svg && chip && selectionHost) {
+    selectionHost.appendChild(chip);
     chip.removeAttribute('data-radar-yielded'); chip.removeAttribute('aria-hidden');
-    if (details) { chip.insertAdjacentElement('afterend', details); details.classList.add('proof-reader'); }
+    if (details) { selectionHost.appendChild(details); details.classList.add('proof-reader'); }
     var reach = chip.querySelector('.semantic-passport-reach-label');
     if (reach) reach.textContent = 'Trace dependencies';
     var eyebrow = chip.querySelector('.relationship-lens-eyebrow');
@@ -95,6 +154,11 @@ function initializeScientificReader(data) {
       panel = doc.createElement('div'); panel.id = 'proof-selection'; panel.classList.add('proof-reader'); panel.setAttribute('aria-label', 'Selected statement and connections');
       chip.querySelector('.relationship-lens-head').insertAdjacentElement('afterend', panel);
     }
+  }
+  // Relocated details retain their original audit styling and severity palette.
+  if (auditReader) {
+    if (details) details.classList.add('proof-audit');
+    if (panel) panel.classList.add('proof-audit');
   }
   var clearButton = doc.getElementById('btn-focus-clear');
   if (clearButton) clearButton.setAttribute('aria-label', 'Close result details');
@@ -168,15 +232,16 @@ function initializeScientificReader(data) {
   function clearTargets() { doc.querySelectorAll('.is-target').forEach(function (element) { element.classList.remove('is-target'); }); }
   function select(key, options) {
     options = options || {};
-    var target = targets.find(function (entry) { return entry.key === key; });
+    var target = (options.nodeId && byNode.get(options.nodeId)) || (options.edgeId && byEdge.get(options.edgeId)) || byKey.get(key);
     var article = target && doc.getElementById(target.articleId);
     if (!article) return false;
     previewNode = null; hidePreview();
     if (options.activator) activator = options.activator;
-    var changed = current !== key; current = key;
+    var changed = current !== key; current = key; currentTarget = target;
     if (svg && viewer && viewer.focus && !options.fromViewer) {
-      if (target.nodeId && viewer.focus.active() !== target.nodeId) viewer.focus.set(target.nodeId, { toggle: false });
-      else if (target.edgeId && (!viewer.focus.relationship() || viewer.focus.relationship().id !== target.edgeId)) viewer.focus.inspectRelationshipById(target.edgeId, { toggle: false });
+      var focusOptions = { toggle: false, updateUrl: !options.preserveHash };
+      if (target.nodeId && (viewer.focus.active() !== target.nodeId || viewer.focus.relationship())) viewer.focus.set(target.nodeId, focusOptions);
+      else if (target.edgeId && (!viewer.focus.relationship() || viewer.focus.relationship().id !== target.edgeId)) viewer.focus.inspectRelationshipById(target.edgeId, focusOptions);
     }
     if (article.tagName.toLowerCase() === 'template') {
       if (!panel) panel = doc.getElementById('proof-index-item-' + target.nodeId) || doc.getElementById('proof-index-use-' + target.edgeId);
@@ -185,11 +250,11 @@ function initializeScientificReader(data) {
       article = panel;
     } else {
       hydrate(article);
-      targets.forEach(function (entry) { var element = doc.getElementById(entry.articleId); if (element && element.tagName.toLowerCase() !== 'template') element.classList.toggle('is-active', element === article); });
+      articles.forEach(function (element) { if (element.tagName.toLowerCase() !== 'template') element.classList.toggle('is-active', element === article); });
       article.classList.add('is-active');
     }
     var empty = doc.getElementById('proof-detail-empty'); if (empty) empty.classList.add('is-hidden');
-    doc.querySelectorAll('[data-proof-main]').forEach(function (button) { button.setAttribute('aria-pressed', String(button.getAttribute('data-proof-main') === target.nodeId)); });
+    navigation.forEach(function (link) { if (link.getAttribute('data-reader-node') === target.nodeId) link.setAttribute('aria-current', 'true'); else link.removeAttribute('aria-current'); });
     nodeList.forEach(function (node) { node.setAttribute('aria-pressed', String(node.getAttribute('data-node-id') === target.nodeId)); });
     var destination = options.section ? query(article, 'data-proof-section', options.section) : article;
     destination = destination || article;
@@ -200,14 +265,14 @@ function initializeScientificReader(data) {
     if (!options.silent) focus(destination === article ? article.querySelector('.proof-detail-heading') || article : destination);
     return true;
   }
-  function clear(restoreFocus) {
+  function clear(restoreFocus, fromViewer) {
     previewNode = null; hidePreview();
-    if (viewer && viewer.focus && data.graphAvailable) viewer.focus.clear();
-    current = ''; if (panel && panel.id === 'proof-selection') panel.innerHTML = '';
-    targets.forEach(function (entry) { var article = doc.getElementById(entry.articleId); if (article && article.tagName.toLowerCase() !== 'template') article.classList.remove('is-active'); });
-    doc.querySelectorAll('[data-proof-main]').forEach(function (button) { button.setAttribute('aria-pressed', 'false'); });
+    if (!fromViewer && viewer && viewer.focus && data.graphAvailable) viewer.focus.clear();
+    current = ''; currentTarget = null; if (panel && panel.id === 'proof-selection') panel.innerHTML = '';
+    articles.forEach(function (article) { if (article.tagName.toLowerCase() !== 'template') article.classList.remove('is-active'); });
+    navigation.forEach(function (link) { link.removeAttribute('aria-current'); });
     var empty = doc.getElementById('proof-detail-empty'); if (empty) empty.classList.remove('is-hidden');
-    clearTargets(); if (restoreFocus) focus(activator || nodeList[0] || doc.getElementById('proof-main-title'));
+    clearTargets(); if (restoreFocus) focus(activator || nodeList[0] || doc.getElementById('proof-results-title'));
   }
   function readableView(id) {
     if (!svg || !viewer || !viewer.view) return;
@@ -225,9 +290,9 @@ function initializeScientificReader(data) {
   function syncViewer() {
     if (!svg || !viewer || !viewer.focus || printState) return;
     var active = viewer.focus.active(), relation = viewer.focus.relationship();
-    var target = targets.find(function (entry) { return relation ? entry.edgeId === relation.id : typeof active === 'string' && entry.nodeId === active; });
-    if (target && target.key !== current) select(target.key, { fromViewer: true });
-    else if (!target && current) clear(false);
+    var target = relation ? byEdge.get(relation.id) : byNode.get(active);
+    if (target && target !== currentTarget) select(target.key, { fromViewer: true, nodeId: target.nodeId, edgeId: target.edgeId });
+    else if (!target && current) clear(false, true);
     svg.querySelectorAll('[data-edge-badge]').forEach(function (badge) {
       var path = query(svg, 'data-edge-id', badge.getAttribute('data-edge-badge'));
       if (path && (svg.hasAttribute('data-reach-active') ? path.hasAttribute('data-reach-match') : path.hasAttribute('data-focus-match'))) badge.setAttribute('data-proof-emphasized', '');
@@ -239,26 +304,29 @@ function initializeScientificReader(data) {
   function activation(event) {
     var origin = event.target; if (!origin || typeof origin.closest !== 'function') return;
     var badge = origin.closest('[data-proof-use],[data-edge-badge]');
-    var open = origin.closest('[data-reader-open],[data-proof-focus],[data-proof-main],.proof-jump,[data-focus-node]');
+    var open = origin.closest('[data-reader-open],[data-proof-focus],.proof-jump,[data-focus-node]');
     var target, options = { activator: open || badge || origin };
-    if (badge) target = targets.find(function (entry) { return entry.edgeId === (badge.getAttribute('data-proof-use') || badge.getAttribute('data-edge-badge')); });
+    if (badge) target = byEdge.get(badge.getAttribute('data-proof-use') || badge.getAttribute('data-edge-badge'));
     else if (open) {
       var key = open.getAttribute('data-reader-open') || open.getAttribute('data-jump-detail');
-      target = key ? targets.find(function (entry) { return entry.key === key; }) : targets.find(function (entry) { return entry.nodeId === (open.getAttribute('data-proof-main') || open.getAttribute('data-proof-focus') || open.getAttribute('data-focus-node')); });
+      var nodeId = open.getAttribute('data-reader-node') || open.getAttribute('data-proof-focus') || open.getAttribute('data-focus-node');
+      target = (nodeId && byNode.get(nodeId)) || byKey.get(key);
       options.section = open.getAttribute('data-jump-section'); options.record = open.getAttribute('data-jump-record');
     } else if (svg && svg.contains(origin)) {
       var node = origin.closest('[data-node-id]');
       if (node) { previewNode = null; hidePreview(); activator = node; setTimeout(syncViewer, 0); return; }
     }
     if (target) {
+      options.nodeId = target.nodeId; options.edgeId = target.edgeId;
       event.preventDefault(); if (badge) event.stopPropagation(); select(target.key, options);
-      if (open && (open.hasAttribute('data-proof-main') || open.hasAttribute('data-focus-node'))) readableView(target.nodeId);
+      if (open && (open.hasAttribute('data-reader-node') || open.hasAttribute('data-focus-node'))) readableView(target.nodeId);
     } else if (origin.closest('.proof-back,#btn-focus-clear')) clear(true);
     else setTimeout(syncViewer, 0);
   }
   doc.addEventListener('click', activation, true);
   doc.addEventListener('keydown', function (event) {
     keyboardNavigation = true;
+    if (indexTheme && !event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 't' && !event.target.closest('input,textarea,[contenteditable]')) { event.preventDefault(); indexTheme.click(); }
     if (event.key === 'Escape') { previewNode = null; hidePreview(); }
     if (event.key === 'Escape' && current) { event.preventDefault(); clear(true); return; }
     var badge = event.target.closest && event.target.closest('[data-proof-use],[data-edge-badge]');
@@ -293,7 +361,7 @@ function initializeScientificReader(data) {
   window.addEventListener('beforeprint', function () {
     previewNode = null; hidePreview();
     if (printState) return;
-    printState = { key: current, activator: activator, showAll: !!showAll?.checked, classState: root.classList.contains('show-all-details'), disclosures: [] };
+    printState = { key: current, target: currentTarget, activator: activator, showAll: !!showAll?.checked, classState: root.classList.contains('show-all-details'), disclosures: [] };
     allDetails(); root.classList.add('show-all-details');
     doc.querySelectorAll('details').forEach(function (element) { if (element.closest('.proof-reader') || element.closest('.proof-index') || element.hasAttribute('data-reader-disclosure')) { printState.disclosures.push([element, element.hasAttribute('open')]); element.setAttribute('open', ''); } });
   });
@@ -301,7 +369,7 @@ function initializeScientificReader(data) {
     if (!printState) return;
     printState.disclosures.forEach(function (entry) { if (entry[1]) entry[0].setAttribute('open', ''); else entry[0].removeAttribute('open'); });
     root.classList.toggle('show-all-details', printState.classState); if (showAll) showAll.checked = printState.showAll;
-    current = printState.key; activator = printState.activator; printState = null;
+    current = printState.key; currentTarget = printState.target; activator = printState.activator; printState = null;
   });
   var search = doc.getElementById('proof-search'), results = doc.getElementById('proof-search-results'), searchStatus = doc.getElementById('proof-search-status');
   var entries = data.searchEntries.map(function (entry) { return { ...entry, lower: entry.text.toLowerCase(), lookup: (entry.text + ' ' + (entry.aliases || []).join(' ')).toLowerCase() }; });
@@ -325,6 +393,17 @@ function initializeScientificReader(data) {
   }
   var timer = null;
   if (search) { search.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(runSearch, 120); }); search.addEventListener('keydown', function (event) { if (event.key === 'Enter') { runSearch(); var first = results.querySelector('button'); if (first) first.click(); } }); runSearch(); }
-  if (typeof location !== 'undefined' && location.hash) { var linked = doc.getElementById(location.hash.slice(1)); var target = targets.find(function (entry) { return entry.articleId === linked?.id; }); if (target) select(target.key, { silent: true }); }
+  function openArticleFragment() {
+    if (typeof location === 'undefined' || !location.hash) return;
+    var id;
+    try { id = decodeURIComponent(location.hash.slice(1)); } catch (_) { return; }
+    var linked = doc.getElementById(id);
+    var target = linked && (byNode.get(linked.getAttribute('data-proof-index-item')) || byEdge.get(linked.getAttribute('data-proof-index-use')) || targets.find(function (entry) { return entry.articleId === linked.id; }));
+    if (target) select(target.key, { preserveHash: true, nodeId: target.nodeId, edgeId: target.edgeId });
+  }
+  // Native hash handlers run first; restore article selection before their
+  // queued focus observer runs, without replacing the public article address.
+  window.addEventListener('hashchange', openArticleFragment);
+  openArticleFragment();
   syncViewer();
 }

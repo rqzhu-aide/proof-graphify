@@ -119,10 +119,28 @@ test('review integration preserves returned rationale, consequential exposure an
   assert.equal(field(content,'responses','response',['exposure_note']).value,'A proposed solution was supplied; alternative routes may not have been challenged.');
   assert.ok(content.title(pin('checks','independent')).startsWith('Additional assessment:'));
   const response=content.record(pin('responses','response'));
-  assert.ok(response.notices.some(note=>note.includes('substantive contents are not present')));
+  assert.ok(response.notices.some(note=>note.includes('not yet linked') && note.includes('not included in the assessment')));
   assert.ok(!response.fields.some(row=>row.path[0]==='pending_judgments'));
   assert.equal(field(content,'audits','audit',['exclusions',0,'consequence']).value,'No conclusion about x = 0 is established.');
   assert.equal(field(content,'identity_maps','mapping',['entries',0,'rationale']).value,'The returned statement refers to the positive-domain part.');
+});
+
+test('mapping changes current response status without removing historical or worker-authored concerns',()=>{
+  const p=fixture(), response=get(p,'responses','response');
+  const coverage='Unresolved judgment 99 awaits mapping is the reviewer\'s quoted phrase.\nUnresolved judgment 1: old intake status. The boundary assumption is missing.';
+  Object.assign(response.body,{state:'accepted',coverage_note:coverage,pending_judgments:[1]});
+  const saved=JSON.stringify(response.body), before=createReaderContent(p).record(response);
+  assert.equal(before.fields.find(row=>row.path[0]==='coverage_note').value,coverage);
+  assert.ok(before.notices.some(note=>note.includes('not included in the assessment')));
+  assert.equal(JSON.stringify(response.body),saved);
+  response.body.pending_judgments=[];
+  const after=createReaderContent(p).record(response);
+  assert.equal(after.fields.find(row=>row.path[0]==='coverage_note').value,coverage);
+  assert.ok(after.fields.find(row=>row.path[0]==='coverage_note').label.includes('recorded at submission'));
+  assert.ok(!after.notices.some(note=>note.includes('not yet linked')));
+  assert.ok(after.notices.some(note=>note.includes('All returned judgments are linked')));
+  response.body.state='needs_revision';
+  assert.ok(!createReaderContent(p).record(response).notices.some(note=>note.includes('All returned judgments are linked')));
 });
 
 test('older compatible applications and unknown shapes retain useful science with an honest limitation',()=>{

@@ -21,8 +21,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { esc, textUnits } from './assets/archify/utils.mjs';
 import { scanHtml, textOf, descendants, hasAttr, sameMultiset } from './html_scan.mjs';
-import { archifyPage, mainNavigation } from './archify_adapter.mjs';
-import { KINDS, BOX, readerRuntime, scientificSearchPanel, readingSection, sourceDisclosure, mathDisplayNotes, SCIENTIFIC_READER_CSS } from './scientific_reader.mjs';
+import { archifyPage, auditResults } from './archify_adapter.mjs';
+import { KINDS, BOX, readerRuntime, viewControls, scientificSearchPanel, readingSection, sourceDisclosure, mathDisplayNotes, SCIENTIFIC_READER_CSS } from './scientific_reader.mjs';
 import { createReaderContent } from './reader_content.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -35,8 +35,22 @@ const TEMPLATE_PATH = path.join(HERE, 'assets', 'archify', 'template.html');
 // [display name, dark-theme tone, light-theme tone] - the archify palette.
 export { KINDS, BOX } from './scientific_reader.mjs';
 export const STATES = ['green', 'red', 'gray', 'amber'];
-const STATE_LABELS = { green: 'Green', red: 'Red', gray: 'Gray', amber: 'Amber' };
-const STATE_GLYPHS = { green: '✓', red: '✕', gray: '?', amber: '!' };
+const DISPLAY_STATES = ['red', 'orange', 'yellow', 'green', 'gray'];
+const STATE_LABELS = { green: 'Checked', red: 'Severe', orange: 'Moderate', yellow: 'Minor', gray: 'Unresolved or unrated' };
+const STATE_GLYPHS = { green: '✓', red: '✕', orange: '!', yellow: 'i', gray: '?' };
+const DISPLAY = {
+  severe: ['red', 'Severe'], moderate: ['orange', 'Moderate'], minor: ['yellow', 'Minor'],
+  checked: ['green', 'Checked'], unrated: ['gray', 'Severity not rated'],
+  unresolved: ['gray', 'Unable to assess'], unassessed: ['gray', 'Not assessed'],
+  dependency: ['gray', 'Depends on unresolved result'], historical: ['gray', 'Saved assessment, not rated'],
+};
+const reviewDisplay = assessment => {
+  const saved = assessment?.review_display;
+  const status = saved && Object.hasOwn(DISPLAY, saved.status) ? saved.status : 'historical';
+  const [color, label] = DISPLAY[status];
+  return {status, color, label, explanation:saved?.explanation || '', unrated_count:saved?.unrated_count || 0};
+};
+const displayState = assessment => reviewDisplay(assessment).color;
 const REVIEWS = ['not_required', 'pending', 'complete', 'disputed', 'compromised'];
 const REVIEW_LABELS = { not_required: 'not required', pending: 'pending', complete: 'complete', disputed: 'disputed', compromised: 'compromised' };
 const SECTION_KINDS = ['statement', 'applications', 'derivations', 'premises', 'coverage', 'findings', 'sources', 'review', 'composition', 'limitations'];
@@ -207,6 +221,11 @@ export function validateInput(input) {
     validateIdList(assessment.finding_refs, `${where}.assessment.finding_refs`);
     validateIdList(assessment.missing_obligation_ids, `${where}.assessment.missing_obligation_ids`);
     if (!REVIEWS.includes(assessment.independent_review)) bad(`${where}.assessment.independent_review must be one of ${REVIEWS.join(', ')}`);
+    if (assessment.review_display !== undefined) {
+      const display = assessment.review_display;
+      if (!isObject(display) || !Object.hasOwn(DISPLAY, display.status) || !isCount(display.unrated_count)
+          || !isString(display.explanation) || !Array.isArray(display.finding_refs)) bad(`${where}.assessment.review_display is invalid`);
+    }
   };
 
   // Records first: everything else points at them.
@@ -703,8 +722,16 @@ export function layoutGraph(model) {
     width = Math.max(width, left + component.width);
     left += component.width + gapX;
   });
+  const gapConnections = new Map();
+  // Match the previous outgoing-map traversal order so channel geometry is stable.
+  for (const entries of outgoing.values()) for (const connection of entries) {
+    const from = nodes.get(connection.from), to = nodes.get(connection.to);
+    const key = `${from.component}:${from.rank}:${to.rank}`;
+    if (!gapConnections.has(key)) gapConnections.set(key, []);
+    gapConnections.get(key).push(connection);
+  }
   return {
-    nodes, components, incoming, outgoing, longConnections, feedback,
+    nodes, components, incoming, outgoing, longConnections, feedback, gapConnections,
     width,
     height: rowBottom + BOX.margin,
   };
@@ -752,10 +779,7 @@ function edgePoints(connection, graph) {
 }
 
 function sameGapConnections(graph, a, b) {
-  return [...graph.outgoing.values()].flat().filter((entry) => {
-    const from = graph.nodes.get(entry.from), to = graph.nodes.get(entry.to);
-    return from.component === a.component && from.rank === a.rank && to.rank === b.rank;
-  });
+  return graph.gapConnections.get(`${a.component}:${a.rank}:${b.rank}`) || [];
 }
 
 function captionLines(text, limit = 25) {
@@ -959,8 +983,10 @@ ${this.readerSources(entry.scope_ref)}
   }
 
   assessmentBlock(assessment, options = {}) {
-    const parts = [`<div class="proof-assessment s-${esc(assessment.state)}">`];
-    parts.push(`<p class="proof-assessment-head">${stateBadge(assessment.state)} <strong class="proof-assessment-label">${esc(assessment.label)}</strong></p>`);
+    const display = reviewDisplay(assessment);
+    const parts = [`<div class="proof-assessment s-${esc(display.color)}" data-review-status="${esc(display.status)}">`];
+    parts.push(`<p class="proof-assessment-head">${stateBadge(display.color, display.label)} <strong class="proof-assessment-label">${esc(assessment.label)}</strong></p>`);
+    if (display.explanation) parts.push(`<p class="proof-review-explanation">${esc(display.explanation)}</p>`);
     if (assessment.explanation) parts.push(`<p class="proof-assessment-text">${esc(assessment.explanation)}</p>`);
     if (assessment.availability) parts.push(`<p class="proof-assessment-meta proof-availability">Exact target support: <strong>${esc(assessment.availability)}</strong></p>`);
     if (assessment.local_label) parts.push(`<p class="proof-assessment-meta proof-local-outcome">Recorded local work: <strong>${esc(assessment.local_label)}</strong></p>`);
@@ -972,6 +998,26 @@ ${this.readerSources(entry.scope_ref)}
     }
     parts.push('</div>');
     return parts.join('');
+  }
+
+  findingCard(key, index, ref) {
+    const record = this.readerRecord(ref), body = record?.body;
+    if (!body) return '<p class="proof-muted">Saved finding unavailable.</p>';
+    const display = reviewDisplay({review_display:this.model.projection.finding_displays?.[ref.id]});
+    const context = `finding:${index}`;
+    const prose = this.readerField(key, context, ref, 'description') + this.readerField(key, context, ref, 'impact_reason');
+    const legacy = !body.severity;
+    const links = (body.check_refs || []).map(check => this.humanLink(check, 'Examination reasoning')).join(' · ');
+    return `<section class="proof-issue-card s-${esc(display.color)}" data-issue-ref="${esc(ref.id)}" data-review-status="${esc(display.status)}">
+<header class="proof-issue-head">${stateBadge(display.color, display.label)}${body.target ? `<strong>${this.humanLink(body.target)}</strong>` : ''}</header>
+${display.explanation && !['severe','moderate','minor'].includes(display.status) ? `<p class="proof-issue-qualification">${esc(display.explanation)}</p>` : ''}
+${legacy ? '' : prose}
+${this.readerSources(ref)}
+<details class="proof-reader-context"><summary>Assessment details${legacy ? ' and saved finding' : ''}</summary>
+${legacy ? prose : ''}<p>${this.readerField(key, context, ref, 'category')} · ${esc(humanize(body.lifecycle))}</p>
+${body.resolution ? this.readerField(key, context, ref, 'resolution') : ''}
+${links ? `<p>${links}</p>` : ''}<p>${this.humanLink(ref, 'Finding and supporting evidence')}</p></details>
+</section>`;
   }
 
   // ----- summary -----------------------------------------------------------
@@ -1008,9 +1054,7 @@ ${external.length ? `<h4>Unresolved external suppliers</h4><ul>${external.join('
     const findingItems = summary.findings.refs.map((id, index) => {
       const record = model.recordsByLoose.get(`findings:${id}`);
       const body = record ? record.body : null;
-      const meta = body ? [body.category, body.lifecycle].filter(isString).map((value) => `<span class="proof-pill">${esc(humanize(value))}</span>`).join(' ') : '<span class="proof-muted">Saved finding unavailable</span>';
-      const text = body ? this.readerField('summary', `finding:${index}`, record.ref, 'description') + this.readerField('summary', `finding:${index}`, record.ref, 'impact_reason') : '';
-      return `<li data-proof-finding="${esc(id)}">${this.humanLink({collection:'findings', id}, `Finding ${index + 1}`)} ${meta} ${text}</li>`;
+      return `<li data-proof-finding="${esc(id)}">${body ? this.findingCard('summary', index, record.ref) : '<p>Saved finding unavailable.</p>'}</li>`;
     });
     const limitItems = summary.source_limits.map((id, index) => {
       const record = model.recordsByLoose.get(`source_issues:${id}`);
@@ -1070,26 +1114,26 @@ ${overviewBoundaries}
     const badges = [];
     const edges = model.connectionList.map((connection, edgeIndex) => {
       const points = edgePoints(connection, graph);
-      const state = connection.assessment.state;
+      const state = displayState(connection.assessment);
       const d = roundedPath(points);
       const labels = [];
       if (connection.primary_use_ids.length > 1) labels.push(`${connection.primary_use_ids.length} applications`);
       if (connection.groups.length) labels.push(`${connection.groups.length} ${connection.groups.length === 1 ? 'group' : 'groups'}`);
-      const description = `${this.nodeLabel(connection.from)} to ${this.nodeLabel(connection.to)}. ${STATE_LABELS[state]}: ${connection.assessment.label}.${labels.length ? ` ${labels.join(', ')}.` : ''}`;
+      const description = `${this.nodeLabel(connection.from)} to ${this.nodeLabel(connection.to)}. ${reviewDisplay(connection.assessment).label}: ${connection.assessment.label}.${labels.length ? ` ${labels.join(', ')}.` : ''}`;
       if (labels.length) badges.push({ connection, description: `${description} Select for details.`, labels, points });
       return `<path data-edge-id="${esc(connection.id)}" data-edge-key="${edgeIndex}" data-edge-label="${esc(description)}" data-edge-from="${esc(connection.from)}" data-edge-to="${esc(connection.to)}" data-edge-state="${esc(state)}" data-detail-key="${esc(connection.detail_key)}" class="proof-edge s-${esc(state)}" d="${d}" marker-end="url(#proof-arrow-${esc(state)})"><title>${esc(description)}</title></path>`;
     });
     const ordered = [...graph.nodes.values()].sort((a, b) => a.rank - b.rank || a.y - b.y || a.order - b.order);
     const nodes = ordered.map((node) => {
       const source = node.source;
-      const state = source.assessment.state;
+      const state = displayState(source.assessment);
       const review = source.assessment.independent_review;
       const cx = node.x + BOX.w / 2;
       const caption = captionLines(source.caption);
       const labelSize = Math.max(12, Math.min(14, 150 / Math.max(1, textUnits(source.label)) / 0.61));
       const squeeze = textUnits(source.label) * labelSize * 0.61 > 154 ? ' textLength="154" lengthAdjust="spacingAndGlyphs"' : '';
-      const aria = `${source.label}. ${KINDS[source.kind][0]}. ${STATE_LABELS[state]}: ${source.assessment.label}. Independent review ${REVIEW_LABELS[review]}. Press Enter for details.`;
-      const tooltip = `${source.label}${source.caption ? `: ${source.caption}` : ''} (${KINDS[source.kind][0]}, ${STATE_LABELS[state].toLowerCase()})`;
+      const aria = `${source.label}. ${KINDS[source.kind][0]}. ${reviewDisplay(source.assessment).label}: ${source.assessment.label}. Independent review ${REVIEW_LABELS[review]}. Press Enter for details.`;
+      const tooltip = `${source.label}${source.caption ? `: ${source.caption}` : ''} (${KINDS[source.kind][0]}, ${reviewDisplay(source.assessment).label.toLowerCase()})`;
       const reviewMark = review === 'not_required' ? '' : `<g class="proof-node-review r-${esc(review)}" aria-hidden="true"><rect x="${node.x + BOX.w - 24}" y="${node.y + BOX.h - 8}" width="26" height="14" rx="7"/><text x="${node.x + BOX.w - 11}" y="${node.y + BOX.h + 2.5}" text-anchor="middle" font-size="8.5">IR</text></g>`;
       return `<g data-node-id="${esc(source.id)}" data-node-label="${esc(source.label)}" data-node-sublabel="${esc(source.caption)}" data-node-state="${esc(state)}" data-node-kind="${esc(source.kind)}" data-detail-key="${esc(source.detail_key)}" data-node-rank="${node.rank}" data-node-x="${node.x}" data-node-y="${node.y}" tabindex="0" role="button" aria-pressed="false" aria-label="${esc(aria)}" class="proof-node k-${esc(source.kind)} s-${esc(state)}">
 <title>${esc(tooltip)}</title>
@@ -1114,8 +1158,8 @@ ${reviewMark}
       }
       return `<g class="proof-component" aria-hidden="true"><title>${esc(title)}</title><path d="M ${component.left + 22} ${component.top + 16} H ${component.left + component.width - 22}"/><text x="${component.left + BOX.margin}" y="${component.top + 9}" font-size="11">${esc(label)}</text></g>`;
     }).join('\n') : '';
-    const markers = STATES.map((state) => `<marker id="proof-arrow-${state}" markerWidth="8" markerHeight="6" refX="7.2" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 3 L0 6 Z" class="proof-arrowhead s-${state}"/></marker>`).join('');
-    return `<svg class="proof-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${graph.width} ${graph.height}" width="${graph.width}" height="${graph.height}" role="group" aria-labelledby="proof-graph-heading" aria-describedby="proof-graph-desc">
+    const markers = DISPLAY_STATES.map((state) => `<marker id="proof-arrow-${state}" markerWidth="8" markerHeight="6" refX="7.2" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 3 L0 6 Z" class="proof-arrowhead s-${state}"/></marker>`).join('');
+    return `<svg class="proof-svg proof-audit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${graph.width} ${graph.height}" width="${graph.width}" height="${graph.height}" role="group" aria-labelledby="proof-graph-heading" aria-describedby="proof-graph-desc">
 <defs>${markers}<pattern id="proof-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" class="proof-grid-line" stroke-width="0.5"/></pattern></defs>
 <rect class="proof-grid-fill" width="100%" height="100%" fill="url(#proof-grid)"/>
 ${components}
@@ -1167,31 +1211,19 @@ ${nodes.join('\n')}
       occupied.push(placed.rect);
       const { x, y, anchor } = placed;
       const leader = Math.hypot(x - anchor[0], y - anchor[1]) > 3;
-      const state = connection.assessment.state;
+      const state = displayState(connection.assessment);
       return `${leader ? `<g aria-hidden="true" class="proof-badge-decoration"><path class="proof-badge-leader" d="M ${fmt(anchor[0])} ${fmt(anchor[1])} L ${fmt(x)} ${fmt(y)}"/><circle class="proof-badge-anchor" cx="${fmt(anchor[0])}" cy="${fmt(anchor[1])}" r="2"/></g>` : ''}<g class="proof-edge-badge s-${esc(state)}" data-edge-badge="${esc(connection.id)}" data-detail-key="${esc(connection.detail_key)}" tabindex="0" role="button" aria-label="${esc(description)}"><title>${esc(description)}</title><rect x="${fmt(x - w / 2)}" y="${fmt(y - h / 2)}" width="${fmt(w)}" height="${h}" rx="4"/>${labels.map((label, i) => `<text x="${fmt(x)}" y="${fmt(y - (labels.length - 1) * 7 + i * 14 + 3)}" text-anchor="middle">${esc(label)}</text>`).join('')}</g>`;
     }).join('\n');
   }
 
   legendHtml() {
     const kinds = Object.entries(KINDS).map(([kind, [name]]) => `<li class="k-${kind}"><span class="proof-legend-swatch proof-legend-kind"></span>${esc(name)}</li>`).join('');
-    const states = STATES.map((state) => `<li>${stateBadge(state)} <span class="proof-legend-note">${esc(state === 'green' ? 'ring solid' : state === 'red' ? 'ring thick' : state === 'amber' ? 'ring dashed' : 'ring dotted')}</span></li>`).join('');
+    const states = DISPLAY_STATES.map(state => `<li>${stateBadge(state)}</li>`).join('');
     return `<div class="proof-legend">
 <ul class="proof-legend-list" aria-label="Item kinds">${kinds}</ul>
 <ul class="proof-legend-list" aria-label="Assessment states">${states}</ul>
-<p class="proof-legend-note">Boxes are tinted by item kind; the ring, corner glyph and edge colour show the recorded assessment state. An <span class="proof-ir-sample">IR</span> tag marks items whose independent review is pending, complete, disputed or compromised. Edge badges mark connections with several applications or hidden-claim groups. Keyboard: Tab or arrow keys move between items, Enter opens details, Escape returns to the graph.</p>
+<p class="proof-legend-note">Boxes are tinted by item kind; the ring, corner glyph and edge colour show issue severity or the scoped check status. Gray means unresolved, unassessed or unrated, not a defect grade. An <span class="proof-ir-sample">IR</span> tag marks items whose independent review is pending, complete, disputed or compromised. Edge badges mark connections with several applications or hidden-claim groups. Keyboard: Tab or arrow keys move between items, Enter opens details, Escape returns to the graph.</p>
 </div>`;
-  }
-
-  graphSectionHtml() {
-    const reasons = this.model.layout.reasons.length ? `<ul class="proof-reasons">${this.model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : '';
-    return `<section id="proof-graph" class="proof-panel" aria-labelledby="proof-graph-heading">
-<div class="proof-panel-head"><h2 id="proof-graph-heading">Dependency graph</h2><p id="proof-graph-desc" class="proof-muted">Prerequisites on the left, results on the right. Arrows point from what is used to what uses it. States are copied from the audit record; nothing here is computed by the renderer.</p></div>
-${reasons}
-<div class="proof-canvas" tabindex="-1">
-${this.svgHtml()}
-</div>
-${this.legendHtml()}
-</section>`;
   }
 
   // ----- index (fallback) --------------------------------------------------
@@ -1205,21 +1237,21 @@ ${this.legendHtml()}
       outgoing.set(connection.from, outgoing.get(connection.from) + 1);
     }
     const items = model.nodeList.map((node) => {
-      const state = node.assessment.state;
+      const state = displayState(node.assessment);
       return `<article data-proof-index-item="${esc(node.id)}" data-node-state="${esc(state)}" data-node-kind="${esc(node.kind)}" class="proof-index-card k-${esc(node.kind)} s-${esc(state)}">
-<header class="proof-index-head">${kindBadge(node.kind)} <h4>${this.jump(node.detail_key, esc(node.label))}</h4> ${stateBadge(state, `${STATE_LABELS[state]}: ${node.assessment.label}`)}</header>
+<header class="proof-index-head">${kindBadge(node.kind)} <h4>${this.jump(node.detail_key, esc(node.label))}</h4> ${stateBadge(state, `${reviewDisplay(node.assessment).label}: ${node.assessment.label}`)}</header>
 ${node.caption ? `<p class="proof-index-caption">${esc(node.caption)}</p>` : ''}
 ${node.assessment.explanation ? `<p class="proof-index-text">${esc(node.assessment.explanation)}</p>` : ''}
 <p class="proof-index-meta">${reviewNote(node.assessment.independent_review)} <span class="proof-muted">${incoming.get(node.id)} incoming, ${outgoing.get(node.id)} outgoing</span></p>
 </article>`;
     });
     const connections = model.connectionList.map((connection) => {
-      const state = connection.assessment.state;
+      const state = displayState(connection.assessment);
       const labels = [];
       if (connection.primary_use_ids.length) labels.push(`${connection.primary_use_ids.length} application${connection.primary_use_ids.length === 1 ? '' : 's'}`);
       if (connection.groups.length) labels.push(`${connection.groups.length} hidden-claim group${connection.groups.length === 1 ? '' : 's'}`);
       return `<article data-proof-index-connection="${esc(connection.id)}" data-edge-from="${esc(connection.from)}" data-edge-to="${esc(connection.to)}" data-edge-state="${esc(state)}" class="proof-index-card s-${esc(state)}">
-<header class="proof-index-head"><h4>${this.jump(connection.detail_key, `${esc(this.nodeLabel(connection.from))} <span aria-hidden="true">→</span><span class="proof-visually-hidden"> to </span> ${esc(this.nodeLabel(connection.to))}`)}</h4> ${stateBadge(state, `${STATE_LABELS[state]}: ${connection.assessment.label}`)}</header>
+<header class="proof-index-head"><h4>${this.jump(connection.detail_key, `${esc(this.nodeLabel(connection.from))} <span aria-hidden="true">→</span><span class="proof-visually-hidden"> to </span> ${esc(this.nodeLabel(connection.to))}`)}</h4> ${stateBadge(state, `${reviewDisplay(connection.assessment).label}: ${connection.assessment.label}`)}</header>
 ${connection.assessment.explanation ? `<p class="proof-index-text">${esc(connection.assessment.explanation)}</p>` : ''}
 <p class="proof-index-meta">${labels.length ? `<span class="proof-muted">${esc(labels.join(', '))}</span>` : ''} ${reviewNote(connection.assessment.independent_review)}</p>
 </article>`;
@@ -1265,12 +1297,13 @@ ${outgoing.length ? `<details class="proof-disclosure"><summary>Used by (${outgo
   }
 
   connectionLine(connection) {
-    const state = connection.assessment.state;
-    return `<li>${this.jump(connection.detail_key, `${esc(this.nodeLabel(connection.from))} to ${esc(this.nodeLabel(connection.to))}`)} ${stateBadge(state)}</li>`;
+    const state = displayState(connection.assessment);
+    return `<li>${this.jump(connection.detail_key, `${esc(this.nodeLabel(connection.from))} to ${esc(this.nodeLabel(connection.to))}`)} ${stateBadge(state, reviewDisplay(connection.assessment).label)}</li>`;
   }
 
   nodeHeader(node, reader) {
-    return `<div class="proof-detail-owner proof-owner-node k-${esc(node.kind)}">
+    reader = reader && refKey(reader.item_ref) === refKey(node.item_ref) ? reader : null;
+    return `<div class="proof-detail-owner proof-owner-node k-${esc(node.kind)}" data-proof-owner-node="${esc(node.id)}">
 <p class="proof-owner-kicker">${kindBadge(node.kind)}${this.graph ? ` <button type="button" class="proof-focus-node" data-focus-node="${esc(node.id)}">Show in graph</button>` : ''}</p>
 <h3 class="proof-detail-heading" tabindex="-1">${this.humanLabelHtml(node.item_ref)}</h3>
 ${reader ? this.readerHtml(node, reader) : `<div data-reader-overview="${esc(node.detail_key)}"><p class="proof-reader-notice">This report supplies the saved statement and evidence without a separate contextual overview.</p>${this.assessmentBlock(node.assessment, {compact:true})}<h4>Saved statement or synopsis</h4>${this.readerField(node.detail_key, 'legacy', node.item_ref, 'statement')}<p class="proof-muted">This saved text is not asserted to be the exact examined target. Supporting evidence remains available below.</p></div>`}
@@ -1297,10 +1330,7 @@ ${different ? `<details class="proof-reader-context"><summary>Current saved syno
     }).join('');
     const strategy = this.readerRecord(reader.strategy_ref)?.body?.proof_idea;
     const strategyHtml = strategy ? `<section class="proof-reader-strategy proof-reading-section proof-logic-section"><h4>Main proof strategy</h4>${this.readerField(key, 'strategy', reader.strategy_ref, 'proof_idea')}${this.readerSources(reader.strategy_ref, 'proof')}<p class="proof-muted">Saved explanation; it supplies no additional proof support.</p></section>` : '';
-    const findings = reader.finding_refs.map((ref, index) => {
-      const body = this.readerRecord(ref)?.body || {};
-      return `<div class="proof-reader-issue"><p class="proof-reader-label">${this.readerField(key, `finding:${index}`, ref, 'category')}${body.target ? ` · Affected material: ${this.humanLink(body.target)}` : ''}</p>${this.readerField(key, `finding:${index}`, ref, 'description')}${this.readerField(key, `finding:${index}`, ref, 'impact_reason')}<p>${this.humanLink(ref, 'Finding and supporting evidence')}</p></div>`;
-    }).join('');
+    const findings = reader.finding_refs.map((ref, index) => this.findingCard(key, index, ref)).join('');
     const sourceLimits = reader.source_limit_refs.map((ref, index) => `<div class="proof-reader-issue"><p class="proof-reader-label">Source limitation${this.readerRecord(ref)?.body?.category ? ` · ${this.readerField(key, `source_limit:${index}`, ref, 'category')}` : ''}</p>${this.readerField(key, `source_limit:${index}`, ref, ref.collection === 'sources' ? 'limitation' : 'description')}<p>${this.humanLink(ref, 'Source limitation evidence')}</p></div>`).join('');
     const setup = reader.targets.map((target, index) => target.scope_chain.length ? `<section class="proof-reader-setup"><h5>${this.humanLink(target.target_ref)}: applicable assumptions and setup</h5>${this.readerScopes(key, `target:${index}`, target.scope_chain, {deduplicate:true,seed:true})}</section>` : '').join('');
     const applications = reader.applications.map((app, index) => ({app, index}));
@@ -1375,7 +1405,8 @@ ${app.summary_use_refs.length ? `<p>Refines ${app.summary_use_refs.map(ref => th
     const key = connection.detail_key, apps = new Map((connection.applications || []).map(app => [app.use_id, app]));
     const ids = [...new Set([...connection.primary_use_ids, ...apps.keys()])];
     const uses = ids.map((id, index) => {
-      const record = this.model.recordsByLoose.get(`uses:${id}`), app = apps.get(id), context = `application:${index}`;
+      const record = this.model.recordsByLoose.get(`uses:${id}`), app = apps.get(id);
+      const context = `${this.owners.get(key).length > 1 ? `connection:${connection.id}:` : ''}application:${index}`;
       const body = record?.body || {};
       const from = body.from && this.model.recordsByLoose.get(looseKey(body.from));
       const to = body.to && this.model.recordsByLoose.get(looseKey(body.to));
@@ -1392,7 +1423,7 @@ ${app?.scope_id ? `<p>Applicable context: ${this.humanLink({collection:'scopes',
 ${record ? this.readerSources(record.ref) : ''}</section>`;
     }).join('');
     const groups = connection.groups.map(group => `<section class="proof-reader-group"><h5>${group.group_id ? this.humanLink({collection:'groups',id:group.group_id}, `${humanize(group.inference_kind || 'recorded')} inference`) : 'Summary context'}${group.argument_id ? ` in ${this.humanLink({collection:'arguments',id:group.argument_id})}` : ''}</h5>${this.assessmentBlock(group.assessment, {compact:true})}</section>`).join('');
-    return `<div class="proof-detail-owner proof-owner-connection" data-reader-overview="${esc(key)}">
+    return `<div class="proof-detail-owner proof-owner-connection" data-proof-owner-connection="${esc(connection.id)}" data-reader-overview="${esc(key)}">
 <p class="proof-owner-kicker"><span class="proof-pill">Recorded connection</span></p>
 <h3 class="proof-detail-heading" tabindex="-1">${this.jump(this.model.nodes.get(connection.from).detail_key, this.humanLabelHtml(this.model.nodes.get(connection.from).item_ref))} <span aria-hidden="true">→</span><span class="proof-visually-hidden"> to </span> ${this.jump(this.model.nodes.get(connection.to).detail_key, this.humanLabelHtml(this.model.nodes.get(connection.to).item_ref))}</h3>
 ${this.assessmentBlock(connection.assessment, {compact:true})}
@@ -1415,7 +1446,7 @@ ${empty}
   }
 
   obligationHtml(obligation) {
-    const state = obligation.assessment.state;
+    const state = displayState(obligation.assessment);
     return `<div class="proof-obligation s-${esc(state)}" data-obligation-id="${esc(obligation.id)}" tabindex="-1">
 <p class="proof-record-head"><strong>${obligation.role === 'primary' ? 'Initial assessment' : obligation.role === 'independent' ? 'Independent review requirement' : 'Combined assessment'}: ${this.humanLink(obligation.target)}</strong></p>
 ${this.assessmentBlock(obligation.assessment)}
@@ -1545,31 +1576,39 @@ ${this.assessmentBlock(obligation.assessment)}
     const mapState = !nodes ? 'No results have been recorded in this report.' : !connections
       ? `${nodes} results are recorded, but no connections between them are recorded. This does not establish that the results are independent.`
       : `${nodes} results and ${connections} connections are shown in the recorded map.`;
-    return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${summary.progress.process_complete ? 'Registered examinations complete.' : 'Registered examinations incomplete.'} Mathematical support is stated separately for each result and application.${this.model.build.kind === 'working' ? ' This working report does not establish completion of the promised audit scope.' : ''}</p><p class="proof-muted">${mapState}</p>${independent ? `<p data-reader-review-level>${esc(independent.explanation ?? `Independent review: ${REVIEW_LABELS[independent.state]}.`)}</p>` : ''}${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}${this.reviewLimitsHtml()}</section>`;
+    return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${summary.progress.process_complete ? 'Registered examinations complete.' : 'Registered examinations incomplete.'} Mathematical support is stated separately for each result and application.${this.model.build.kind === 'working' ? ' This working report does not establish completion of the promised audit scope.' : ''}</p><p class="proof-muted">${mapState} Assessments reflect LLM mathematical understanding, not formal proof verification.</p>${independent ? `<p data-reader-review-level>${esc(independent.explanation ?? `Independent review: ${REVIEW_LABELS[independent.state]}.`)}</p>` : ''}${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}${this.reviewLimitsHtml()}</section>`;
   }
 
   page(fontStyle) {
     const { model } = this;
-    const requested = model.summary.scope.target_refs.filter((ref) => ref.collection === 'items').map((ref) => ref.id);
-    const beforeGraph = `<div id="proof-main" class="proof-reader"><p class="proof-kicker">Proof audit</p>${this.readerReportState()}${mathDisplayNotes(model.mathDiagnosticSummary)}<details class="proof-build-disclosure"><summary>Scientific findings, scope and review limits</summary>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
-${mainNavigation(model.nodeList, model.connectionList, requested, !!this.graph)}
-<h2 id="proof-graph-heading" class="proof-visually-hidden">Dependency graph</h2><p id="proof-graph-desc" class="proof-visually-hidden">Major results and their recorded uses. Connection colors describe the represented assessments under declared premises.</p>`;
-    const afterGraph = `<div class="proof-reader">${this.graph ? this.legendHtml() : this.indexHtml()}
+    const searchEntries = this.searchEntries();
+    const requestedItems = new Set(model.summary.scope.target_refs.filter((ref) => ref.collection === 'items').map((ref) => ref.id));
+    const requested = model.nodeList.filter(node => requestedItems.has(node.item_ref?.id)).map(node => node.id);
+    const beforeGraph = `<div id="proof-main" class="proof-reader proof-audit">${this.readerReportState()}${mathDisplayNotes(model.mathDiagnosticSummary)}<details class="proof-build-disclosure"><summary>Scientific findings, scope and review limits</summary>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
+${this.graph ? viewControls({traceHtml:'<p class="proof-trace-note">Tracing follows recorded connections, including alternative routes. It identifies supporting or potentially affected results; it does not establish a complete or verified proof route.</p>'}) : ''}
+<h2 id="proof-graph-heading" class="proof-visually-hidden">Dependency graph</h2><p id="proof-graph-desc" class="proof-visually-hidden">Major results and their recorded uses. Connection colors describe issue severity and checked status; logical support and review limits are stated separately.</p>`;
+    const afterGraph = `<div class="proof-reader proof-audit">${this.graph ? this.legendHtml() : this.indexHtml()}
 ${scientificSearchPanel()}
 ${this.detailsHtml()}
 <footer class="proof-footer">
-<p>Archify viewer (MIT); JetBrains Mono under the SIL Open Font License. Audit evidence and assessments are drawn from the saved paper records.</p>
+<p>Archify 3.0.1 viewer (MIT); JetBrains Mono under the SIL Open Font License. Audit evidence and assessments are drawn from the saved paper records.</p>
 </footer></div>`;
     const data = `
 <script id="proof-projection" type="application/json">${jsonForScript(model.projection)}</script>
 <script id="proof-render-input" type="application/json">${jsonForScript({ title: model.title, build: model.build })}</script>
-<script id="proof-reader-search" type="application/json">${jsonForScript(this.searchEntries())}</script>
+<script id="proof-reader-search" type="application/json">${jsonForScript(searchEntries)}</script>
 `;
-    // An empty, hidden camera lets the unchanged native shell initialize in index mode.
+    // The common page assembler removes this template placeholder in index mode.
     // It has no identity-bearing elements and is never presented as a graph.
     const svg = this.graph ? this.svgHtml() : '<svg class="proof-index-placeholder" viewBox="0 0 100 100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"></svg>';
+    const targets = [
+      ...model.nodeList.map(node => ({key:node.detail_key,articleId:this.detailId(node.detail_key),nodeId:node.id})),
+      ...model.connectionList.map(edge => ({key:edge.detail_key,articleId:this.detailId(edge.detail_key),edgeId:edge.id})),
+      ...[...model.details.keys()].filter(key => !this.owners.has(key)).map(key => ({key,articleId:this.detailId(key)})),
+    ];
     return archifyPage({ templatePath: TEMPLATE_PATH, title: model.title, svg, beforeGraph, afterGraph,
-      css: '', runtime: readerRuntime({targets:[...model.details.keys()].map(key => ({key,articleId:this.detailId(key),nodeId:model.nodeList.find(node => node.detail_key === key)?.id,edgeId:model.connectionList.find(edge => edge.detail_key === key)?.id})),searchEntries:this.searchEntries(),graphAvailable:!!this.graph}), data, fontStyle, index: !this.graph });
+      resultsHtml:auditResults(model.nodeList, model.connectionList, requested, !!this.graph, key => this.detailId(key)),
+      runtime: readerRuntime({targets,searchEntries,graphAvailable:!!this.graph}), data, fontStyle, index: !this.graph });
   }
 }
 
@@ -1682,7 +1721,9 @@ export function representationReceipt(model, scan) {
   try { renderInput = inputScripts.length === 1 ? JSON.parse(inputScripts[0].text) : null; } catch { renderInput = null; }
   check('render_input_script', inputScripts.length === 1 && inputScripts[0].attrs.type === 'application/json' && renderInput !== null && JSON.stringify(renderInput) === JSON.stringify({ title: model.title, build: model.build }) && !/[<>&]/.test(inputScripts[0].text), 'script#proof-render-input is missing, duplicated, or does not hold {title, build}');
   const nativeControls = ['btn-theme', 'btn-present', 'btn-export', 'btn-node-finder', 'btn-overview-map', 'btn-route-probe', 'btn-reach-upstream', 'btn-reach-downstream', 'focus-chip'];
-  check('archify_shell', nativeControls.every((id) => all.filter((element) => element.attrs.id === id).length === 1)
+  check('archify_shell', model.layout.mode === 'index'
+    ? all.filter((element) => element.attrs.id === 'proof-index-theme').length === 1 && !all.some((element) => classList(element).includes('diagram-container'))
+    : nativeControls.every((id) => all.filter((element) => element.attrs.id === id).length === 1)
     && all.some((element) => element.tag === 'script' && element.text?.includes('Archify.focus =') && element.text.includes('Archify.view =')),
   'the bundled Archify viewer shell or runtime is missing');
 
@@ -1694,14 +1735,14 @@ export function representationReceipt(model, scan) {
   if (model.layout.mode !== 'index') {
     check('dag_nodes', sameMultiset(nodeElements.map((element) => element.attrs['data-node-id']), nodeIds)
       && nodeElements.every((element) => element.tag === 'g' && insideSvg(element) && element.attrs.tabindex === '0' && element.attrs.role === 'button'
-        && element.attrs['data-node-state'] === model.nodes.get(element.attrs['data-node-id']).assessment.state
+        && element.attrs['data-node-state'] === displayState(model.nodes.get(element.attrs['data-node-id']).assessment)
         && element.attrs['data-node-kind'] === model.nodes.get(element.attrs['data-node-id']).kind),
     'svg node groups do not match the projection nodes exactly once with state, kind, tabindex and role');
     check('dag_edges', sameMultiset(edgeElements.map((element) => element.attrs['data-edge-id']), connectionIds)
       && edgeElements.every((element) => element.tag === 'path' && insideSvg(element)
         && element.attrs['data-edge-from'] === model.connections.get(element.attrs['data-edge-id']).from
         && element.attrs['data-edge-to'] === model.connections.get(element.attrs['data-edge-id']).to
-        && element.attrs['data-edge-state'] === model.connections.get(element.attrs['data-edge-id']).assessment.state),
+        && element.attrs['data-edge-state'] === displayState(model.connections.get(element.attrs['data-edge-id']).assessment)),
     'svg edge paths do not match the projection connections exactly once with from, to and state');
     check('no_index_articles', !byAttr('data-proof-index-item').length && !byAttr('data-proof-index-connection').length && !all.some((element) => element.attrs.id === 'proof-major-index'), 'diagram mode must not emit index articles');
   } else {
@@ -1713,13 +1754,13 @@ export function representationReceipt(model, scan) {
     const connectionArticles = byAttr('data-proof-index-connection');
     check('index_section', sections.length === 1, 'section#proof-major-index must appear exactly once');
     check('index_items', sameMultiset(itemArticles.map((element) => element.attrs['data-proof-index-item']), nodeIds)
-      && itemArticles.every((element) => element.tag === 'article' && within.includes(element) && element.attrs['data-node-state'] === model.nodes.get(element.attrs['data-proof-index-item']).assessment.state),
+      && itemArticles.every((element) => element.tag === 'article' && within.includes(element) && element.attrs['data-node-state'] === displayState(model.nodes.get(element.attrs['data-proof-index-item']).assessment)),
     'index item articles do not match the projection nodes exactly once with state');
     check('index_connections', sameMultiset(connectionArticles.map((element) => element.attrs['data-proof-index-connection']), connectionIds)
       && connectionArticles.every((element) => element.tag === 'article' && within.includes(element)
         && element.attrs['data-edge-from'] === model.connections.get(element.attrs['data-proof-index-connection']).from
         && element.attrs['data-edge-to'] === model.connections.get(element.attrs['data-proof-index-connection']).to
-        && element.attrs['data-edge-state'] === model.connections.get(element.attrs['data-proof-index-connection']).assessment.state),
+        && element.attrs['data-edge-state'] === displayState(model.connections.get(element.attrs['data-proof-index-connection']).assessment)),
     'index connection articles do not match the projection connections exactly once with from, to and state');
     const sectionText = section ? textOf(scan, section) : '';
     check('index_reasons', model.layout.reasons.every((reason) => sectionText.includes(reason)), 'index section does not show every layout reason');
@@ -1806,30 +1847,38 @@ export function representationReceipt(model, scan) {
   });
   const shownOverviews = byAttr('data-reader-overview');
   check('contextual_reader_overviews', sameMultiset(shownOverviews.map(element => scan.html.slice(element.start, element.closeEnd)), expectedOverviews)
-    && shownOverviews.every(element => { for (let parent = element.parent; parent; parent = parent.parent) {
+    && shownOverviews.every(element => {
+      if (classList(element).includes('proof-reader-overview')) {
+        const node = model.nodes.get(element.parent?.attrs['data-proof-owner-node']);
+        const reader = model.details.get(element.attrs['data-reader-overview'])?.reader;
+        if (!node || node.detail_key !== element.attrs['data-reader-overview'] || !reader || refKey(node.item_ref) !== refKey(reader.item_ref)) return false;
+      }
+      for (let parent = element.parent; parent; parent = parent.parent) {
       if (parent.tag === 'template' || hasAttr(parent, 'hidden') || hasAttr(parent, 'data-proof-evidence')) return false;
     } return true; }), 'opening statements, strategy, contextual dependencies or material issues differ from their pinned records');
   const reportState = byAttr('data-reader-report-state');
   check('visible_report_state', reportState.length === 1 && scan.html.slice(reportState[0].start, reportState[0].closeEnd) === canonicalRenderer.readerReportState(),
     'the always-visible report state and limitations differ from the saved snapshot');
   const assessmentMatches = (element, assessment) => {
-    if (!element || !classList(element).includes(`s-${assessment.state}`)) return false;
+    const display = reviewDisplay(assessment);
+    if (!element || !classList(element).includes(`s-${display.color}`) || element.attrs['data-review-status'] !== display.status) return false;
     const children = [...descendants(element)];
     const field = (name) => children.find((child) => classList(child).includes(name));
     const label = field('proof-assessment-label'), explanation = field('proof-assessment-text');
     const glyph = field('proof-state-glyph'), badge = field('proof-state-badge');
-    if (!label || textOf(scan, label) !== assessment.label || !badge || !classList(badge).includes(`s-${assessment.state}`)
-        || !glyph || textOf(scan, glyph) !== STATE_GLYPHS[assessment.state]) return false;
+    if (!label || textOf(scan, label) !== assessment.label || !badge || !classList(badge).includes(`s-${display.color}`)
+        || !glyph || textOf(scan, glyph) !== STATE_GLYPHS[display.color] || textOf(scan, badge) !== STATE_GLYPHS[display.color] + display.label) return false;
     if (assessment.explanation && (!explanation || textOf(scan, explanation) !== assessment.explanation)) return false;
     if (assessment.availability && !textOf(scan, field('proof-availability') || element).includes(`Exact target support: ${assessment.availability}`)) return false;
     return true;
   };
-  const ownerAssessment = (detailKey) => {
+  const ownerAssessment = (detailKey, type, id) => {
     const element = detailElements.find((entry) => entry.attrs['data-proof-detail'] === detailKey);
-    return element && [...descendants(element)].find((child) => classList(child).includes('proof-assessment'));
+    const owners = element ? [...descendants(element)].filter(child => child.attrs[`data-proof-owner-${type}`] === id) : [];
+    return owners.length === 1 && [...descendants(owners[0])].find((child) => classList(child).includes('proof-assessment'));
   };
-  check('visible_assessments', model.nodeList.every((node) => assessmentMatches(ownerAssessment(node.detail_key), node.assessment))
-    && model.connectionList.every((connection) => assessmentMatches(ownerAssessment(connection.detail_key), connection.assessment))
+  check('visible_assessments', model.nodeList.every((node) => assessmentMatches(ownerAssessment(node.detail_key, 'node', node.id), node.assessment))
+    && model.connectionList.every((connection) => assessmentMatches(ownerAssessment(connection.detail_key, 'connection', connection.id), connection.assessment))
     && byAttr('data-obligation-id').every((element) => assessmentMatches([...descendants(element)].find((child) => classList(child).includes('proof-assessment')),
        model.obligations.get(element.attrs['data-obligation-id']).assessment)),
   'visible assessment colors, glyphs, labels or support wording disagree with the canonical assessment');
@@ -1843,12 +1892,12 @@ export function representationReceipt(model, scan) {
     const children = [...descendants(element)];
     const label = children.find((child) => child.tag === 'text' && classList(child).includes('proof-node-label'));
     const state = children.find((child) => classList(child).includes('proof-node-state'));
-    return node && classList(element).includes(`s-${node.assessment.state}`) && label && textOf(scan, label) === node.label
-      && state && textOf(scan, state) === STATE_GLYPHS[node.assessment.state];
+    return node && classList(element).includes(`s-${displayState(node.assessment)}`) && label && textOf(scan, label) === node.label
+      && state && textOf(scan, state) === STATE_GLYPHS[displayState(node.assessment)];
   }) && edgeElements.every((element) => {
     const connection = model.connections.get(element.attrs['data-edge-id']);
-    return connection && classList(element).includes(`s-${connection.assessment.state}`)
-      && element.attrs['marker-end'] === `url(#proof-arrow-${connection.assessment.state})`;
+    return connection && classList(element).includes(`s-${displayState(connection.assessment)}`)
+      && element.attrs['marker-end'] === `url(#proof-arrow-${displayState(connection.assessment)})`;
   }), 'visible node or edge colors, glyphs or labels disagree with the saved graph');
   check('assessment_styles', all.some((element) => element.tag === 'style' && element.text?.includes(SCIENTIFIC_READER_CSS)),
     'the assessment display stylesheet was changed');
@@ -1864,6 +1913,12 @@ export function representationReceipt(model, scan) {
   const processElements = byAttr('data-proof-process-complete');
   check('process_complete', processElements.length === 1 && processElements[0].attrs['data-proof-process-complete'] === String(model.summary.progress.process_complete), 'data-proof-process-complete must appear exactly once with the summary value');
   check('summary_findings', sameMultiset(byAttr('data-proof-finding').map((element) => element.attrs['data-proof-finding']), model.summary.findings.refs), 'data-proof-finding elements do not match summary.findings.refs exactly once');
+  check('summary_issue_cards', byAttr('data-proof-finding').every(element => {
+    const id = element.attrs['data-proof-finding'], index = model.summary.findings.refs.indexOf(id);
+    const record = model.recordsByLoose.get(`findings:${id}`);
+    const card = [...descendants(element)].find(child => child.attrs['data-issue-ref'] === id);
+    return !record || card && scan.html.slice(card.start, card.closeEnd) === canonicalRenderer.findingCard('summary', index, record.ref);
+  }), 'issue card severity, mathematical explanation or evidence differs from the saved finding');
   check('summary_source_limits', sameMultiset(byAttr('data-proof-source-limit').map((element) => element.attrs['data-proof-source-limit']), model.summary.source_limits), 'data-proof-source-limit elements do not match summary.source_limits exactly once');
   check('summary_limitations', sameMultiset(byAttr('data-proof-limitation').map((element) => textOf(scan, element)), canonicalRenderer.savedLimitations().map(row => row.note)), 'scientific or unresolved mixed review qualifications were omitted or changed');
   const reviewLimits = canonicalRenderer.reviewLimits();

@@ -62,6 +62,149 @@ class SQLOverviewTest(TempCase):
             "targets": [{"collection": "items", "id": "T"}, {"collection": "uses", "id": "uAT"}],
             "reviewer": "reader", "result": result, "note": "Compared saved statements and their incoming contribution"})
 
+    def add_template_audit_extensions(self):
+        with storage.Database(self.db, write=True) as db:
+            item = db.head("items", "T")
+            scope = {"argument_id": None, "parent_id": None, "assumptions": [], "binders": [],
+                     "conditions": ["x is nonnegative"], "evidence_refs": []}
+            unused = copy.deepcopy(db.head("items", "A").body)
+            unused.update(label="U", caption="Unselected", statement={"text": "Unused", "form": "synopsis"})
+            edits = [{"op": "create", "collection": "scopes", "id": "scope-T", "expected_version": None, "body": scope},
+                     {"op": "replace", "collection": "items", "id": "T", "expected_version": item.version,
+                      "body": dict(item.body, scope_id="scope-T")},
+                     {"op": "create", "collection": "items", "id": "U", "expected_version": None, "body": unused}]
+            packet = packets.get_packet(db, targets=[storage.paper_record(db).ref, item.ref], mode="author")
+            acceptance.apply_batch(db, {"contract_version": 4, "request_id": "template-audit-extensions",
+                "packet_id": packet["packet_id"], "edits": edits})
+
+    def test_edit_template_common_correction_preserves_complete_records_and_history(self):
+        seed = json.loads(self.seed.read_text(encoding="utf-8"))
+        seed["items"][1].update(aliases=["Shift theorem"], issue="Retain this qualification.",
+                               proof_idea=r"Apply $x \geq 0$; add one to obtain a strict bound for β.")
+        seed["uses"][0].update(type="proof_argument", regime="For nonnegative x", issue="Retain the connection qualification.")
+        write_json(self.seed, seed)
+        self.create(audit=True)
+        self.add_template_audit_extensions()
+        self.compare()
+        with storage.Database(self.db, write=True, write_scope="overview") as db:
+            db.begin_immediate()
+            build_key = overview.record_build_receipt(db, {"output": "previous.html", "snapshot_id": "fixture-build"})
+            db.commit()
+        before = overview_cli.export_snapshot(self.db)
+        with storage.Database(self.db) as db:
+            common_before = export_import.export_snapshot(db, history=True)
+            metadata_before = dict(db.metadata)
+        database_bytes = self.db.read_bytes()
+        source_bytes = self.source.read_bytes()
+        output = self.path("work", "correction.json")
+        with mock.patch.object(overview_cli, "export_snapshot", wraps=overview_cli.export_snapshot) as exported:
+            receipt = overview_cli.edit_template(self.db, output, item_ids=["T", "T"], use_ids=["uAT", "uAT"])
+        exported.assert_called_once_with(self.db)
+        self.assertEqual(self.db.read_bytes(), database_bytes)
+        self.assertEqual(self.source.read_bytes(), source_bytes)
+        self.assertEqual(overview_cli.export_snapshot(self.db), before)
+        with storage.Database(self.db) as db:
+            self.assertEqual(export_import.export_snapshot(db, history=True), common_before)
+            self.assertEqual(dict(db.metadata), metadata_before)
+        targets = [{"collection": "items", "id": "T"}, {"collection": "uses", "id": "uAT"}]
+        self.assertEqual(set(receipt), {"output", "expected_snapshot", "targets"})
+        self.assertEqual(receipt["targets"], targets)
+        self.assertEqual(receipt["expected_snapshot"], before["snapshot_id"])
+        batch = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(batch, {"expected_snapshot": before["snapshot_id"], "edits": [
+            dict(target, op="upsert", record=next(row for row in before[target["collection"]] if row["id"] == target["id"]))
+            for target in targets]})
+        self.assertTrue(batch["edits"][0]["record"]["passages"])
+        self.assertTrue(batch["edits"][1]["record"]["evidence_refs"])
+        batch["edits"][0]["record"]["caption"] = "Positive after adding one"
+        write_json(output, batch)
+        overview_cli.apply_edits(self.db, json.loads(output.read_text(encoding="utf-8")))
+        after = overview_cli.export_snapshot(self.db)
+        expected = copy.deepcopy(before)
+        next(row for row in expected["items"] if row["id"] == "T")["caption"] = "Positive after adding one"
+        expected["snapshot_id"] = after["snapshot_id"]
+        self.assertEqual(after, expected)
+        self.assertNotEqual(after["snapshot_id"], before["snapshot_id"])
+        self.assertEqual(overview_cli.get_packet(self.db, "T")["target_fidelity"], "stale")
+        self.assertEqual(overview_cli.export_snapshot(self.db, before["snapshot_id"]), before)
+        with storage.Database(self.db) as db:
+            self.assertEqual(export_import.export_snapshot(db, revision=common_before["revision"], history=True), common_before)
+            common_after = export_import.export_snapshot(db, history=True)
+            retained = lambda data: [row for row in data["records"] if (row["collection"], row["id"]) not in
+                                     {("items", "T"), ("overview_selections", overview.SELECTION_ID)}]
+            self.assertEqual(retained(common_after), retained(common_before))
+            original = next(row["body"] for row in common_before["records"] if row["collection"] == "items" and row["id"] == "T")
+            self.assertEqual(db.head("items", "T").body, dict(original, caption="Positive after adding one"))
+            self.assertEqual(db.metadata[build_key], metadata_before[build_key])
+
+    def test_edit_template_rejects_hidden_unselected_common_record(self):
+        self.create(audit=True)
+        self.add_template_audit_extensions()
+        with storage.Database(self.db) as db:
+            self.assertIsNotNone(db.head("items", "U"))
+        before = self.db.read_bytes()
+        output = self.path("unselected.json")
+        with self.assertRaisesRegex(overview_cli.DatabaseError, "U"):
+            overview_cli.edit_template(self.db, output, item_ids=["T", "U"])
+        self.assertFalse(output.exists())
+        self.assertEqual(self.db.read_bytes(), before)
+
+    def test_edit_template_common_rejects_relevant_intervening_change(self):
+        self.create()
+        output = self.path("stale.json")
+        overview_cli.edit_template(self.db, output, item_ids=["T"], use_ids=["uAT"])
+        batch = json.loads(output.read_text(encoding="utf-8"))
+        batch["edits"][0]["record"]["caption"] = "Old-context correction"
+        current = overview_cli.export_snapshot(self.db)
+        item = copy.deepcopy(next(row for row in current["items"] if row["id"] == "A"))
+        item["proof_idea"] = "Use the hypothesis to establish the lower bound."
+        overview_cli.apply_edits(self.db, {"expected_snapshot": current["snapshot_id"], "edits": [
+            {"collection": "items", "op": "upsert", "id": "A", "record": item}]})
+        newer = overview_cli.export_snapshot(self.db)
+        self.assertNotEqual(newer["snapshot_id"], batch["expected_snapshot"])
+        before = self.db.read_bytes()
+        with self.assertRaisesRegex(overview_cli.DatabaseError, "Stale edit"):
+            overview_cli.apply_edits(self.db, batch)
+        self.assertEqual(self.db.read_bytes(), before)
+        self.assertEqual(overview_cli.export_snapshot(self.db), newer)
+
+    def test_edit_template_common_accepts_comparison_and_audit_only_advances(self):
+        for advance in ("comparison", "audit"):
+            with self.subTest(advance=advance):
+                self.db = self.path(f"{advance}.db")
+                self.create(audit=True)
+                self.add_template_audit_extensions()
+                output = self.path(f"{advance}.json")
+                receipt = overview_cli.edit_template(self.db, output, item_ids=["T"])
+                with storage.Database(self.db) as db:
+                    initial_revision = db.max_revision()
+                if advance == "comparison":
+                    self.compare("needs_attention")
+                else:
+                    with storage.Database(self.db, write=True) as db:
+                        scope = db.head("scopes", "scope-T")
+                        changed_scope = dict(scope.body, conditions=["x is nonnegative", "Additional audit-only condition"])
+                        packet = packets.get_packet(db, targets=[db.head("items", "T").ref], mode="author")
+                        acceptance.apply_batch(db, {"contract_version": 4, "request_id": "template-audit-only",
+                            "packet_id": packet["packet_id"], "edits": [{"op": "replace", "collection": "scopes",
+                            "id": scope.id, "expected_version": scope.version, "body": changed_scope}]})
+                advanced = overview_cli.export_snapshot(self.db)
+                self.assertEqual(advanced["snapshot_id"], receipt["expected_snapshot"])
+                with storage.Database(self.db) as db:
+                    self.assertGreater(db.max_revision(), initial_revision)
+                    history = export_import.export_snapshot(db, history=True)
+                batch = json.loads(output.read_text(encoding="utf-8"))
+                batch["edits"][0]["record"]["caption"] = "Correction after a compatible advance"
+                overview_cli.apply_edits(self.db, batch)
+                after = overview_cli.export_snapshot(self.db)
+                self.assertEqual(next(row for row in after["items"] if row["id"] == "T")["caption"],
+                                 "Correction after a compatible advance")
+                self.assertEqual(after["observations"], advanced["observations"])
+                with storage.Database(self.db) as db:
+                    self.assertEqual(export_import.export_snapshot(db, revision=history["revision"], history=True), history)
+                    if advance == "audit":
+                        self.assertEqual(db.head("scopes", "scope-T").body, changed_scope)
+
     def test_proof_idea_seed_capture_refresh_and_portable_reimport(self):
         seed = json.loads(self.seed.read_text(encoding="utf-8"))
         idea = "Use Lemma A to bound x below by zero. Adding one makes the conclusion strict."

@@ -6,9 +6,10 @@ Read [mathematical-checking.md](mathematical-checking.md) for how to examine an 
 ## What the evidence establishes
 
 Separate material observed in the manuscript or an inspected external source,
-reviewer reasoning reconstructed from it, and claims not established by available
-evidence. Cite exact source anchors, statement parts, equations, or external result
-locations. Explain the particular premises, operation, and success or failure;
+reasoning and mathematical knowledge used by the examiner, and claims not established
+by available evidence. Cite exact source anchors, statement parts, equations, or inspected
+external result locations. Do not imply a remembered result's publication was inspected.
+Explain the particular premises, operation, and success or failure;
 repeating a verdict or a generic checklist is not evidence.
 
 Source comparison asks whether the saved statement or connection agrees with its
@@ -87,22 +88,24 @@ paraphrases. Explain binder domains and target hypotheses in `reasoning`; leave
 `checks.conditions` empty when no separately listed scope condition is invoked.
 An unmatched condition keeps availability conditional even when the local check
 is complete. A real extra restriction requires a separately scoped target or route.
-A restricted repair needs a separate target. A new proof of the unchanged statement
-needs a separate route and provenance; keep the original proof's judgment.
+A restricted replacement proof needs a separate target. An actually authored new
+proof of the unchanged statement needs a separate route and provenance; keep the
+original proof's judgment. An obvious one-line correction or routine justification
+inside the examination is not a replacement proof and needs no separate route or reviewer.
 
 ## Omitted arguments, unavailable sources and restrictions
 
 A supplied exact theorem statement permits checking its application under that premise even when
 its proof is outside this assignment. If the manuscript omits an argument, assess the supplied material and record the omission as a gap when justified, or as inconclusive when its significance is uncertain. Do not construct a proof route merely to register or finish that finding.
 
-A proof or passage that is present in the supplied material but unavailable to the examiner remains a coverage limitation. An inaccessible external citation is different: use available tools for non-trivial applications, then record what was established and any unresolved source limitation. Follow [external-result-verification.md](external-result-verification.md); routine facts need no separate lookup. Never describe an unavailable source as inspected.
+A proof or passage that is present in the supplied material but unavailable to the examiner remains a coverage limitation. An uninspected external citation is different: assess its needed statement and application from supplied material and reliably known mathematics, stating the basis and any uncertainty. External retrieval is not a default duty. Follow [external-result-verification.md](external-result-verification.md); routine facts need no separate lookup. Never describe an uninspected source as inspected.
 
 Call a manuscript gap only when an actual missing or invalid manuscript inference is identified. Coverage follows the examination rule above, independently of this outcome.
 
 Adding \(\pi_n\to0\) does not establish a source theorem allowing fixed positive \(\pi_n\).
 Correct the saved assertion or identify a restricted target; an accurate prose note cannot repair it.
-An inspected external statement, a self-contained derivation, a remembered theorem, and numerical
-consistency are distinct evidence. Detailed source requirements load with external-source work.
+An inspected external statement, a short hand-written deduction and a remembered
+theorem are distinct bases for an LLM assessment. Numerical consistency supplies no proof credit.
 
 ## Analytical refutations and unresolved examinations
 
@@ -116,26 +119,24 @@ For example, to refute “for every sequence \(p_n\ge1\), \(p_n/n\to0\),”
 choose the admissible sequence \(p_n=n\) and compute \(p_n/n=1\) for every \(n\).
 A test with a fixed \(p\) cannot refute or verify that universal growing-sequence claim.
 
-Use written derivations, symbolic equations and exact arithmetic to check
-proposed witnesses. Do not run simulations, numerical validation, parameter
-sweeps, random searches or empirical experiments, including small pilots.
-Computational searches, numerical solvers and interval-validation runs are not
-fallbacks for missing derivations. Supplied experimental results are context,
+Use short hand-written deductions and exact equations to explain an immediately
+apparent witness. Do not turn refutation into a counterexample search. Do not run
+simulations, numerical validation, parameter sweeps, optimization or random searches,
+empirical experiments, numerical solvers, interval validation, computer algebra or
+proof assistants to establish mathematical truth. Supplied experimental results are context,
 not proof credit. Source extraction, PDF inspection, database arithmetic, hashes,
 rendering and software regression tests remain ordinary tooling.
 
-For an unresolved examination, name the inference, what was attempted and why
-it remains unresolved. If useful, suggest one follow-up in existing reasoning
-or findings. Label any numerical suggestion unperformed and outside the audit;
-it supplies no proof credit and creates no required task. Continue other useful
-proof work instead of retrying without new evidence.
+For an unresolved examination, name the exact inference and why the available
+reasoning cannot resolve it. Finish with that specific limitation and continue
+other useful proof work; do not generate numerical follow-up or retry unchanged work.
 
 ## Findings, disagreements, and repairs
 
-Separate the finding's mathematical content, consequence, and evidential confidence.
-State whether it affects one application, a written route, the exact statement,
-or a later use. Use an evidence-backed impact explanation; current database findings
-do not require the legacy severity, repair-search, or per-line risk ledgers.
+Separate the finding's mathematical content, consequence, evidential confidence and
+research severity. State whether it affects one application, a written route, the
+exact statement or a later use. Use an evidence-backed impact explanation and the
+rubric below; no legacy severity, repair-search or per-line risk ledger is required.
 
 Ambiguity is not a proved mismatch. When two readings imply different targets,
 record the readings and what source evidence could distinguish them. Likewise,
@@ -143,11 +144,67 @@ separate an estimator's relation to a theorem's target, implementation consisten
 with that estimator, and evidence linking the inspected code to reported experiments.
 A missing execution link does not refute an abstract theorem assuming an oracle.
 
-A plausible repair stays provisional. Record whether its sufficiency was actually
-examined and independently reviewed. Checked sufficiency does not mean the
-manuscript was edited or its original defect resolved.
+A plausible repair stays provisional; failure to discover a repair does not show
+none exists. Describe an already apparent correction without constructing a new
+proof route. An obvious one-line justification correction needs no separate route
+or repair review. For an actually authored replacement proof, retain its provenance
+and actual examination and independent review. Checked sufficiency does not mean
+the manuscript was edited or its original defect resolved.
 
 Preserve independent response bytes and original outcomes. Reconcile conflicting
 judgments on the same exact question with explicit reasons, retaining unresolved disagreement when appropriate.
 A statement refutation and a conditional application are different questions;
 do not change the latter's outcome merely to display the former.
+
+## Research severity
+
+The optional finding field `severity` is `minor`, `moderate` or `severe`. Omission
+means not rated. Judge consequence, location and known repair scope together within
+the existing examination and coordinator integration. Do not infer severity from
+category, logical outcome, confidence or color. This is the user's research-review
+calibration, not a universal journal grading standard.
+
+| Severity | Decision rule | Typical example |
+|---|---|---|
+| `minor` | An obvious local correction or justification preserves the claim and intended application. | Harmless notation; a wrong justification with an immediately identified valid replacement under the same premises. |
+| `moderate` | A substantive local derivation needs correction and available reasoning identifies how the result is preserved under stated assumptions; or a bounded qualification or loss of an ancillary claim leaves the main contribution and intended regime intact. | A missing term with a known local correction; removal of an erroneous unused auxiliary claim. |
+| `severe` | Evidence identifies material failure of an important conclusion or intended scope. | A genuinely restrictive missing assumption, changed principal rate or false important statement. |
+
+- A merely plausible rescue does not establish easy repair. Merely avoiding a new
+  assumption does not make a difficult missing proof moderate. State uncertain repairability.
+- Distinguish correcting exposition or a justification from correcting an actual
+  derivation. An easy repair of a wrong intermediate bound is still moderate:
+  combining two events of probability at least \(1-\delta\) gives only
+  \(1-2\delta\); reallocating \(\delta/2\) to preserve the intended guarantee
+  corrects that derivation. An isolated typo surrounded by the correct calculation,
+  or a wrong theorem name with the exact inequality already justified, is minor.
+- Check inherited setup first. A condition already inherited is not an added
+  assumption or defect. A routine omitted qualification that changes no intended
+  model or conclusion can be minor; a familiar condition excluding intended
+  distributions or regimes can be severe. Mathematical familiarity informs this
+  judgment without requiring a literature search.
+- Separate conditional theorem validity from a material limitation of its important
+  intended regime; retain that limitation and explain its consequence. An accurately
+  disclosed benchmark restriction need create no defect, and conditional validity
+  alone neither establishes severity nor dismisses the limitation. Practical tuning
+  outside a theoretical guarantee ordinarily warrants at most a minor qualification
+  when the boundary needs clarification. Numerical evidence gives context, not an
+  extension of the theorem. If the paper promises the guarantee for the implemented
+  rule, assess that promise at its actual impact.
+- A false incidental formula with an obvious intended correction is not automatically
+  severe. Name the affected claim; an auxiliary defect does not automatically
+  invalidate the main result.
+- A presentation concern outside the assigned inference must not turn a supported
+  composition into `gap`. If that inference fails, retain `gap` even when severity
+  is minor. A sufficient alternative route can preserve exact-target support while
+  the defective route and its severity remain visible.
+- Inconclusive assessment, missing access, uncertain assumptions and lack of model
+  knowledge are neutral limitations with no inferred defect severity. A disputed
+  finding's validity stays neutral. A separate established rated issue can coexist
+  with that uncertainty and retains its rating. An `inconclusive` finding cannot
+  become an established defect through a supplied severity value.
+- Rate new established findings during ordinary integration when the reasoning
+  permits. An omitted rating does not block delivery. The coordinator resolves a
+  label disagreement from saved reasoning, without another referee or calibration pass.
+
+For concise cards and severity colors, use [reporting-and-release.md](reporting-and-release.md).
