@@ -61,10 +61,10 @@ python -B tools/install_proofcheck.py --source stat-proof-check --target agents 
 It validates the bundle, stages the package, and verifies each installed copy. Existing installations require the installer's `--upgrade` option; old skill names must leave skill discovery first. For Claude, retain `"stat-proof-check": "user-invocable-only"` under `skillOverrides`. Then ask:
 
 ```text
-Use $stat-proof-check to audit this theorem and its prerequisite arguments.
+Use $stat-proof-check to audit this paper.
 ```
 
-Use shared Python 3.12+ for repository development and Graphify, with shared Node.js and `latex2mathml`; Graphify's PDF extraction uses `pypdf`. The installed Proof Check Python helpers support Python 3.10+, and its HTML delivery uses Node.js. Optional offline LaTeX conversion uses shared `latex2mathml`. Refresh skill discovery or restart the host if a newly installed skill is not visible. The individual [overview guide](proof-graphify/README.md) and [audit guide](stat-proof-check/README.md) describe their outputs and workflows.
+Make sure that you explicitly mention the supplement file if they also need to be used to support the proof. Use shared Python 3.12+ for repository development and Graphify, with shared Node.js and `latex2mathml`; Graphify's PDF extraction uses `pypdf`. The installed Proof Check Python helpers support Python 3.10+, and its HTML delivery uses Node.js. Optional offline LaTeX conversion uses shared `latex2mathml`. Refresh skill discovery or restart the host if a newly installed skill is not visible. The individual [overview guide](proof-graphify/README.md) and [audit guide](stat-proof-check/README.md) describe their outputs and workflows.
 
 ## Shared backend and validation
 
