@@ -49,7 +49,7 @@ The repository root is a development checkout. Install the selected skill subdir
 Install `proof-graphify/` as `~/.agents/skills/proof-graphify/` or `~/.claude/skills/proof-graphify/`, then ask:
 
 ```text
-Use proof-graphify to map this paper's main results and the important prerequisites that explain them, including relevant appendix results.
+Use $proof-graphify to map this paper's main results and the important prerequisites that explain them, including relevant appendix results.
 ```
 
 Install `stat-proof-check/` as `~/.agents/skills/stat-proof-check/` or `~/.claude/skills/stat-proof-check/`. From this repository root, the validated installer can install the audit package:
