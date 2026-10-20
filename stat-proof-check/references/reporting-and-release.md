@@ -6,6 +6,8 @@ Deliver audit.db, the frozen summary and report.html. The database and frozen su
 
 Use saved statements, passages and explanations without requiring new authoring. Keep the paper's argument distinct from examiner judgments and proposed repairs. Preserve consequential conditions, disagreements, source limitations and partial or historical review qualifications. Missing optional summaries or scope metadata do not by themselves establish missing mathematics. Omit empty optional sections; a presentation repair uses the same frozen result.
 
+The renderer reuses saved `proof_idea` and findings, omits absent optional prose, and retains each saved local contribution under its prerequisite. Stage 3 adds no explanation-writing task, missing-prose blocker or review round.
+
 ## Concise issue cards
 
 Author one finding during examination or integration using the existing fields;

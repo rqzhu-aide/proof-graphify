@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { esc, textUnits } from './assets/archify/utils.mjs';
 import { scanHtml, textOf, descendants, hasAttr, sameMultiset } from './html_scan.mjs';
 import { archifyPage, auditResults } from './archify_adapter.mjs';
-import { KINDS, BOX, readerRuntime, viewControls, scientificSearchPanel, readingSection, sourceDisclosure, mathDisplayNotes, SCIENTIFIC_READER_CSS } from './scientific_reader.mjs';
+import { KINDS, BOX, readerRuntime, readerSearchData, viewControls, scientificSearchPanel, readingSection, sourceDisclosure, mathDisplayNotes, SCIENTIFIC_READER_CSS } from './scientific_reader.mjs';
 import { createReaderContent } from './reader_content.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +48,10 @@ const reviewDisplay = assessment => {
   const saved = assessment?.review_display;
   const status = saved && Object.hasOwn(DISPLAY, saved.status) ? saved.status : 'historical';
   const [color, label] = DISPLAY[status];
+  if (status === 'unassessed' && assessment?.label === 'examined in proof') {
+    return {status, color, label:'Examined in proof', explanation:assessment.explanation,
+      unrated_count:saved?.unrated_count || 0};
+  }
   return {status, color, label, explanation:saved?.explanation || '', unrated_count:saved?.unrated_count || 0};
 };
 const displayState = assessment => reviewDisplay(assessment).color;
@@ -394,6 +398,31 @@ export function validateInput(input) {
     connections.set(connection.id, connection);
   });
 
+  const hypotheses = new Map();
+  const hypothesisPairs = new Set();
+  const hypothesisList = projection.hypothesis_connections ?? [];
+  if (!Array.isArray(hypothesisList)) bad('projection.hypothesis_connections must be an array');
+  else hypothesisList.forEach((relation, i) => {
+    const where = `projection.hypothesis_connections[${i}]`;
+    if (!isObject(relation)) { bad(`${where} must be an object`); return; }
+    if (!isString(relation.id) || !ID_PATTERN.test(relation.id) || hypotheses.has(relation.id) || connections.has(relation.id)) bad(`${where} needs a unique safe id`);
+    if (!nodes.has(relation.from) || !nodes.has(relation.to) || relation.from === relation.to) bad(`${where} needs distinct displayed endpoints`);
+    const pair = JSON.stringify([relation.from, relation.to]);
+    if (hypothesisPairs.has(pair)) bad(`${where} repeats a premise/result pair`);
+    hypothesisPairs.add(pair);
+    if (!['hypothesis', 'setup'].includes(relation.kind)) bad(`${where} has an unknown kind`);
+    for (const field of ['premise_ref', 'target_ref', 'spec_ref', 'statement_ref']) requirePinned(relation[field], `${where}.${field}`);
+    if (!Array.isArray(relation.scope_refs) || !relation.scope_refs.length) bad(`${where} needs authorizing scopes`);
+    else relation.scope_refs.forEach((ref, j) => requirePinned(ref, `${where}.scope_refs[${j}]`));
+    const target = nodes.get(relation.to), premise = nodes.get(relation.from);
+    if (target && (relation.detail_key !== target.detail_key || refKey(relation.target_ref) !== refKey(target.item_ref))) bad(`${where} differs from its target`);
+    if (premise && refKey(relation.premise_ref) !== refKey(premise.item_ref)) bad(`${where} differs from its premise`);
+    const existing = projection.connections.find(edge => edge.from === relation.from && edge.to === relation.to);
+    if ((relation.proof_connection_id ?? null) !== (existing?.id ?? null)) bad(`${where} has an incorrect proof connection`);
+    if (relation.assessment !== undefined) bad(`${where} must not carry a proof assessment`);
+    hypotheses.set(relation.id, relation);
+  });
+
   projection.record_locations.forEach((location, i) => {
     const where = `projection.record_locations[${i}]`;
     if (!isObject(location)) { bad(`${where} must be an object`); return; }
@@ -562,6 +591,10 @@ export function validateInput(input) {
     projection,
     nodeList: projection.nodes,
     connectionList: projection.connections,
+    hypothesisList,
+    hypotheses,
+    graphConnectionList: [...projection.connections, ...hypothesisList.filter(relation => !relation.proof_connection_id)],
+    graphConnections: new Map([...connections, ...[...hypotheses].filter(([, relation]) => !relation.proof_connection_id)]),
     nodes,
     connections,
     records,
@@ -635,7 +668,7 @@ export function layoutGraph(model) {
   const nodes = new Map(model.nodeList.map((node, order) => [node.id, { id: node.id, order, rank: 0, source: node }]));
   const incoming = new Map(model.nodeList.map((node) => [node.id, []]));
   const outgoing = new Map(model.nodeList.map((node) => [node.id, []]));
-  model.connectionList.forEach((connection) => { incoming.get(connection.to).push(connection); outgoing.get(connection.from).push(connection); });
+  (model.graphConnectionList || model.connectionList).forEach((connection) => { incoming.get(connection.to).push(connection); outgoing.get(connection.from).push(connection); });
   const feedback = model.layout.mode === 'cyclic' ? feedbackEdges(nodes, outgoing) : new Set();
   const rankingIncoming = new Map([...incoming].map(([id, list]) => [id, list.filter((edge) => !feedback.has(edge.id))]));
   const rankingOutgoing = new Map([...outgoing].map(([id, list]) => [id, list.filter((edge) => !feedback.has(edge.id))]));
@@ -684,11 +717,11 @@ export function layoutGraph(model) {
       }
     }
     const memberIds = new Set(ids);
-    const returnConnections = model.connectionList.filter((edge) => feedback.has(edge.id) && memberIds.has(edge.from))
+    const returnConnections = (model.graphConnectionList || model.connectionList).filter((edge) => feedback.has(edge.id) && memberIds.has(edge.from))
       .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     components.push({ members, ranks, returnConnections, rowCount: Math.max(...ranks.map((rank) => rank.length)) });
   });
-  const longConnections = model.connectionList.filter((connection) => nodes.get(connection.to).rank > nodes.get(connection.from).rank + 1);
+  const longConnections = (model.graphConnectionList || model.connectionList).filter((connection) => nodes.get(connection.to).rank > nodes.get(connection.from).rank + 1);
   const headingHeight = components.length > 1 ? 32 : 0, gapX = 24, gapY = 68;
   components.forEach((component) => {
     component.width = BOX.margin * 2 + (component.ranks.length - 1) * BOX.column + BOX.w;
@@ -822,17 +855,92 @@ function prepareLabelFragment(html) {
   return prepareFragment(String(html).replace(/(<math\b[^>]*\bdisplay\s*=\s*["'])block(["'])/gi, '$1inline$2'));
 }
 
+// Navigation is derived from the frozen reader contexts, never from a newer record.
+// Only owned proof evidence moves; shared and ambiguous evidence keeps its saved location.
+function navigationLocations(model, nodeDetails) {
+  const locations = new Map(), occurrences = new Map(), represented = new Map();
+  const claims = new Map(), targets = new Map();
+  const claim = (map, ref, detail) => {
+    if (!ref || !Number.isInteger(ref.version)) return;
+    const key = refKey(ref);
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(detail);
+  };
+  const sole = values => values?.size === 1 ? values.values().next().value : null;
+  for (const location of model.projection.record_locations) {
+    const key = refKey(location.ref);
+    if (!locations.has(key)) locations.set(key, location);
+  }
+  for (const record of model.records.values()) {
+    const key = looseKey(record.ref);
+    if (!represented.has(key)) represented.set(key, new Set());
+    represented.get(key).add(refKey(record.ref));
+  }
+  for (const [detail, value] of model.details) {
+    for (const section of value.sections) for (const ref of section.record_refs) {
+      const key = refKey(ref);
+      if (!occurrences.has(key)) occurrences.set(key, new Map());
+      if (!occurrences.get(key).has(detail)) occurrences.get(key).set(detail, section.key);
+    }
+  }
+  for (const node of model.nodeList) {
+    const reader = model.details.get(node.detail_key)?.reader;
+    if (!reader || refKey(reader.item_ref) !== refKey(node.item_ref)) continue;
+    const consumerTargets = new Set();
+    for (const target of reader.targets) {
+      claim(targets, target.target_ref, node.detail_key);
+      consumerTargets.add(refKey(target.target_ref));
+    }
+    for (const application of reader.applications) {
+      if (!application.to_ref || !consumerTargets.has(refKey(application.to_ref))) continue;
+      if (application.use_ref?.collection === 'uses') claim(claims, application.use_ref, node.detail_key);
+      if (application.application_ref?.collection === 'application_details') claim(claims, application.application_ref, node.detail_key);
+    }
+    for (const argument of reader.arguments) {
+      if (argument.argument_ref?.collection === 'arguments') claim(claims, argument.argument_ref, node.detail_key);
+      for (const group of argument.groups) if (group.group_ref?.collection === 'groups') claim(claims, group.group_ref, node.detail_key);
+    }
+    for (const group of reader.provenance_groups || []) if (group.group_ref?.collection === 'groups') claim(claims, group.group_ref, node.detail_key);
+  }
+  for (const record of model.records.values()) {
+    if (record.ref.collection !== 'observations') continue;
+    const target = record.body.target;
+    if (!isObject(target) || !isString(target.collection) || !isString(target.id)) continue;
+    const pinned = Number.isInteger(target.version);
+    if (!pinned && represented.get(looseKey(record.ref))?.size !== 1) continue;
+    const targetKey = pinned ? refKey(target) : sole(represented.get(looseKey(target)));
+    const owner = targetKey && sole(targets.get(targetKey));
+    if (owner) claim(claims, record.ref, owner);
+  }
+  for (const [key, candidates] of claims) {
+    const owner = sole(candidates), section = owner && occurrences.get(key)?.get(owner);
+    const saved = locations.get(key);
+    if (saved && section && owner !== saved.detail_key) {
+      locations.set(key, {...saved, detail_key:owner, section_key:section});
+    }
+  }
+  for (const [key, detail] of nodeDetails) {
+    const saved = locations.get(key);
+    if (!saved || detail !== saved.detail_key) locations.set(key, {...(saved || {ref:model.records.get(key).ref}), detail_key:detail, section_key:null});
+  }
+  return locations;
+}
+
 class Renderer {
   constructor(model, graph) {
     this.model = model;
     this.graph = graph;
     this.content = createReaderContent(model);
     this.detailIndex = new Map([...model.details.keys()].map((key, i) => [key, i + 1]));
-    this.locationsByPinned = new Map();
+    this.nodeDetailsByPinned = new Map(model.nodeList.map(node => [refKey(node.item_ref), node.detail_key]));
+    this.tasksByObligation = new Map();
+    for (const task of model.projection.worklist?.tasks || []) {
+      if (!this.tasksByObligation.has(task.id)) this.tasksByObligation.set(task.id, []);
+      this.tasksByObligation.get(task.id).push(task);
+    }
+    this.locationsByPinned = navigationLocations(model, this.nodeDetailsByPinned);
     this.locationsByLoose = new Map();
-    for (const location of model.projection.record_locations) {
-      const pinned = refKey(location.ref);
-      if (!this.locationsByPinned.has(pinned)) this.locationsByPinned.set(pinned, location);
+    for (const location of this.locationsByPinned.values()) {
       const loose = looseKey(location.ref);
       if (!this.locationsByLoose.has(loose)) this.locationsByLoose.set(loose, location);
     }
@@ -850,6 +958,16 @@ class Renderer {
 
   nodeLabel(id) { const node = this.model.nodes.get(id); return node ? node.label : id; }
 
+  hypothesisLink(relation, text) {
+    return `<a class="proof-jump" href="#${esc(this.detailId(relation.detail_key))}" data-jump-detail="${esc(relation.detail_key)}" data-reader-edge="${esc(relation.proof_connection_id || relation.id)}" data-jump-hypothesis="${esc(relation.id)}">${text}</a>`;
+  }
+
+  hypothesisContexts(key) {
+    const relations = this.model.hypothesisList.filter(relation => relation.detail_key === key || (relation.proof_connection_id && this.model.connections.get(relation.proof_connection_id)?.detail_key === key));
+    if (!relations.length) return '';
+    return `<section class="proof-hypothesis-contexts"><h4>Recorded hypotheses and setup</h4><p class="proof-muted">These are conditions of the recorded claim, not separately examined proof applications.</p><ul class="proof-plain-list">${relations.map(relation => `<li data-hypothesis-context="${esc(relation.id)}" data-hypothesis-premise="${esc(refKey(relation.premise_ref))}" data-hypothesis-target="${esc(refKey(relation.target_ref))}" data-hypothesis-spec="${esc(refKey(relation.spec_ref))}" data-hypothesis-statement="${esc(refKey(relation.statement_ref))}" data-hypothesis-scopes="${esc(JSON.stringify(relation.scope_refs.map(refKey)))}" data-hypothesis-proof-connection="${esc(relation.proof_connection_id || '')}">${this.humanLink(relation.premise_ref)}: ${relation.kind === 'setup' ? 'declared setup' : 'hypothesis'} of ${this.humanLink(relation.target_ref)}. ${relation.scope_refs.map(ref => this.humanLink(ref, 'Recorded scope')).join(', ')}.</li>`).join('')}</ul></section>`;
+  }
+
   jump(key, text, options = {}) {
     const attrs = [`class="proof-jump${options.className ? ` ${options.className}` : ''}"`, `href="#${esc(this.detailId(key))}"`, `data-jump-detail="${esc(key)}"`];
     if (options.section) attrs.push(`data-jump-section="${esc(options.section)}"`);
@@ -857,7 +975,7 @@ class Renderer {
     return `<a ${attrs.join(' ')}>${text}</a>`;
   }
 
-  // Link to the first location of a record (pinned or loose), else plain text.
+  // Result and evidence links share the same pinned navigation index.
   recordLink(ref, pinned) {
     return this.humanLink(ref);
   }
@@ -898,7 +1016,7 @@ class Renderer {
     const record = Number.isInteger(ref.version) ? this.readerRecord(ref) : this.model.recordsByLoose.get(looseKey(ref));
     const text = label === undefined ? this.humanLabelHtml(ref) : esc(label);
     const location = record ? this.locationsByPinned.get(refKey(record.ref)) : Number.isInteger(ref.version) ? null : this.locationsByLoose.get(looseKey(ref));
-    return location ? this.jump(location.detail_key, text, {section:location.section_key, record:refKey(location.ref)}) : text;
+    return location ? this.jump(location.detail_key, text, {section:this.nodeDetailsByPinned.has(refKey(location.ref)) ? null : location.section_key, record:refKey(location.ref)}) : text;
   }
 
   // These are selected, pinned source fields, separate from canonical record slots.
@@ -947,20 +1065,22 @@ ${contexts.length ? `<p>${contexts.map(([field, label]) => explanation[field + '
 
   readerNamedLink(key, context, ref) {
     const text = this.readerField(key, context, ref, 'label');
-    const location = this.locationsByPinned.get(refKey(ref));
     if (!text) return this.humanLink(ref);
-    return location ? this.jump(location.detail_key, text, {section:location.section_key, record:refKey(ref)}) : text;
+    const location = this.locationsByPinned.get(refKey(ref));
+    return location ? this.jump(location.detail_key, text, this.nodeDetailsByPinned.has(refKey(ref)) ? {} : {section:location.section_key, record:refKey(ref)}) : text;
   }
 
-  readerPremise(key, context, ref, visible) {
+  readerPremise(key, context, ref, options = {}) {
     const body = this.readerRecord(ref)?.body || {};
     const kind = body.kind || (ref.collection === 'parts' ? this.model.recordsByLoose.get(`items:${body.item_id}`)?.body?.kind : null);
     const definition = kind === 'definition', identity = refKey(ref);
     const repeated = this.readerSeenPremises?.has(identity);
+    const folded = definition || options.fold || repeated;
     // Only an actually visible statement can stand in for a later occurrence.
-    if (visible && !definition) this.readerSeenPremises?.add(identity);
+    if (options.visible && !folded) this.readerSeenPremises?.add(identity);
     const content = `${this.readerField(key, context, ref, 'statement')}${this.readerSources(ref, 'statement')}<p>${this.humanLink(ref, 'Inspect premise')}</p>`;
-    return `<div class="proof-reader-premise"><h6>${this.readerField(key, context, ref, 'label')}</h6>${definition ? `<details class="proof-reader-context" data-reader-definition="${esc(identity)}"><summary>Definition and source</summary>${content}</details>` : repeated ? `<details class="proof-reader-context" data-reader-repeated-premise="${esc(identity)}"><summary>Premise already shown above</summary>${content}</details>` : content}</div>`;
+    const marker = definition ? 'data-reader-definition' : repeated ? 'data-reader-repeated-premise' : 'data-reader-premise-details';
+    return `<div class="proof-reader-premise"><h6><span class="proof-premise-role">${definition ? 'Declared setup' : 'Assumed'}</span> ${this.readerNamedLink(key, context, ref)}</h6>${folded ? `<details class="proof-reader-context" ${marker}="${esc(identity)}"><summary>${definition ? 'Definition and source' : repeated ? 'Premise already shown above' : 'Premise statement and source'}</summary>${content}</details>` : content}</div>`;
   }
 
   readerScopes(key, context, chain, options = {}) {
@@ -973,12 +1093,12 @@ ${contexts.length ? `<p>${contexts.map(([field, label]) => explanation[field + '
       const content = `<div class="proof-reader-scope" data-reader-scope="${esc(at)}" data-reader-ref="${esc(refKey(entry.scope_ref))}">
 <p class="proof-muted">${index ? 'Inherited setup' : 'Recorded setup'} · ${this.humanLink(entry.scope_ref, 'Context evidence')}</p>
 ${body.conditions?.length ? `<p class="proof-reader-label">Conditions</p>${this.readerField(key, at, entry.scope_ref, 'conditions')}` : ''}
-${(entry.assumption_refs || []).map((ref, ai) => this.readerPremise(key, `${at}:assumption:${ai}`, ref, options.seed && !repeated)).join('')}
+${(entry.assumption_refs || []).map((ref, ai) => this.readerPremise(key, `${at}:assumption:${ai}`, ref, {visible:options.seed && !repeated,fold:options.foldPremises})).join('')}
 ${body.binders?.length ? `<p class="proof-reader-label">Variables and quantifiers</p>${this.readerField(key, at, entry.scope_ref, 'binders')}` : ''}
 ${!entry.assumption_refs?.length && !body.binders?.length && !body.conditions?.length ? '<p class="proof-muted">No assumptions, variables or conditions recorded in this context.</p>' : ''}
 ${this.readerSources(entry.scope_ref)}
 </div>`;
-      return repeated ? `<details class="proof-reader-context" data-reader-repeated-scope="${esc(refKey(entry.scope_ref))}"><summary>Setup already shown above</summary>${content}</details>` : content;
+      return repeated ? `<details class="proof-reader-context" data-reader-repeated-scope="${esc(refKey(entry.scope_ref))}"><summary>Shared setup and premise details</summary>${content}</details>` : content;
     }).join('');
   }
 
@@ -986,7 +1106,7 @@ ${this.readerSources(entry.scope_ref)}
     const display = reviewDisplay(assessment);
     const parts = [`<div class="proof-assessment s-${esc(display.color)}" data-review-status="${esc(display.status)}">`];
     parts.push(`<p class="proof-assessment-head">${stateBadge(display.color, display.label)} <strong class="proof-assessment-label">${esc(assessment.label)}</strong></p>`);
-    if (display.explanation) parts.push(`<p class="proof-review-explanation">${esc(display.explanation)}</p>`);
+    if (display.explanation && display.explanation !== assessment.explanation) parts.push(`<p class="proof-review-explanation">${esc(display.explanation)}</p>`);
     if (assessment.explanation) parts.push(`<p class="proof-assessment-text">${esc(assessment.explanation)}</p>`);
     if (assessment.availability) parts.push(`<p class="proof-assessment-meta proof-availability">Exact target support: <strong>${esc(assessment.availability)}</strong></p>`);
     if (assessment.local_label) parts.push(`<p class="proof-assessment-meta proof-local-outcome">Recorded local work: <strong>${esc(assessment.local_label)}</strong></p>`);
@@ -1006,15 +1126,15 @@ ${this.readerSources(entry.scope_ref)}
     const display = reviewDisplay({review_display:this.model.projection.finding_displays?.[ref.id]});
     const context = `finding:${index}`;
     const prose = this.readerField(key, context, ref, 'description') + this.readerField(key, context, ref, 'impact_reason');
-    const legacy = !body.severity;
+    const foldProse = (key === 'summary' && !body.severity) || display.status === 'historical';
     const links = (body.check_refs || []).map(check => this.humanLink(check, 'Examination reasoning')).join(' · ');
     return `<section class="proof-issue-card s-${esc(display.color)}" data-issue-ref="${esc(ref.id)}" data-review-status="${esc(display.status)}">
 <header class="proof-issue-head">${stateBadge(display.color, display.label)}${body.target ? `<strong>${this.humanLink(body.target)}</strong>` : ''}</header>
 ${display.explanation && !['severe','moderate','minor'].includes(display.status) ? `<p class="proof-issue-qualification">${esc(display.explanation)}</p>` : ''}
-${legacy ? '' : prose}
+${foldProse ? '' : prose}
 ${this.readerSources(ref)}
-<details class="proof-reader-context"><summary>Assessment details${legacy ? ' and saved finding' : ''}</summary>
-${legacy ? prose : ''}<p>${this.readerField(key, context, ref, 'category')} · ${esc(humanize(body.lifecycle))}</p>
+<details class="proof-reader-context"><summary>Assessment details${foldProse ? ' and saved finding' : ''}</summary>
+${foldProse ? prose : ''}<p>${this.readerField(key, context, ref, 'category')} · ${esc(humanize(body.lifecycle))}</p>
 ${body.resolution ? this.readerField(key, context, ref, 'resolution') : ''}
 ${links ? `<p>${links}</p>` : ''}<p>${this.humanLink(ref, 'Finding and supporting evidence')}</p></details>
 </section>`;
@@ -1112,13 +1232,16 @@ ${overviewBoundaries}
   svgHtml() {
     const { model, graph } = this;
     const badges = [];
-    const edges = model.connectionList.map((connection, edgeIndex) => {
+    const edges = model.graphConnectionList.map((connection, edgeIndex) => {
       const points = edgePoints(connection, graph);
+      if (model.hypotheses.has(connection.id)) {
+        const description = `${this.nodeLabel(connection.from)} to ${this.nodeLabel(connection.to)}. Recorded ${connection.kind === 'setup' ? 'setup' : 'hypothesis'}. Select for the result's conditions.`;
+        return `<path data-edge-id="${esc(connection.id)}" data-edge-key="${edgeIndex}" data-edge-label="${esc(description)}" data-edge-from="${esc(connection.from)}" data-edge-to="${esc(connection.to)}" data-edge-state="hypothesis" data-edge-kind="${esc(connection.kind)}" data-detail-key="${esc(connection.detail_key)}" class="proof-edge proof-hypothesis" d="${roundedPath(points)}" marker-end="url(#proof-hypothesis-arrow)"><title>${esc(description)}</title></path>`;
+      }
       const state = displayState(connection.assessment);
       const d = roundedPath(points);
       const labels = [];
       if (connection.primary_use_ids.length > 1) labels.push(`${connection.primary_use_ids.length} applications`);
-      if (connection.groups.length) labels.push(`${connection.groups.length} ${connection.groups.length === 1 ? 'group' : 'groups'}`);
       const description = `${this.nodeLabel(connection.from)} to ${this.nodeLabel(connection.to)}. ${reviewDisplay(connection.assessment).label}: ${connection.assessment.label}.${labels.length ? ` ${labels.join(', ')}.` : ''}`;
       if (labels.length) badges.push({ connection, description: `${description} Select for details.`, labels, points });
       return `<path data-edge-id="${esc(connection.id)}" data-edge-key="${edgeIndex}" data-edge-label="${esc(description)}" data-edge-from="${esc(connection.from)}" data-edge-to="${esc(connection.to)}" data-edge-state="${esc(state)}" data-detail-key="${esc(connection.detail_key)}" class="proof-edge s-${esc(state)}" d="${d}" marker-end="url(#proof-arrow-${esc(state)})"><title>${esc(description)}</title></path>`;
@@ -1158,7 +1281,7 @@ ${reviewMark}
       }
       return `<g class="proof-component" aria-hidden="true"><title>${esc(title)}</title><path d="M ${component.left + 22} ${component.top + 16} H ${component.left + component.width - 22}"/><text x="${component.left + BOX.margin}" y="${component.top + 9}" font-size="11">${esc(label)}</text></g>`;
     }).join('\n') : '';
-    const markers = DISPLAY_STATES.map((state) => `<marker id="proof-arrow-${state}" markerWidth="8" markerHeight="6" refX="7.2" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 3 L0 6 Z" class="proof-arrowhead s-${state}"/></marker>`).join('');
+    const markers = DISPLAY_STATES.map((state) => `<marker id="proof-arrow-${state}" markerWidth="8" markerHeight="6" refX="7.2" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 3 L0 6 Z" class="proof-arrowhead s-${state}"/></marker>`).join('') + (model.hypothesisList.length ? '<marker id="proof-hypothesis-arrow" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L8 4 L1 7" class="proof-hypothesis-arrowhead"/></marker>' : '');
     return `<svg class="proof-svg proof-audit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${graph.width} ${graph.height}" width="${graph.width}" height="${graph.height}" role="group" aria-labelledby="proof-graph-heading" aria-describedby="proof-graph-desc">
 <defs>${markers}<pattern id="proof-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" class="proof-grid-line" stroke-width="0.5"/></pattern></defs>
 <rect class="proof-grid-fill" width="100%" height="100%" fill="url(#proof-grid)"/>
@@ -1222,7 +1345,8 @@ ${nodes.join('\n')}
     return `<div class="proof-legend">
 <ul class="proof-legend-list" aria-label="Item kinds">${kinds}</ul>
 <ul class="proof-legend-list" aria-label="Assessment states">${states}</ul>
-<p class="proof-legend-note">Boxes are tinted by item kind; the ring, corner glyph and edge colour show issue severity or the scoped check status. Gray means unresolved, unassessed or unrated, not a defect grade. An <span class="proof-ir-sample">IR</span> tag marks items whose independent review is pending, complete, disputed or compromised. Edge badges mark connections with several applications or hidden-claim groups. Keyboard: Tab or arrow keys move between items, Enter opens details, Escape returns to the graph.</p>
+${this.model.hypothesisList.length ? '<p class="proof-legend-note"><svg class="proof-hypothesis-sample" width="40" height="12" viewBox="0 0 40 12" aria-hidden="true"><path d="M1 6 H36 M29 2 L36 6 L29 10"/></svg> Hypothesis / setup: neutral open arrows show recorded conditions. They carry no proof verdict.</p>' : ''}
+<p class="proof-legend-note">Boxes are tinted by item kind; the ring, corner glyph and edge colour show issue severity or the scoped check status. Gray means unresolved, unassessed or unrated, not a defect grade. An <span class="proof-ir-sample">IR</span> tag marks items whose independent review is pending, complete, disputed or compromised. Edge badges mark connections with several applications. Inference contexts remain in the connection details. Keyboard: Tab or arrow keys move between items, Enter opens details, Escape returns to the graph.</p>
 </div>`;
   }
 
@@ -1232,7 +1356,7 @@ ${nodes.join('\n')}
     const { model } = this;
     const incoming = new Map(model.nodeList.map((node) => [node.id, 0]));
     const outgoing = new Map(model.nodeList.map((node) => [node.id, 0]));
-    for (const connection of model.connectionList) {
+    for (const connection of model.graphConnectionList) {
       incoming.set(connection.to, incoming.get(connection.to) + 1);
       outgoing.set(connection.from, outgoing.get(connection.from) + 1);
     }
@@ -1261,8 +1385,9 @@ ${connection.assessment.explanation ? `<p class="proof-index-text">${esc(connect
 <div class="proof-index-reasons"><h3>Why an index</h3>${this.model.layout.reasons.length ? `<ul class="proof-reasons">${this.model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : '<p class="proof-muted">No reason was recorded.</p>'}</div>
 <h3>Items (${items.length})</h3>
 <div class="proof-index-list">${items.join('\n')}</div>
-<h3>Connections (${connections.length})</h3>
+<h3>${model.hypothesisList.length ? 'Proof connections' : 'Connections'} (${connections.length})</h3>
 <div class="proof-index-list">${connections.length ? connections.join('\n') : '<p class="proof-muted">No connections.</p>'}</div>
+${model.hypothesisList.length ? `<h3>Hypotheses and setup (${model.hypothesisList.length})</h3><div class="proof-index-list">${model.hypothesisList.map(relation => `<article data-proof-index-hypothesis="${esc(relation.id)}" data-edge-from="${esc(relation.from)}" data-edge-to="${esc(relation.to)}" data-edge-state="hypothesis" data-edge-kind="${esc(relation.kind)}" data-detail-key="${esc(relation.detail_key)}" class="proof-index-card proof-hypothesis"><h4>${this.hypothesisLink(relation, `${esc(this.nodeLabel(relation.from))} → ${esc(this.nodeLabel(relation.to))}`)}</h4><p>${relation.kind === 'setup' ? 'Declared setup' : 'Recorded hypothesis'}. No separate proof verdict.</p></article>`).join('')}</div>` : ''}
 </section>`;
   }
 
@@ -1287,6 +1412,7 @@ ${articles.join('\n')}
     return `<article class="proof-detail" data-reader-article="${esc(key)}" data-proof-detail="${esc(key)}" id="${esc(this.detailId(key))}">
 <div class="proof-detail-top"><button type="button" class="proof-back">Back to ${this.graph ? 'graph' : 'index'}</button></div>
 ${header}
+${this.hypothesisContexts(key)}
 <details class="proof-disclosure proof-evidence" data-proof-evidence><summary>Detailed proof and audit evidence</summary>
 <p class="proof-muted">The sections below are a stable evidence inventory, not a claimed proof sequence. Argument context and recorded final inferences are linked above.</p>
 ${sections}
@@ -1329,10 +1455,10 @@ ${different ? `<details class="proof-reader-context"><summary>Current saved syno
 </section>`;
     }).join('');
     const strategy = this.readerRecord(reader.strategy_ref)?.body?.proof_idea;
-    const strategyHtml = strategy ? `<section class="proof-reader-strategy proof-reading-section proof-logic-section"><h4>Main proof strategy</h4>${this.readerField(key, 'strategy', reader.strategy_ref, 'proof_idea')}${this.readerSources(reader.strategy_ref, 'proof')}<p class="proof-muted">Saved explanation; it supplies no additional proof support.</p></section>` : '';
+    const strategyHtml = strategy ? `<section class="proof-reader-strategy proof-reading-section proof-logic-section"><h4>Proof idea</h4>${this.readerField(key, 'strategy', reader.strategy_ref, 'proof_idea')}${this.readerSources(reader.strategy_ref, 'proof')}<p class="proof-muted">Saved explanation; it supplies no additional proof support.</p></section>` : '';
     const findings = reader.finding_refs.map((ref, index) => this.findingCard(key, index, ref)).join('');
     const sourceLimits = reader.source_limit_refs.map((ref, index) => `<div class="proof-reader-issue"><p class="proof-reader-label">Source limitation${this.readerRecord(ref)?.body?.category ? ` · ${this.readerField(key, `source_limit:${index}`, ref, 'category')}` : ''}</p>${this.readerField(key, `source_limit:${index}`, ref, ref.collection === 'sources' ? 'limitation' : 'description')}<p>${this.humanLink(ref, 'Source limitation evidence')}</p></div>`).join('');
-    const setup = reader.targets.map((target, index) => target.scope_chain.length ? `<section class="proof-reader-setup"><h5>${this.humanLink(target.target_ref)}: applicable assumptions and setup</h5>${this.readerScopes(key, `target:${index}`, target.scope_chain, {deduplicate:true,seed:true})}</section>` : '').join('');
+    const setup = reader.targets.map((target, index) => target.scope_chain.length ? `<section class="proof-reader-setup"><h5>Hypotheses and setup for ${this.humanLink(target.target_ref)}</h5>${this.readerScopes(key, `target:${index}`, target.scope_chain, {deduplicate:true,seed:true,foldPremises:true})}</section>` : '').join('');
     const applications = reader.applications.map((app, index) => ({app, index}));
     const associated = new Set();
     const routes = reader.arguments.map((argument, index) => {
@@ -1346,16 +1472,16 @@ ${different ? `<details class="proof-reader-context"><summary>Current saved syno
       && JSON.stringify(target.assessment) === JSON.stringify(node.assessment));
     return `<div class="proof-reader-overview" data-reader-overview="${esc(key)}">
 ${targets}
-<section class="proof-reader-audit"><h4>Audit assessment</h4>${primaryTarget >= 0 ? this.readerAssessment(key, `target:${primaryTarget}`, node.assessment) + this.readerSupport(key, `target:${primaryTarget}`, reader.targets[primaryTarget].support_explanation) : this.assessmentBlock(node.assessment, {compact:true})}
+<section class="proof-reader-audit"><h4>Review</h4>${primaryTarget >= 0 ? this.readerAssessment(key, `target:${primaryTarget}`, node.assessment) + this.readerSupport(key, `target:${primaryTarget}`, reader.targets[primaryTarget].support_explanation) : this.assessmentBlock(node.assessment, {compact:true})}
 ${node.assessment.label === 'stale' && node.assessment.explanation === 'stale' ? '<p class="proof-muted proof-stale-hint">This status summary does not identify which change made the examination stale. The earlier opinion does not establish a completed current examination.</p>' : ''}
 ${reader.targets.map((target, index) => index === primaryTarget ? '' : `<div class="proof-reader-target-assessment"><p class="proof-reader-label">${this.humanLink(target.target_ref)}: target assessment</p>${this.readerAssessment(key, `target:${index}`, target.assessment)}${this.readerSupport(key, `target:${index}`, target.support_explanation)}</div>`).join('')}
 ${findings || sourceLimits ? `<h5>Material issues and limitations</h5>${findings}${sourceLimits}` : ''}</section>
 ${strategyHtml}
-<section class="proof-reader-dependencies"><h4>Dependencies and their roles</h4><p class="proof-muted">These are recorded dependencies and contexts. An empty list does not establish that the result has no prerequisites. Each application has its own assessment.</p>
+<section class="proof-reader-dependencies"><h4>Prerequisites</h4><p class="proof-muted">Recorded inputs and their applicable contexts; this list does not establish joint sufficiency.</p>
 ${setup}
 ${routes}
 ${reader.provenance_groups?.length ? `<details class="proof-reader-context"><summary>Recorded inference groups without an argument</summary><p class="proof-muted">These preserve recorded joint or case context. They do not establish a verified argument.</p>${reader.provenance_groups.map((group,index) => this.readerGroup(key, `provenance_group:${index}`, group)).join('')}</details>` : ''}
-${remaining.length ? `<section class="proof-reader-route"><h5>Connections without a recorded argument association</h5>${remaining.map(({app,index}) => this.readerApplication(key, app, index)).join('')}</section>` : ''}
+${remaining.length ? `<section class="proof-reader-route"><h5>Connections without a recorded argument association</h5>${this.readerApplications(key, remaining, reader.item_ref)}</section>` : ''}
 ${!reader.arguments.length && !applications.length ? '<p class="proof-muted">No supplier applications or proof routes were recorded.</p>' : ''}
 </section></div>`;
   }
@@ -1370,33 +1496,55 @@ ${!reader.arguments.length && !applications.length ? '<p class="proof-muted">No 
     const title = `${this.readerField(key, context, argument.argument_ref, 'label')} <span class="proof-muted">(${this.readerField(key, context, argument.argument_ref, 'origin')})</span>`;
     const contents = `<p class="proof-muted">${esc(relation)} · Target: ${this.humanLink(argument.target_ref)}${argument.relation === 'linked_intermediate' && argument.reaches_target_refs.length ? `. Recorded route reaches: ${argument.reaches_target_refs.map(ref => this.humanLink(ref)).join(', ')}` : ''}</p>
 ${this.readerScopes(key, context, argument.scope_chain, {deduplicate:true,seed:body.lifecycle !== 'retired' && ['target','linked_intermediate'].includes(argument.relation)})}
-${rows.filter(({app}) => app.from_ref.collection !== 'items' || this.readerRecord(app.from_ref)?.body?.owner_id !== reader.item_ref.id).map(({app,index:ai}) => this.readerApplication(key, app, ai)).join('')}
+${this.readerApplications(key, rows.filter(({app}) => app.from_ref.collection !== 'items' || this.readerRecord(app.from_ref)?.body?.owner_id !== reader.item_ref.id), reader.item_ref)}
 <details class="proof-reader-context"><summary>Argument structure and local proof contexts</summary><p class="proof-muted">Stable inventory of recorded inferences, not a reconstructed proof sequence.</p>
 ${body.final_group_id ? `<p>Recorded final inference: ${this.humanLink({collection:'groups',id:body.final_group_id})}</p>` : '<p class="proof-muted">No final inference is registered for this argument.</p>'}
 ${argument.groups.map((group, gi) => this.readerGroup(key, `${context}:group:${gi}`, group)).join('')}
-${rows.filter(({app}) => app.from_ref.collection === 'items' && this.readerRecord(app.from_ref)?.body?.owner_id === reader.item_ref.id).map(({app,index:ai}) => this.readerApplication(key, app, ai)).join('')}
+${this.readerApplications(key, rows.filter(({app}) => app.from_ref.collection === 'items' && this.readerRecord(app.from_ref)?.body?.owner_id === reader.item_ref.id), reader.item_ref)}
 <p>${this.humanLink(argument.argument_ref, 'Argument evidence')}</p>${this.readerSources(argument.argument_ref)}
 </details>`;
     const attrs = `data-reader-route="${index}" data-reader-route-ref="${esc(refKey(argument.argument_ref))}" data-reader-route-relation="${esc(argument.relation)}" data-reader-route-target="${esc(refKey(argument.target_ref))}"`;
     return body.lifecycle === 'retired' || argument.relation === 'subsidiary' ? `<details class="proof-reader-route proof-reader-context" ${attrs}><summary>${body.lifecycle === 'retired' ? 'Historical route: ' : 'Subsidiary argument: '}${title}</summary>${contents}</details>` : `<section class="proof-reader-route" ${attrs}><h5>${title}</h5>${contents}</section>`;
   }
 
-  readerApplication(key, app, index) {
+  readerApplications(key, rows, targetRef) {
+    const groups = new Map();
+    for (const row of rows) {
+      const id = row.app.group_ref ? refKey(row.app.group_ref) : '';
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(row);
+    }
+    return [...groups.values()].map(members => {
+      const group = members[0].app.group_ref;
+      const kind = this.readerRecord(group)?.body?.kind;
+      const label = kind === 'joint' ? 'All inputs in this recorded group' : kind === 'cases' ? 'Case analysis' : 'Recorded inference context';
+      return `${group ? `<p class="proof-reader-group-label">${this.humanLink(group, label)}</p>` : ''}<div class="proof-reader-inputs">${members.map(({app,index}) => this.readerApplication(key, app, index, targetRef)).join('')}</div>`;
+    }).join('');
+  }
+
+  readerApplication(key, app, index, targetRef) {
     const context = `application:${index}`;
     const refined = app.refined_use_refs.length > 0;
-    const content = `<div class="proof-reader-application proof-reading-section proof-logic-section" data-reader-application="${index}" data-reader-relation="${esc(app.relation)}" data-reader-from="${esc(refKey(app.from_ref))}" data-reader-to="${esc(refKey(app.to_ref))}" data-reader-argument="${esc(app.argument_ref ? refKey(app.argument_ref) : '')}" data-reader-group="${esc(app.group_ref ? refKey(app.group_ref) : '')}">
-<h6>Supplier: ${this.readerNamedLink(key, `${context}:from`, app.from_ref)}</h6>
-<p class="proof-reader-label">Used for: ${this.readerNamedLink(key, `${context}:to`, app.to_ref)}${app.group_ref ? ` · ${this.humanLink(app.group_ref, 'Inference context')}` : ''}</p>
+    const display = reviewDisplay(app.assessment);
+    const recipient = `<p class="proof-reader-label">Used for: ${this.readerNamedLink(key, `${context}:to`, app.to_ref)}</p>`;
+    const sameTarget = targetRef && refKey(app.to_ref) === refKey(targetRef);
+    const kind = this.readerRecord(app.from_ref)?.body?.kind;
+    const role = kind === 'assumption' ? 'Assumed input' : kind === 'definition' ? 'Declared setup' : 'Supporting input';
+    const content = `<div class="proof-reader-application" data-reader-application="${index}" data-reader-relation="${esc(app.relation)}" data-reader-from="${esc(refKey(app.from_ref))}" data-reader-to="${esc(refKey(app.to_ref))}" data-reader-argument="${esc(app.argument_ref ? refKey(app.argument_ref) : '')}" data-reader-group="${esc(app.group_ref ? refKey(app.group_ref) : '')}">
+<h6><span class="proof-premise-role">${role}</span> ${this.readerNamedLink(key, `${context}:from`, app.from_ref)}</h6>
+${sameTarget ? '' : recipient}
 ${!app.application_ref ? '<p class="proof-muted">Recorded summary connection; this is not an additional checked implication.</p>' : ''}
 ${this.readerField(key, context, app.use_ref, 'reason')}
 ${['regime','uncertainty'].map(field => this.readerRecord(app.use_ref)?.body?.[field] ? `<p class="proof-reader-label">${field === 'regime' ? 'Restriction' : 'Uncertainty'}</p>${this.readerField(key, context, app.use_ref, field)}` : '').join('')}
-${app.application_ref ? `${this.readerRecord(app.application_ref)?.body?.needed_form ? `<details class="proof-reader-context"><summary>Exact required form</summary>${this.readerField(key, context, app.application_ref, 'needed_form')}</details>` : ''}` : ''}
+${app.application_ref ? `${this.readerRecord(app.application_ref)?.body?.needed_form ? `<details class="proof-reader-context"><summary>Exact required form and conditions</summary>${this.readerField(key, context, app.application_ref, 'needed_form')}</details>` : ''}` : ''}
 ${this.readerScopes(key, context, app.scope_chain, {deduplicate:true})}
-${this.readerAssessment(key, context, app.assessment)}
+<p class="proof-application-status">${stateBadge(display.color, display.label)}${app.assessment.availability ? ` <span>Support: ${esc(app.assessment.availability)}</span>` : ''}</p>
 ${this.readerSupport(key, context, app.support_explanation)}
 ${refined ? `<p>Explained by ${app.refined_use_refs.map(ref => this.humanLink(ref, 'detailed application')).join(', ')}. The summary is retained as context.</p>` : ''}
 ${app.summary_use_refs.length ? `<p>Refines ${app.summary_use_refs.map(ref => this.humanLink(ref, 'recorded summary')).join(', ')}.</p>` : ''}
-<p>${this.humanLink(app.application_ref || app.use_ref, 'Inspect exact application and checks')}</p>${this.readerSources(app.use_ref)}
+<details class="proof-reader-context"><summary>Application assessment and evidence</summary>
+${sameTarget ? recipient : ''}${this.readerAssessment(key, context, app.assessment)}
+<p>${this.humanLink(app.application_ref || app.use_ref, 'Inspect exact application and checks')}</p>${this.readerSources(app.use_ref)}</details>
 </div>`;
     return refined ? `<details class="proof-reader-context"><summary>Summary connection represented by detailed applications</summary>${content}</details>` : content;
   }
@@ -1449,8 +1597,29 @@ ${empty}
     const state = displayState(obligation.assessment);
     return `<div class="proof-obligation s-${esc(state)}" data-obligation-id="${esc(obligation.id)}" tabindex="-1">
 <p class="proof-record-head"><strong>${obligation.role === 'primary' ? 'Initial assessment' : obligation.role === 'independent' ? 'Independent review requirement' : 'Combined assessment'}: ${this.humanLink(obligation.target)}</strong></p>
-${this.assessmentBlock(obligation.assessment)}
+${obligation.role === 'primary' ? this.assessmentBlock(obligation.assessment) : this.roleWorkHtml(obligation)}
 </div>`;
+  }
+
+  roleWorkHtml(obligation) {
+    const candidates = this.tasksByObligation.get(obligation.id) || [];
+    const candidate = candidates.length === 1 ? candidates[0] : null;
+    const task = candidate && candidate.role === obligation.role && candidate.kind === obligation.kind
+      && candidate.target?.collection === obligation.target.collection && candidate.target?.id === obligation.target.id
+      ? candidate : null;
+    const role = obligation.role === 'independent' ? 'Independent examination' : 'Comparison';
+    const complete = task?.state === 'satisfied' && task.freshness === 'current';
+    const status = !task || (task.state === 'satisfied' && (!isString(task.freshness) || !task.freshness.trim()))
+      ? 'Completion status unavailable.' : complete ? `${role} completed.` : `${role} incomplete for the current material.`;
+    // Coordinator outcomes describe the comparison requirement, not mathematical support.
+    const facts = task ? [obligation.role === 'independent' && task.outcome && `Saved outcome: ${humanize(task.outcome)}.`,
+      task.freshness && `Freshness: ${humanize(task.freshness)}.`,
+      task.requires_independent_context && 'The saved review has compromised independence; a fresh independent context is still required.']
+      .filter(Boolean).join(' ') : '';
+    const refs = new Map();
+    for (const ref of [...obligation.check_refs, ...(task?.judgment_refs || []), ...(task?.draft_refs || [])])
+      if (ref && this.model.records.has(refKey(ref))) refs.set(refKey(ref), ref);
+    return `<div class="proof-reader-notice" data-role-work="${esc(obligation.role)}"><p>${esc(status)}${facts ? ' ' + esc(facts) : ''}</p>${refs.size ? `<p>Saved evidence: ${[...refs.values()].map(ref => this.humanLink(ref)).join(', ')}</p>` : ''}</div>`;
   }
 
   scientificValue(value, sourceRef, path, fragment, slice) {
@@ -1555,16 +1724,19 @@ ${this.assessmentBlock(obligation.assessment)}
 
   searchEntries() {
     const seen = new Set();
-    return this.model.projection.record_locations.flatMap(location => {
+    return this.model.projection.record_locations.flatMap(saved => {
+      const location = this.locationsByPinned.get(refKey(saved.ref));
       const key = refKey(location.ref), record = this.model.records.get(key);
-      const identity = JSON.stringify([key,location.detail_key,location.section_key]);
+      const detail = location.detail_key, section = location.section_key;
+      const identity = JSON.stringify([key,detail,section]);
       if (!record || seen.has(identity)) return [];
       seen.add(identity);
-      const owners = this.owners.get(location.detail_key) || [];
+      const owners = this.owners.get(detail) || [];
       const owner = owners.map(row => row.type === 'node' ? row.node.label : this.nodeLabel(row.connection.from) + ' applied to ' + this.nodeLabel(row.connection.to)).join('; ') || 'Paper evidence';
       const text = this.content.text(record);
       if (!text) return [];
-      return [{key, aliases:[key, record.ref.id], label:this.content.title(record), detail:location.detail_key, section:location.section_key, owner, text}];
+      return [{key, aliases:[key, record.ref.id], label:this.content.title(record), detail, section, owner, text,
+        isDirectResult:this.nodeDetailsByPinned.get(key) === detail}];
     });
   }
 
@@ -1573,7 +1745,7 @@ ${this.assessmentBlock(obligation.assessment)}
     const limits = [...(summary.factual?.source_limits || []).map(row => `${row.source_path || row.label}: ${row.description}`), ...(summary.factual?.independent_review?.qualification_limitations || [])];
     const independent = summary.factual?.independent_review;
     const nodes = this.model.nodeList.length, connections = this.model.connectionList.length;
-    const mapState = !nodes ? 'No results have been recorded in this report.' : !connections
+    const mapState = this.model.hypothesisList.length ? `${nodes} results, ${connections} proof connections and ${this.model.hypothesisList.length} hypothesis/setup relationships are shown in the recorded map.` : !nodes ? 'No results have been recorded in this report.' : !connections
       ? `${nodes} results are recorded, but no connections between them are recorded. This does not establish that the results are independent.`
       : `${nodes} results and ${connections} connections are shown in the recorded map.`;
     return `<section class="proof-report-state" data-reader-report-state><p><strong>${this.model.build.kind === 'release' ? 'Release report' : 'Working report'}</strong> · ${summary.progress.process_complete ? 'Registered examinations complete.' : 'Registered examinations incomplete.'} Mathematical support is stated separately for each result and application.${this.model.build.kind === 'working' ? ' This working report does not establish completion of the promised audit scope.' : ''}</p><p class="proof-muted">${mapState} Assessments reflect LLM mathematical understanding, not formal proof verification.</p>${independent ? `<p data-reader-review-level>${esc(independent.explanation ?? `Independent review: ${REVIEW_LABELS[independent.state]}.`)}</p>` : ''}${limits.length ? `<ul>${[...new Set(limits)].map(note => `<li>${esc(note)}</li>`).join('')}</ul>` : ''}${this.reviewLimitsHtml()}</section>`;
@@ -1585,8 +1757,8 @@ ${this.assessmentBlock(obligation.assessment)}
     const requestedItems = new Set(model.summary.scope.target_refs.filter((ref) => ref.collection === 'items').map((ref) => ref.id));
     const requested = model.nodeList.filter(node => requestedItems.has(node.item_ref?.id)).map(node => node.id);
     const beforeGraph = `<div id="proof-main" class="proof-reader proof-audit">${this.readerReportState()}${mathDisplayNotes(model.mathDiagnosticSummary)}<details class="proof-build-disclosure"><summary>Scientific findings, scope and review limits</summary>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
-${this.graph ? viewControls({traceHtml:'<p class="proof-trace-note">Tracing follows recorded connections, including alternative routes. It identifies supporting or potentially affected results; it does not establish a complete or verified proof route.</p>'}) : ''}
-<h2 id="proof-graph-heading" class="proof-visually-hidden">Dependency graph</h2><p id="proof-graph-desc" class="proof-visually-hidden">Major results and their recorded uses. Connection colors describe issue severity and checked status; logical support and review limits are stated separately.</p>`;
+${this.graph ? viewControls({traceHtml:`<p class="proof-trace-note">Tracing follows recorded ${model.hypothesisList.length ? 'proof applications and hypothesis/setup relationships' : 'connections'}, including alternative routes. It identifies supporting or potentially affected results; it does not establish a complete or verified proof route.</p>`}) : ''}
+<h2 id="proof-graph-heading" class="proof-visually-hidden">Dependency graph</h2><p id="proof-graph-desc" class="proof-visually-hidden">Major results and their recorded uses${model.hypothesisList.length ? ' and hypotheses/setup' : ''}. Proof connection colors describe issue severity and checked status; logical support and review limits are stated separately.</p>`;
     const afterGraph = `<div class="proof-reader proof-audit">${this.graph ? this.legendHtml() : this.indexHtml()}
 ${scientificSearchPanel()}
 ${this.detailsHtml()}
@@ -1596,7 +1768,7 @@ ${this.detailsHtml()}
     const data = `
 <script id="proof-projection" type="application/json">${jsonForScript(model.projection)}</script>
 <script id="proof-render-input" type="application/json">${jsonForScript({ title: model.title, build: model.build })}</script>
-<script id="proof-reader-search" type="application/json">${jsonForScript(searchEntries)}</script>
+${readerSearchData(searchEntries)}
 `;
     // The common page assembler removes this template placeholder in index mode.
     // It has no identity-bearing elements and is never presented as a graph.
@@ -1604,11 +1776,12 @@ ${this.detailsHtml()}
     const targets = [
       ...model.nodeList.map(node => ({key:node.detail_key,articleId:this.detailId(node.detail_key),nodeId:node.id})),
       ...model.connectionList.map(edge => ({key:edge.detail_key,articleId:this.detailId(edge.detail_key),edgeId:edge.id})),
+      ...model.hypothesisList.filter(edge => !edge.proof_connection_id).map(edge => ({key:`hyp:${edge.id}`,articleId:this.detailId(edge.detail_key),edgeId:edge.id,hypothesisId:edge.id})),
       ...[...model.details.keys()].filter(key => !this.owners.has(key)).map(key => ({key,articleId:this.detailId(key)})),
     ];
     return archifyPage({ templatePath: TEMPLATE_PATH, title: model.title, svg, beforeGraph, afterGraph,
       resultsHtml:auditResults(model.nodeList, model.connectionList, requested, !!this.graph, key => this.detailId(key)),
-      runtime: readerRuntime({targets,searchEntries,graphAvailable:!!this.graph}), data, fontStyle, index: !this.graph });
+      runtime: readerRuntime({targets,graphAvailable:!!this.graph}), data, fontStyle, index: !this.graph });
   }
 }
 
@@ -1728,7 +1901,7 @@ export function representationReceipt(model, scan) {
   'the bundled Archify viewer shell or runtime is missing');
 
   const nodeIds = model.nodeList.map((node) => node.id);
-  const connectionIds = model.connectionList.map((connection) => connection.id);
+  const connectionIds = model.graphConnectionList.map((connection) => connection.id);
   const nodeElements = byAttr('data-node-id');
   const edgeElements = byAttr('data-edge-id');
   const insideSvg = (element) => { for (let parent = element.parent; parent; parent = parent.parent) if (parent.tag === 'svg') return true; return false; };
@@ -1740,9 +1913,9 @@ export function representationReceipt(model, scan) {
     'svg node groups do not match the projection nodes exactly once with state, kind, tabindex and role');
     check('dag_edges', sameMultiset(edgeElements.map((element) => element.attrs['data-edge-id']), connectionIds)
       && edgeElements.every((element) => element.tag === 'path' && insideSvg(element)
-        && element.attrs['data-edge-from'] === model.connections.get(element.attrs['data-edge-id']).from
-        && element.attrs['data-edge-to'] === model.connections.get(element.attrs['data-edge-id']).to
-        && element.attrs['data-edge-state'] === displayState(model.connections.get(element.attrs['data-edge-id']).assessment)),
+        && element.attrs['data-edge-from'] === model.graphConnections.get(element.attrs['data-edge-id']).from
+        && element.attrs['data-edge-to'] === model.graphConnections.get(element.attrs['data-edge-id']).to
+        && element.attrs['data-edge-state'] === (model.hypotheses.has(element.attrs['data-edge-id']) ? 'hypothesis' : displayState(model.graphConnections.get(element.attrs['data-edge-id']).assessment))),
     'svg edge paths do not match the projection connections exactly once with from, to and state');
     check('no_index_articles', !byAttr('data-proof-index-item').length && !byAttr('data-proof-index-connection').length && !all.some((element) => element.attrs.id === 'proof-major-index'), 'diagram mode must not emit index articles');
   } else {
@@ -1756,12 +1929,18 @@ export function representationReceipt(model, scan) {
     check('index_items', sameMultiset(itemArticles.map((element) => element.attrs['data-proof-index-item']), nodeIds)
       && itemArticles.every((element) => element.tag === 'article' && within.includes(element) && element.attrs['data-node-state'] === displayState(model.nodes.get(element.attrs['data-proof-index-item']).assessment)),
     'index item articles do not match the projection nodes exactly once with state');
-    check('index_connections', sameMultiset(connectionArticles.map((element) => element.attrs['data-proof-index-connection']), connectionIds)
+    check('index_connections', sameMultiset(connectionArticles.map((element) => element.attrs['data-proof-index-connection']), model.connectionList.map(edge => edge.id))
       && connectionArticles.every((element) => element.tag === 'article' && within.includes(element)
         && element.attrs['data-edge-from'] === model.connections.get(element.attrs['data-proof-index-connection']).from
         && element.attrs['data-edge-to'] === model.connections.get(element.attrs['data-proof-index-connection']).to
         && element.attrs['data-edge-state'] === displayState(model.connections.get(element.attrs['data-proof-index-connection']).assessment)),
     'index connection articles do not match the projection connections exactly once with from, to and state');
+    const hypotheses = byAttr('data-proof-index-hypothesis');
+    check('index_hypotheses', sameMultiset(hypotheses.map(element => element.attrs['data-proof-index-hypothesis']), model.hypothesisList.map(edge => edge.id))
+      && hypotheses.every(element => {
+        const relation = model.hypotheses.get(element.attrs['data-proof-index-hypothesis']);
+        return element.tag === 'article' && within.includes(element) && element.attrs['data-edge-from'] === relation.from && element.attrs['data-edge-to'] === relation.to && element.attrs['data-edge-state'] === 'hypothesis';
+      }), 'index hypotheses differ from the recorded target conditions');
     const sectionText = section ? textOf(scan, section) : '';
     check('index_reasons', model.layout.reasons.every((reason) => sectionText.includes(reason)), 'index section does not show every layout reason');
   }
@@ -1841,10 +2020,14 @@ export function representationReceipt(model, scan) {
         return matches;
       });
     }), 'selected scientific statements, conditions, reasoning or mathematics are absent or changed in their pinned evidence destination');
+  const expectedHypothesisContexts = [];
   const expectedOverviews = [...model.details.entries()].flatMap(([key, detail]) => {
     const html = canonicalRenderer.detailHtml(key, detail), parsed = scanHtml(html);
+    expectedHypothesisContexts.push(...parsed.elements.filter(element => classList(element).includes('proof-hypothesis-contexts')).map(element => html.slice(element.start, element.closeEnd)));
     return parsed.elements.filter(element => hasAttr(element, 'data-reader-overview')).map(element => html.slice(element.start, element.closeEnd));
   });
+  check('hypothesis_context_content', sameMultiset(all.filter(element => classList(element).includes('proof-hypothesis-contexts')).map(element => scan.html.slice(element.start, element.closeEnd)), expectedHypothesisContexts),
+    'visible hypothesis descriptions or links differ from their saved context');
   const shownOverviews = byAttr('data-reader-overview');
   check('contextual_reader_overviews', sameMultiset(shownOverviews.map(element => scan.html.slice(element.start, element.closeEnd)), expectedOverviews)
     && shownOverviews.every(element => {
@@ -1879,8 +2062,12 @@ export function representationReceipt(model, scan) {
   };
   check('visible_assessments', model.nodeList.every((node) => assessmentMatches(ownerAssessment(node.detail_key, 'node', node.id), node.assessment))
     && model.connectionList.every((connection) => assessmentMatches(ownerAssessment(connection.detail_key, 'connection', connection.id), connection.assessment))
-    && byAttr('data-obligation-id').every((element) => assessmentMatches([...descendants(element)].find((child) => classList(child).includes('proof-assessment')),
-       model.obligations.get(element.attrs['data-obligation-id']).assessment)),
+    && byAttr('data-obligation-id').every((element) => {
+      const obligation = model.obligations.get(element.attrs['data-obligation-id']);
+      if (obligation.role === 'primary') return assessmentMatches([...descendants(element)].find((child) => classList(child).includes('proof-assessment')), obligation.assessment);
+      const work = [...descendants(element)].filter(child => hasAttr(child, 'data-role-work'));
+      return work.length === 1 && scan.html.slice(work[0].start, work[0].closeEnd) === canonicalRenderer.roleWorkHtml(obligation);
+    }),
   'visible assessment colors, glyphs, labels or support wording disagree with the canonical assessment');
   const applicationAssessments = new Map(model.connectionList.flatMap((connection) => (connection.applications || []).map((app) => [app.use_id, app.assessment])));
   check('visible_applications', byAttr('data-application-id').every((element) => {
@@ -1895,6 +2082,8 @@ export function representationReceipt(model, scan) {
     return node && classList(element).includes(`s-${displayState(node.assessment)}`) && label && textOf(scan, label) === node.label
       && state && textOf(scan, state) === STATE_GLYPHS[displayState(node.assessment)];
   }) && edgeElements.every((element) => {
+    if (model.hypotheses.has(element.attrs['data-edge-id'])) return classList(element).includes('proof-hypothesis')
+      && !classList(element).some(name => name.startsWith('s-')) && element.attrs['marker-end'] === 'url(#proof-hypothesis-arrow)';
     const connection = model.connections.get(element.attrs['data-edge-id']);
     return connection && classList(element).includes(`s-${displayState(connection.assessment)}`)
       && element.attrs['marker-end'] === `url(#proof-arrow-${displayState(connection.assessment)})`;

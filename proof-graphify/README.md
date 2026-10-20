@@ -1,6 +1,6 @@
 # Proof Graphify
 
-[![Version v3.2.9](https://img.shields.io/badge/version-v3.2.9-6366f1)](SKILL.md)
+[![Version v3.3.5](https://img.shields.io/badge/version-v3.3.5-6366f1)](SKILL.md)
 
 **Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
 
@@ -31,6 +31,16 @@ proof-graphify-<paper-name>/
 ```
 
 **Share the HTML alone. Keep the database for future revisions.** See the [database guide](references/database.md) for focused initialization, editing, and export, and [SKILL.md](SKILL.md) for the current skill version.
+
+Version 3.3.5 bundles paper core 3.3.4, including the shared reader layout correction. The source-comparison scope is unchanged.
+
+Version 3.3.4 retains paper core 3.3.3, removes duplicated formula text from search previews, and clarifies how to report conflicting source formulations and unreadable mathematical notation within the existing source comparison.
+
+Version 3.3.2 bundles paper core 3.3.2 and presents compact prerequisites with exact-connection links and searchable Used by details. Saved proof ideas remain optional. The reader reuses existing records and adds no source-comparison pass or review work.
+
+Version 3.3.1 bundles paper core 3.3.1, corrects sized norm bars, and prioritizes exact result labels and aliases in search. These renderer changes add no source-comparison or review work.
+
+Version 3.3.0 bundles paper core 3.3.0 and the latest shared reader fixes for navigation, graph framing and mathematical display. Graphify retains its selective source-comparison workflow. The shared core also displays recorded Proof Check hypotheses without adding scientific review work.
 
 Version 3.2.9 bundles paper core 3.2.8, which corrects audit-edit recovery guidance and clarifies returned response fields. Graphify retains its existing selective source-comparison workflow and adds no proof-review stage.
 

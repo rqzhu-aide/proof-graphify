@@ -21,7 +21,7 @@ _ENVIRONMENTS = frozenset((
     "substack displaylines eqalign eqalignno"
 ).split())
 CONFIGURATION = {
-    "adapter_version": 14,
+    "adapter_version": 15,
     "delimiters": [["$", "$"], ["$$", "$$"], [r"\(", r"\)"], [r"\[", r"\]"]],
     "output": "static native MathML with original LaTeX annotation",
     "maximum_formula_characters": 8192,
@@ -279,7 +279,7 @@ def _in_row_argument(tex: str, position: int) -> bool:
 
 
 def _ordinary_spacing(elements) -> None:
-    """Use ordinary spacing for three bounded kerning shapes, retaining symbols."""
+    """Use ordinary spacing for bounded kerning shapes, retaining symbols."""
     def tagged(element, name):
         return element.tag in (name, "{" + MATHML_NS + "}" + name)
 
@@ -291,6 +291,10 @@ def _ordinary_spacing(elements) -> None:
         return (tagged(element, "mo") and not len(element)
                 and element.text == text and not element.tail)
 
+    def operand(element):
+        return ((tagged(element, "mi") or tagged(element, "mn"))
+                and not len(element) and bool((element.text or "").strip()) and not element.tail)
+
     for parent in elements:
         if tagged(parent, "msup") and len(parent) == 2:
             exponent = parent[1]
@@ -300,14 +304,26 @@ def _ordinary_spacing(elements) -> None:
         if not tagged(parent, "mrow"):
             continue
         siblings = list(parent)
+        for index in range(len(siblings) - 4):
+            left, before, dot, after, right = siblings[index:index + 5]
+            if (operand(left) and thin(before) and operator(dot, "·") and not dot.attrib
+                    and thin(after) and operand(right)):
+                parent.remove(before)
+                parent.remove(after)
         for index, space in enumerate(siblings[:-1]):
             fence = siblings[index + 1]
             if tagged(fence, "mrow") and len(fence):
                 fence = fence[0]
             previous = siblings[index - 1] if index else None
             if (thin(space) and tagged(fence, "mo") and not len(fence)
-                    and fence.text in ("[", "(") and fence.get("fence") == "true"
-                    and fence.get("form") == "prefix"
+                    and (
+                        fence.text in ("[", "(", "{")
+                        and fence.get("fence") == "true" and fence.get("form") == "prefix"
+                        or fence.text in ("[", "(", "{", r"\{", r"\lbrace")
+                        and set(fence.attrib) == {"minsize", "maxsize"}
+                        and fence.get("minsize") == fence.get("maxsize")
+                        and fence.get("minsize") in {"1.2em", "1.623em", "2.047em", "2.470em"}
+                    )
                     and not (previous is not None and tagged(previous, "mspace")
                              and previous.get("width", "").strip().startswith(("negative", "-")))):
                 parent.remove(space)
@@ -351,7 +367,7 @@ def _safe_mathml(value: str, tex: str, display: str) -> str:
         if (tag == "mo" and not len(element) and element.get("minsize")
                 and element.get("minsize") == element.get("maxsize")):
             element.text = {r"\{": "{", r"\}": "}", r"\lbrace": "{", r"\rbrace": "}",
-                            r"\langle": "⟨", r"\rangle": "⟩"}.get(
+                            r"\langle": "⟨", r"\rangle": "⟩", r"\|": "‖"}.get(
                 element.text, element.text)
         if tag == "mo" and element.text in {r"\{", r"\}", r"\lbrace", r"\rbrace"}:
             raise ValueError("an unconverted LaTeX brace remains literal: " + element.text)

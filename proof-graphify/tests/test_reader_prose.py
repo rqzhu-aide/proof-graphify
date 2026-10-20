@@ -224,7 +224,8 @@ class ScientificReaderContentTests(unittest.TestCase):
         self.assertIn(r'\alpha&gt;0', panel)
         self.assertIn(r'n\geq2', panel)
         self.assertIn('<math', panel)
-        self.assertNotIn('The supplement was not supplied', panel.split('</section>')[1])
+        logic = re.search(r'<section class="proof-reading-section proof-logic-section"[^>]*>([\s\S]*?)</section>', panel).group(1)
+        self.assertNotIn('The supplement was not supplied', logic)
         visible = reader_html(html)
         self.assertIn('Some source questions remain unresolved', visible)
         self.assertNotIn('records reviewed for this version', visible)
@@ -269,7 +270,7 @@ class ScientificReaderContentTests(unittest.TestCase):
         self.assertNotIn('Source comparison note', panel)
         self.assertNotIn('<h4>Proof idea</h4>', panel)
         self.assertIn('Statement synopsis</h4>', panel)
-        self.assertIn('How the inputs contribute', panel)
+        self.assertIn('Prerequisites (1)', panel)
 
     def test_unresolved_comparison_without_a_note_does_not_promise_missing_prose(self):
         data = reviewed(fixture())

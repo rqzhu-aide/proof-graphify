@@ -122,7 +122,7 @@ function checkReader(results) {
   const input = readerFixture(), rendered = renderProjection(Buffer.from(JSON.stringify(input)));
   const scan = scanHtml(rendered.html), overview = scan.elements.find(row => row.attrs['data-reader-overview'] && row.attrs.class === 'proof-reader-overview');
   const overviewText = textOf(scan, overview), problems = [];
-  for (const text of ['Exact audited statement','Main proof strategy','Dependencies and their roles','Boundary case remains unable to verify.','Only for x > 0.','cases inference','One blocking requirement','private scope'])
+  for (const text of ['Exact audited statement','Proof idea','Prerequisites','Boundary case remains unable to verify.','Only for x > 0.','cases inference','One blocking requirement','private scope'])
     if (!overviewText.includes(text)) problems.push(`missing ${text}`);
   const fields = scan.elements.filter(row => row.attrs['data-reader-detail'] === overview.attrs['data-reader-overview'] && row.attrs['data-reader-field']);
   if (!fields.some(row => row.attrs['data-reader-context'] === 'target:0' && row.attrs['data-reader-field'] === 'statement.text' && row.attrs['data-reader-ref'].endsWith(':1')))
@@ -145,8 +145,13 @@ function checkReader(results) {
   const initialAssumption = premiseField('target:0:scope:0:assumption:0','statement.text');
   const repeatedAssumption = premiseField('argument:1:scope:0:assumption:0','statement.text');
   const hiddenAssumption = premiseField('argument:1:scope:0:assumption:1','statement.text');
-  if (enclosedBy(initialAssumption,'data-reader-repeated-premise') || !enclosedBy(repeatedAssumption,'data-reader-repeated-premise')) problems.push('only the repeated pinned assumption should fold across scopes');
+  if (initiallyDisclosed(initialAssumption) || !enclosedBy(initialAssumption,'data-reader-premise-details')) problems.push('shared target premise should retain its named disclosure');
+  if (enclosedBy(repeatedAssumption,'data-reader-repeated-premise') || !initiallyDisclosed(repeatedAssumption)) problems.push('a folded target premise incorrectly seeded an already-shown statement');
   if (enclosedBy(hiddenAssumption,'data-reader-repeated-premise')) problems.push('a collapsed context incorrectly seeded a premise');
+  const applicationAssessment = scan.elements.find(row => row.attrs['data-reader-assessment'] === 'application:0');
+  const applicationSupport = scan.elements.find(row => row.attrs['data-reader-support'] === 'application:0');
+  if (!applicationAssessment || initiallyDisclosed(applicationAssessment)) problems.push('full application assessment should be disclosed');
+  if (applicationSupport && !initiallyDisclosed(applicationSupport)) problems.push('application support notice was hidden with assessment details');
   const changed = rendered.html.slice(0,strategy.openEnd) + 'Changed strategy.' + rendered.html.slice(strategy.closeStart);
   if (representationReceipt(rendered.model,scanHtml(changed)).status !== 'fail') problems.push('altered opening strategy passed representation acceptance');
   const removed = rendered.html.slice(0,strategy.start) + rendered.html.slice(strategy.closeEnd);

@@ -87,7 +87,7 @@ class ReaderInteractionTests(unittest.TestCase):
                 {"id": "result", "kind": "theorem", "label": "Theorem 2", "caption": "Variance identity",
                  "statement_html": "RESULT_TEXT: the variance of the average is the individual variance divided by the sample size.",
                  "source_passages": [{"role": "statement", "source_display": "main.tex:42",
-                                      "source_excerpt": "SOURCE_QUOTE: the saved variance identity uses independent observations."}]},
+                                      "source_excerpt": "SOURCE_QUOTE: the saved variance identity uses independent observations. </script><script>literal_source()</script> & <literal>"}]},
                 {"id": "moment", "kind": "assumption", "label": "Assumption 3", "caption": "Second moment",
                  "statement_html": "MOMENT_TEXT: the common second moment is finite."},
             ],
@@ -145,6 +145,7 @@ class ReaderInteractionTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 result = self.run_harness(mode)
                 self.assertTrue(result["source_search_exact_destination"])
+                self.assertTrue(result["outgoing_search_exact_destination"])
                 self.assertTrue(result["print_state_restored"])
                 self.assertTrue(result["escape_restored_activator"])
 

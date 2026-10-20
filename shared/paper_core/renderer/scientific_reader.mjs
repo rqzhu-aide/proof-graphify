@@ -16,6 +16,43 @@ function replaceOnce(template, original, replacement) {
   if (template.split(original).length !== 2) throw new Error(`Scientific reader adaptation point changed: ${original}`);
   return template.replace(original, () => replacement);
 }
+
+// Select the closest visible stroke when dense proof maps have overlapping hit rails.
+// Geometry is cached in SVG coordinates; the current screen transform handles zoom.
+export function nearestProofRelationship(event, svg, records) {
+  if (!event.detail || !svg.querySelector('.proof-hypothesis')) return null;
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return null;
+  const point = svg.createSVGPoint(); point.x = event.clientX; point.y = event.clientY;
+  const at = point.matrixTransform(matrix.inverse());
+  let winner = null, best = Infinity;
+  for (const record of records) for (const shape of record.shapes) {
+    if (!shape.__proofSegments) {
+      const segments = []; let previous = null;
+      for (const match of (shape.getAttribute('d') || '').matchAll(/([MLQ])\s*([-\d.\s]+)/g)) {
+        const values = match[2].trim().split(/\s+/).map(Number);
+        const end = match[1] === 'Q' ? values.slice(2, 4) : values.slice(0, 2);
+        if (match[1] === 'Q' && previous) {
+          const start = previous;
+          for (let i = 1; i <= 8; i++) {
+            const t = i / 8, u = 1 - t;
+            const next = [u*u*start[0]+2*u*t*values[0]+t*t*end[0], u*u*start[1]+2*u*t*values[1]+t*t*end[1]];
+            segments.push([previous, next]); previous = next;
+          }
+        } else if (match[1] === 'L' && previous) segments.push([previous, end]);
+        previous = end;
+      }
+      shape.__proofSegments = segments;
+    }
+    for (const [a, b] of shape.__proofSegments) {
+      const dx = b[0]-a[0], dy = b[1]-a[1], length = dx*dx+dy*dy;
+      const t = length ? Math.max(0, Math.min(1, ((at.x-a[0])*dx+(at.y-a[1])*dy)/length)) : 0;
+      const distance = (at.x-a[0]-t*dx)**2+(at.y-a[1]-t*dy)**2;
+      if (distance < best) { best = distance; winner = record.key; }
+    }
+  }
+  return winner;
+}
 export function adaptScientificReaderTemplate(template) {
   // These native owners are replaced, not initialized and then overridden.
   for (const name of ['readerLayout', 'outline']) {
@@ -29,6 +66,8 @@ export function adaptScientificReaderTemplate(template) {
   if (cssStart < 0 || cssEnd < cssStart) throw new Error('Missing Archify rail style boundaries');
   template = template.slice(0, cssStart) + template.slice(cssEnd);
   const changes = [
+    // Keep broad edge hit areas beneath explicit badges as well as nodes.
+    ["if (!relationshipHitTargets.length) return 0;\n        var firstNode = svg.querySelector('[data-node-id]');", "if (!relationshipHitTargets.length) return 0;\n        var firstNode = svg.querySelector('.proof-edge-badge, [data-node-id]');"],
     ['if (chip.hidden || activeIds.length !== 1) return;', 'if (chip.hidden || !container.contains(chip) || activeIds.length !== 1) return;'],
     ['if (chip && !chip.hidden) {', 'if (chip && !chip.hidden && container.contains(chip)) {'],
     ['if (!passport || passport.hidden || passportYielded) return passportYielded;', 'if (!passport || passport.hidden || !container.contains(passport) || passportYielded) return passportYielded;'],
@@ -46,6 +85,8 @@ export function adaptScientificReaderTemplate(template) {
     ['id="btn-focus-move" type="button"', 'id="btn-focus-move" type="button" hidden disabled tabindex="-1"'],
   ];
   for (const [original, replacement] of changes) template = replaceOnce(template, original, replacement);
+  template = replaceOnce(template, "relationshipHitOverlay.addEventListener('click', function (event) {\n          var target = event.target.closest('[data-relationship-hit-key]');",
+    `${nearestProofRelationship.toString()}\n        relationshipHitOverlay.addEventListener('click', function (event) {\n          var nearest = nearestProofRelationship(event, svg, records);\n          var target = (nearest !== null && relationshipHitTarget(nearest)) || event.target.closest('[data-relationship-hit-key]');`);
   // Keep native node events below route-probe capture and make ordinary activation idempotent.
   // The common document bridge owns external links and badges, not a second node click.
   if (template.split('set(id);').length !== 3) throw new Error('Scientific reader native node handlers changed');
@@ -78,8 +119,8 @@ export function archifyPage({ templatePath, template, title, svg, beforeGraph = 
   html = html.replace('</head>', () => `<style id="scientific-reader-style">${SCIENTIFIC_READER_CSS}\n${css}</style>\n</head>`);
   const viewBox = scanHtml(svg).elements.find(element => element.tag === 'svg')?.attrs.viewbox?.trim().split(/[\s,]+/).map(Number);
   const wide = !index && viewBox?.[3] > 0 && viewBox[2] / viewBox[3] >= 1.55;
-  if (wide) html = html.replace('class="diagram-container"', 'class="diagram-container" data-wide-diagram="true"');
-  html = html.replace('<body>', () => `<body data-reader-layout="${index ? 'index' : 'graph'}" data-proof-layout="${index ? 'index' : 'dag'}"><script>document.documentElement.setAttribute('data-js','');${wide ? 'document.documentElement.setAttribute("data-diagram-shape","wide");' : ''}${index ? 'document.documentElement.removeAttribute("data-present");document.documentElement.removeAttribute("data-embed");' : ''}</script>`);
+  // Scientific graphs use the same fitted viewport at every width, not native mobile scrolling.
+  html = html.replace('<body>', () => `<body data-reader-layout="${index ? 'index' : 'graph'}" data-proof-layout="${index ? 'index' : 'dag'}"${wide ? ' data-reader-wide="true"' : ''}><script>document.documentElement.setAttribute('data-js','');${wide ? 'document.documentElement.setAttribute("data-diagram-shape","wide");' : ''}${index ? 'document.documentElement.removeAttribute("data-present");document.documentElement.removeAttribute("data-embed");' : ''}</script>`);
   html = html.replace('</body>', () => `${data}${runtime ? `<script id="proof-runtime">${runtime}</script>` : ''}</body>`);
   return html;
 }
@@ -94,7 +135,7 @@ export function resultsNavigation({ entries, mainIds = [], heading = 'Main resul
   return `<nav class="proof-results" id="proof-results" aria-labelledby="proof-results-title"><h2 id="proof-results-title">Results</h2>${groups.map(group => `<section class="proof-results-group"><h3>${esc(group.heading)}</h3><ul class="proof-results-list">${group.entries.map(entry => `<li><a class="node-outline-item proof-result-link k-${esc(entry.kind)}" href="#${esc(entry.articleId)}" data-reader-open="${esc(entry.key)}" data-reader-node="${esc(entry.nodeId)}"><span class="node-outline-dot" aria-hidden="true"></span><strong>${esc(entry.label)}</strong>${entry.caption ? `<small>${esc(entry.caption)}</small>` : ''}</a></li>`).join('')}</ul></section>`).join('')}</nav>`;
 }
 export function viewControls({ traceHtml = '' } = {}) {
-  return '<div class="proof-view-controls"><button id="proof-full-structure" type="button">Fit complete structure</button><button id="proof-readable-view" type="button">Readable view</button><p id="proof-view-status" role="status" aria-live="polite">Select a result or connection to read its statement and supporting evidence.</p></div>' + traceHtml;
+  return '<div class="proof-view-controls"><button id="proof-full-structure" type="button">Fit complete structure</button><button id="proof-readable-view" type="button">Readable view</button><p id="proof-view-status" role="status" aria-live="polite">Complete graph shown. Select a result or connection to read its statement and supporting evidence.</p></div>' + traceHtml;
 }
 function attributes(attrs = {}) {
   return Object.entries(attrs).map(([key, value]) => ` ${key}="${esc(value)}"`).join('');
@@ -114,8 +155,11 @@ export function mathDisplayNotes(summary, bodyHtml = '') {
   return `<aside class="proof-render-warnings" role="note" data-reader-math-notes><strong>Math display notes</strong><ul>${messages.slice(0, 8).map(message => `<li>${esc(message)}</li>`).join('')}</ul>${bodyHtml ? sourceDisclosure({title:'Affected formulas and source text',bodyHtml}) : ''}${messages.length > 8 || summary.messages_truncated || summary.groups_truncated ? '<p>The displayed notes are truncated. The saved build contains the complete diagnostics.</p>' : ''}<p>These notes concern mathematical display and do not change the scientific assessment.</p></aside>`;
 }
 function safeJson(value) { return JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026'); }
-export function readerRuntime({ targets, searchEntries, graphAvailable = true }) {
-  return `(${initializeScientificReader.toString()})(${safeJson({ targets, searchEntries, graphAvailable })});`;
+export function readerSearchData(entries) {
+  return `<script id="proof-reader-search" type="application/json">${safeJson(entries)}</script>`;
+}
+export function readerRuntime({ targets, graphAvailable = true }) {
+  return `(${initializeScientificReader.toString()})(${safeJson({ targets, graphAvailable })});`;
 }
 
 function initializeScientificReader(data) {
@@ -260,6 +304,7 @@ function initializeScientificReader(data) {
     destination = destination || article;
     if (options.record) destination = query(destination, 'data-record-ref', options.record) || query(article, 'data-record-ref', options.record) || query(article, 'data-reader-search-key', options.record) || destination;
     if (options.obligationId) destination = query(destination, 'data-obligation-id', options.obligationId) || destination;
+    if (options.hypothesisId || target.hypothesisId) destination = query(article, 'data-hypothesis-context', options.hypothesisId || target.hypothesisId) || destination;
     clearTargets(); if (destination !== article) destination.classList.add('is-target');
     reveal(destination);
     if (!options.silent) focus(destination === article ? article.querySelector('.proof-detail-heading') || article : destination);
@@ -310,8 +355,10 @@ function initializeScientificReader(data) {
     else if (open) {
       var key = open.getAttribute('data-reader-open') || open.getAttribute('data-jump-detail');
       var nodeId = open.getAttribute('data-reader-node') || open.getAttribute('data-proof-focus') || open.getAttribute('data-focus-node');
-      target = (nodeId && byNode.get(nodeId)) || byKey.get(key);
+      var edgeId = open.getAttribute('data-reader-edge');
+      target = (edgeId && byEdge.get(edgeId)) || (nodeId && byNode.get(nodeId)) || byKey.get(key);
       options.section = open.getAttribute('data-jump-section'); options.record = open.getAttribute('data-jump-record');
+      options.hypothesisId = open.getAttribute('data-jump-hypothesis');
     } else if (svg && svg.contains(origin)) {
       var node = origin.closest('[data-node-id]');
       if (node) { previewNode = null; hidePreview(); activator = node; setTimeout(syncViewer, 0); return; }
@@ -352,6 +399,7 @@ function initializeScientificReader(data) {
   if (fit) fit.addEventListener('click', function () {
     clear(false); if (viewer?.semanticLens) viewer.semanticLens.clear({ preserveView: true });
     if (viewer?.routeProbe) viewer.routeProbe.clear({ restoreFocus: false }); if (viewer?.view) viewer.view.reset();
+    var status = doc.getElementById('proof-view-status'); if (status) status.textContent = 'Complete graph shown. Use Readable view to zoom, or select a result to read its details.';
   });
   if (readable) readable.addEventListener('click', function () { readableView(viewer?.focus?.active()); });
   var showAll = doc.getElementById('proof-show-all');
@@ -372,14 +420,29 @@ function initializeScientificReader(data) {
     current = printState.key; currentTarget = printState.target; activator = printState.activator; printState = null;
   });
   var search = doc.getElementById('proof-search'), results = doc.getElementById('proof-search-results'), searchStatus = doc.getElementById('proof-search-status');
-  var entries = data.searchEntries.map(function (entry) { return { ...entry, lower: entry.text.toLowerCase(), lookup: (entry.text + ' ' + (entry.aliases || []).join(' ')).toLowerCase() }; });
+  function normalized(value) { return (value || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+  // A declaration starts the title and ends before a bounded subtitle; identifiers stay literal.
+  var declarationKinds = 'theorem|lemma|proposition|corollary|assumption|definition|claim|conjecture|example|specification|condition|algorithm|remark';
+  var declarationQuery = new RegExp('^(' + declarationKinds + ')\\s*([^\\s:()]+)$', 'u');
+  var declarationTitle = new RegExp('^(' + declarationKinds + ')\\s*([^\\s:()]+)(?=$|\\s*:|\\s+\\()', 'u');
+  function declaration(value, title) {
+    var match = normalized(value).match(title ? declarationTitle : declarationQuery);
+    return match ? match[1] + ':' + match[2] : null;
+  }
+  var entries = JSON.parse(doc.getElementById('proof-reader-search').textContent).map(function (entry) { return { ...entry, lower: entry.text.toLowerCase(), lookup: (entry.text + ' ' + (entry.aliases || []).join(' ')).toLowerCase(), exact: [entry.label].concat(entry.aliases || []).map(normalized), declaration: declaration(entry.label, true), direct: entry.isDirectResult === true || entry.key === entry.detail }; });
   function element(tag, className, text) { var node = doc.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
   function runSearch() {
     if (!search || !results || !searchStatus) return;
     var raw = (search.value || '').trim().toLowerCase(); results.textContent = '';
     if (!raw) { searchStatus.textContent = 'Type to search the saved scientific content.'; return; }
-    var terms = raw.split(/\s+/), matches = entries.filter(function (entry) { return terms.every(function (term) { return entry.lookup.includes(term); }); });
-    searchStatus.textContent = matches.length > 40 ? 'Showing the first 40 matching passages; further matches exist.' : matches.length ? matches.length + ' matching passage' + (matches.length === 1 ? '.' : 's.') : 'No matches.';
+    var terms = raw.split(/\s+/), exactQuery = normalized(raw), name = declaration(raw, false), buckets = [[], [], [], [], []];
+    entries.forEach(function (entry) {
+      if (entry.exact.includes(exactQuery)) buckets[entry.direct ? 0 : 1].push(entry);
+      else if (name && entry.declaration === name) buckets[entry.direct ? 2 : 3].push(entry);
+      else if (terms.every(function (term) { return entry.lookup.includes(term); })) buckets[4].push(entry);
+    });
+    var matches = buckets.flat();
+    searchStatus.textContent = matches.length > 40 ? 'Showing the top 40 matching passages; further matches exist.' : matches.length ? matches.length + ' matching passage' + (matches.length === 1 ? '.' : 's.') : 'No matches.';
     matches.slice(0, 40).forEach(function (entry) {
       var li = doc.createElement('li'), button = element('button', 'proof-search-hit'); button.type = 'button';
       button.appendChild(element('strong', '', entry.label || 'Scientific evidence')); button.appendChild(element('span', 'proof-search-where', 'in ' + (entry.owner || 'Saved paper')));

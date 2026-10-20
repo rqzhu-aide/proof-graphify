@@ -7,7 +7,9 @@ from collections import defaultdict
 import unittest
 
 from support import R, TempCase, edit
-from paper_core.assessment import _Derivation, derive_full
+from paper_core.bindings import binding_changes, compute_bindings
+from paper_core.assessment import Snapshot, _Derivation, derive_full
+from paper_core.authoring import create_unit
 from paper_core.storage import Record
 from paper_core.support_semantics import SupportClosure
 
@@ -19,6 +21,7 @@ class Graph:
         self.status = {}
         self.findings_by_target = defaultdict(list)
         self.exact = set()
+        self.local_basis = None
         self.snap = self
         self.closure = SupportClosure(self)
 
@@ -115,6 +118,79 @@ class Graph:
 
 
 class FoundedSupportTests(unittest.TestCase):
+    def named_hypothesis_graph(self):
+        graph = Graph()
+        for ident, kind in (("setup", "definition"), ("extra", "assumption")):
+            graph.item(ident, kind=kind)
+        graph.scope("supplier", ["setup"])
+        graph.scope("consumer", ["setup", "extra"])
+        for ident in ("supplier", "consumer"):
+            graph.item(ident, scope=ident)
+            graph.route(ident, ident, scope=ident)
+        graph.use("borrow", "supplier", "g_consumer")
+        return graph
+
+    def test_named_hypotheses_allow_only_exact_active_inclusion(self):
+        cases = ("identical", "subset", "inherited", "neutral_child", "missing_hypothesis",
+                 "different_collection", "missing_scope", "missing_ancestor", "argument_id",
+                 "binders", "conditions", "restricted_ancestor", "sibling_only", "wrong_application_scope")
+        for case in cases:
+            with self.subTest(case=case):
+                graph = self.named_hypothesis_graph()
+                if case == "identical":
+                    graph.scope("consumer", ["setup"])
+                elif case == "inherited":
+                    graph.scope("parent", ["setup"])
+                    graph.scope("consumer", ["extra"], parent="parent")
+                elif case == "neutral_child":
+                    graph.scope("parent", ["setup"])
+                    graph.scope("supplier", parent="parent")
+                elif case in ("missing_hypothesis", "sibling_only"):
+                    graph.scope("consumer", ["extra"])
+                    if case == "sibling_only":
+                        graph.scope("sibling", ["setup"])
+                elif case == "different_collection":
+                    graph.records["scopes", "consumer"].body["assumptions"] = [R("parts", "setup")]
+                elif case == "missing_scope":
+                    del graph.records["scopes", "supplier"]
+                elif case == "missing_ancestor":
+                    graph.scope("supplier", ["setup"], parent="missing")
+                elif case in ("argument_id", "binders", "conditions"):
+                    graph.records["scopes", "supplier"].body[case] = {
+                        "argument_id": "a_supplier", "binders": [{"symbol": "x", "domain": "real"}],
+                        "conditions": ["x > 0"]}[case]
+                elif case == "restricted_ancestor":
+                    graph.scope("parent", conditions=["x > 0"])
+                    graph.scope("supplier", ["setup"], parent="parent")
+                elif case == "wrong_application_scope":
+                    graph.scope("other", ["setup", "extra"])
+                    graph.records["application_details", "borrow"].body["scope_id"] = "other"
+                expected = "available" if case in ("identical", "subset", "inherited", "neutral_child") else "unavailable"
+                self.assertEqual(graph.support("consumer", "consumer"), expected)
+
+    def test_transport_does_not_supply_or_repair_supplier_proof(self):
+        for case, expected in (("gap", "conditional"), ("defect", "unavailable"),
+                               ("refuted", "unavailable"), ("stale_target", "conditional"),
+                               ("consumer_only_premise", "conditional")):
+            with self.subTest(case=case):
+                graph = self.named_hypothesis_graph()
+                if case in ("gap", "defect"):
+                    graph.status["groups", "g_supplier", "derivation"] = "open" if case == "gap" else "defect"
+                elif case == "refuted":
+                    graph.findings_by_target["items:supplier"].append(graph.put(
+                        "findings", "refutation", category="statement_refutation", lifecycle="open"))
+                elif case == "stale_target":
+                    graph.exact.remove(("items", "supplier"))
+                elif case == "consumer_only_premise":
+                    graph.item("needed")
+                    graph.use("internal", "needed", "g_supplier")
+                    graph.records["scopes", "consumer"].body["assumptions"].append(R("items", "needed"))
+                self.assertTrue(graph.closure.admissible("supplier", "consumer"))
+                self.assertEqual(graph.support("consumer", "consumer"), expected)
+                if case == "consumer_only_premise":
+                    self.assertEqual(graph.support("needed", "consumer"), "available")
+                    self.assertEqual(graph.support("needed", "supplier"), "conditional")
+
     def test_imported_observations_use_append_order_at_equal_timestamp(self):
         matched = Record("observations", "obs_z", 1, 5, False,
                          {"created_at": "2026-09-21T12:00:00Z", "context_data": {"observation_order": 1}})
@@ -228,6 +304,53 @@ class FoundedSupportTests(unittest.TestCase):
 
 
 class PublicSupportTests(TempCase):
+    def test_create_unit_siblings_share_named_definition_hypotheses(self):
+        fixture = self.fixture().anchors()
+        with fixture.open() as db:
+            fixture.apply(db, [fixture.item_edit(ident, "definition", ident, "anc_lem", "anc_lem_proof")
+                               for ident in ("hyp_setup", "hyp_extra")])
+            definition = dict(kind="lemma", statement="Under the named setup, x=x.",
+                              statement_anchors=["anc_lem"], proof_anchors=["anc_lem_proof"],
+                              proof_complete=True, source_matched=True,
+                              source_note="Exact claim and written proof inspected for fixture.")
+            setup = R("items", "hyp_setup")
+            create_unit(db, dict(definition, key="supplier", label="Supplier", assumptions=[setup]))
+            for key, assumptions in (("identical", [setup]), ("subset", [setup, R("items", "hyp_extra")])):
+                create_unit(db, dict(definition, key=key, label=key, assumptions=assumptions, suppliers=[{
+                    "target": R("items", "itm_supplier"), "reason": "Use supplier under the named setup.",
+                    "needed_form": {"form": "verbatim", "text": "x=x"}}]))
+            derivation = _Derivation(Snapshot(db, db.max_revision()), None)
+            for key in ("identical", "subset"):
+                with self.subTest(consumer=key):
+                    self.assertTrue(derivation.support_closure.admissible("scp_supplier", "scp_" + key))
+                    self.assertEqual(derivation.support(R("items", "itm_supplier"), "scp_" + key), "conditional")
+            scope = db.head("scopes", "scp_supplier")
+            self.assertIsNone(scope.body["argument_id"])
+            self.assertEqual(scope.body["assumptions"], [setup])
+
+    def test_named_hypothesis_edit_stales_proof_binding_but_preserves_old_snapshot(self):
+        fixture = self.fixture().anchors()
+        with fixture.open() as db:
+            setup = fixture.item_edit("hyp_setup", "definition", "Setup", "anc_lem", "anc_lem_proof")
+            fixture.apply(db, [setup])
+            create_unit(db, dict(key="supplier", label="Supplier", kind="lemma", statement="Under setup, x=x.",
+                statement_anchors=["anc_lem"], proof_anchors=["anc_lem_proof"], proof_complete=True,
+                source_matched=True, source_note="Exact claim and written proof inspected for fixture.",
+                assumptions=[R("items", "hyp_setup")]))
+            revision = db.max_revision()
+            check = fixture.check_edit("chk_supplier", R("groups", "grp_supplier"), "derivation")["body"]
+            binding = compute_bindings(Snapshot(db, revision), "checks", check)
+            self.assertEqual(binding_changes(Snapshot(db, revision), binding), {"records": [], "relations": []})
+            setup = db.head("items", "hyp_setup")
+            fixture.apply(db, [edit("replace", "items", setup.id, dict(setup.body,
+                statement={"form": "verbatim", "text": "A changed named mathematical hypothesis"}),
+                setup.version)], "items:itm_supplier")
+            current = binding_changes(Snapshot(db, db.max_revision()), binding)
+            historical = binding_changes(Snapshot(db, revision), binding)
+        self.assertTrue(any(row["ref"]["id"] == "hyp_setup" and row["facet"] == "statement"
+                            for row in current["records"]))
+        self.assertEqual(historical, {"records": [], "relations": []})
+
     def explicit_target_fixture(self):
         fixture = self.fixture().audit(independent_required=False)
         with fixture.open() as db:

@@ -4,9 +4,181 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import { adaptScientificReaderTemplate, archifyPage, resultsNavigation, mathDisplayNotes,
-  readerRuntime, SCIENTIFIC_READER_CSS, sourceDisclosure } from './scientific_reader.mjs';
+  readerRuntime, readerSearchData, SCIENTIFIC_READER_CSS, sourceDisclosure, nearestProofRelationship } from './scientific_reader.mjs';
 import { renderProjection, validateInput } from './render_projection.mjs';
 import { scanHtml } from './html_scan.mjs';
+import { readerFixture } from './selftest.mjs';
+
+const pinnedKey = ref => `${ref.collection}:${ref.id}:${ref.version}`;
+function relocatedEvidenceFixture() {
+  const input = readerFixture(), projection = input.projection;
+  const major = projection.nodes.find(node => node.kind === 'theorem');
+  const earlier = projection.nodes.find(node => node.kind === 'definition');
+  const own = projection.details[major.detail_key], other = projection.details[earlier.detail_key];
+  const argument = own.reader.arguments.find(row => row.relation === 'target');
+  const hidden = own.reader.arguments.find(row => row.relation === 'subsidiary').target_ref;
+  own.reader.targets.push({...own.reader.targets[0],target_ref:hidden,statement_ref:hidden});
+  const observation = {collection:'observations',id:'obs_navigation',version:1};
+  projection.records.push({ref:observation,body:{label:'Source comparison',target:{collection:hidden.collection,id:hidden.id},evidence_refs:[]}});
+  own.record_refs.push(observation);
+  // A different owner section catches accidental reuse of the downstream section key.
+  own.sections.push({key:'source_comparison',kind:'sources',title:'Source comparison',record_refs:[observation],obligation_ids:[]});
+  projection.record_locations.push({ref:observation,detail_key:major.detail_key,section_key:'source_comparison'});
+  const owned = [argument.argument_ref,argument.groups[0].group_ref,observation];
+  const oldArgument = {...argument.argument_ref,version:2};
+  projection.records.push({ref:oldArgument,body:{label:'Historical argument'}});
+  projection.record_locations.push({ref:oldArgument,detail_key:earlier.detail_key,section_key:other.sections[0].key});
+  for (const ref of [...owned,oldArgument]) {
+    other.record_refs.push(ref); other.sections[0].record_refs.push(ref);
+    Object.assign(projection.record_locations.find(row => pinnedKey(row.ref) === pinnedKey(ref)),
+      {detail_key:earlier.detail_key,section_key:other.sections[0].key});
+  }
+  return {input,projection,major,earlier,own,other,owned,hidden,oldArgument};
+}
+
+test('dense proof relation picking uses visible strokes rather than overlapping hit rail order', () => {
+  const svg = {querySelector:()=>true, getScreenCTM:()=>({inverse:()=>({})}), createSVGPoint:()=>({matrixTransform(){return {x:this.x/2,y:this.y/2};}})};
+  const shape = d => ({getAttribute:()=>d});
+  const records = [{key:'first',shapes:[shape('M0 0 L100 0')]},{key:'second',shapes:[shape('M0 3 L100 3')]}];
+  assert.equal(nearestProofRelationship({detail:1,clientX:100,clientY:0.4},svg,records),'first');
+  assert.equal(nearestProofRelationship({detail:1,clientX:100,clientY:5.6},svg,records),'second');
+  assert.equal(nearestProofRelationship({detail:0},svg,records),null, 'Keyboard activation retains its selected relationship.');
+  assert.equal(nearestProofRelationship({detail:1}, {...svg,querySelector:()=>null},records),null, 'Other diagrams retain native picking.');
+});
+
+test('result links select the exact major card while historical and hidden records retain evidence destinations', () => {
+  const pin = ref => `${ref.collection}:${ref.id}:${ref.version}`;
+  for (const mode of ['dag', 'index']) {
+    const input = readerFixture(), projection = input.projection;
+    projection.layout.mode = mode;
+    const major = projection.nodes.find(node => node.kind === 'theorem');
+    const earlier = projection.nodes.find(node => node.kind === 'definition');
+    const own = projection.details[major.detail_key], other = projection.details[earlier.detail_key];
+    const old = {...major.item_ref, version:1};
+    for (const ref of [major.item_ref, old]) {
+      other.record_refs.push(ref);
+      other.sections[0].record_refs.push(ref);
+      Object.assign(projection.record_locations.find(row => pin(row.ref) === pin(ref)),
+        {detail_key:earlier.detail_key, section_key:other.sections[0].key});
+    }
+    const hidden = own.reader.arguments.find(argument => argument.relation === 'subsidiary').target_ref;
+    for (const ref of [major.item_ref, old, hidden]) {
+      own.reader.applications[0].from_ref = ref;
+      const before = JSON.stringify(projection);
+      const {html} = renderProjection(Buffer.from(JSON.stringify(input)));
+      const scan = scanHtml(html);
+      const entries = JSON.parse(scan.elements.find(element => element.attrs.id === 'proof-reader-search').text);
+      for (const searched of [major.item_ref, old, hidden]) {
+        const entry = entries.find(row => row.key === pin(searched));
+        const recorded = projection.record_locations.find(row => pin(row.ref) === pin(searched));
+        const isCurrent = pin(searched) === pin(major.item_ref);
+        assert(entry, 'Pinned scientific records must remain searchable.');
+        assert.equal(entry.detail, isCurrent ? major.detail_key : recorded.detail_key);
+        assert.equal(entry.section, isCurrent ? null : recorded.section_key,
+          'Rerouted current results must not retain a section from the evidence owner.');
+        assert.equal(entry.owner, isCurrent ? major.label : searched === hidden ? major.label : earlier.label);
+        assert(entry.aliases.includes(pin(searched)) && entry.aliases.includes(searched.id));
+        assert.equal(entry.isDirectResult, isCurrent);
+      }
+      const label = scan.elements.find(element => element.attrs['data-reader-context'] === 'application:0:from'
+        && element.attrs['data-reader-field'] === 'label');
+      const location = projection.record_locations.find(row => pin(row.ref) === pin(ref));
+      const current = pin(ref) === pin(major.item_ref);
+      assert.equal(label.parent.attrs['data-jump-detail'], current ? major.detail_key : location.detail_key);
+      assert.equal(label.attrs['data-reader-ref'], pin(ref));
+      if (current) {
+        assert(!label.parent.attrs['data-jump-record'], 'Named result links open the card rather than its evidence appendix.');
+        const links = scan.elements.filter(element => element.tag === 'a' && element.attrs['data-jump-record'] === pin(ref));
+        assert(links.length > 0);
+        assert(links.every(link => link.attrs['data-jump-detail'] === major.detail_key));
+      } else {
+        assert.equal(label.parent.attrs['data-jump-record'], pin(ref));
+        assert.equal(label.parent.attrs['data-jump-section'], location.section_key);
+      }
+      assert.equal(JSON.stringify(projection), before, 'Navigation must not change the scientific payload.');
+    }
+    // Legacy payloads may link a current result without listing it in the search inventory.
+    projection.record_locations = projection.record_locations.filter(row => pin(row.ref) !== pin(major.item_ref));
+    own.reader.applications[0].from_ref = major.item_ref;
+    const scan = scanHtml(renderProjection(Buffer.from(JSON.stringify(input))).html);
+    const named = scan.elements.find(row => row.attrs['data-reader-context'] === 'application:0:from' && row.attrs['data-reader-field'] === 'label');
+    assert.equal(named.parent.attrs['data-jump-detail'],major.detail_key);
+    const links = scan.elements.filter(row => row.tag === 'a' && row.attrs['data-jump-record'] === pin(major.item_ref));
+    assert(links.length && links.every(row => row.attrs['data-jump-detail'] === major.detail_key));
+    const entries = JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text);
+    assert(!entries.some(row => row.key === pin(major.item_ref)), 'Navigation must not expand a legacy search inventory.');
+  }
+});
+
+test('owned proof evidence shares exact destinations across search, record and named links', () => {
+  for (const mode of ['dag','index']) {
+    const {input,projection,major,own,owned,oldArgument} = relocatedEvidenceFixture();
+    projection.layout.mode = mode;
+    for (const ref of owned) {
+      own.reader.applications[0].from_ref = ref;
+      const before = JSON.stringify(projection);
+      const {html,receipt} = renderProjection(Buffer.from(JSON.stringify(input)));
+      assert.equal(receipt.representation.status,'pass');
+      const scan = scanHtml(html), entries = JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text);
+      for (const evidence of owned) {
+        const key = pinnedKey(evidence), entry = entries.find(row => row.key === key);
+        const section = own.sections.find(row => row.record_refs.some(value => pinnedKey(value) === key)).key;
+        assert.equal(entry.detail,major.detail_key);
+        assert.equal(entry.section,section);
+        assert.equal(entry.isDirectResult,false);
+        const links = scan.elements.filter(row => row.tag === 'a' && row.attrs['data-jump-record'] === key);
+        if (key === pinnedKey(ref) || evidence.collection !== 'observations') assert(links.length);
+        for (const link of links) {
+          assert.equal(link.attrs['data-jump-detail'],major.detail_key);
+          assert.equal(link.attrs['data-jump-section'],section);
+        }
+      }
+      const history = entries.find(row => row.key === pinnedKey(oldArgument));
+      assert.equal(history.detail,projection.record_locations.find(row => pinnedKey(row.ref) === history.key).detail_key);
+      assert.equal(JSON.stringify(projection),before);
+    }
+  }
+});
+
+test('ambiguous or missing ownership retains saved evidence navigation', () => {
+  const cases = [
+    ['target history', fixture => fixture.projection.records.push({ref:{...fixture.hidden,version:2},body:{label:'Historical target'}}), 'observations'],
+    ['observation history', fixture => fixture.projection.records.push({ref:{...fixture.owned[2],version:2},body:{label:'Historical comparison'}}), 'observations'],
+    ['two owners', fixture => { fixture.other.reader = structuredClone(fixture.own.reader); fixture.other.reader.item_ref = fixture.earlier.item_ref; }, 'arguments'],
+    ['missing exact section', fixture => { for (const section of fixture.own.sections) section.record_refs = section.record_refs.filter(ref => pinnedKey(ref) !== pinnedKey(fixture.owned[0])); }, 'arguments'],
+    ['no reader', fixture => { delete fixture.own.reader; }, 'arguments'],
+    ['historical reader', fixture => { fixture.own.reader.item_ref = {...fixture.major.item_ref,version:1}; }, 'arguments'],
+    ['legacy shared refs in ownership fields', fixture => {
+      const refs = ['anchors','uses'].map(collection => fixture.projection.records.find(row => row.ref.collection === collection).ref);
+      for (const ref of refs) {
+        for (const detail of [fixture.own,fixture.other]) {
+          if (!detail.record_refs.some(row => pinnedKey(row) === pinnedKey(ref))) detail.record_refs.push(ref);
+          if (!detail.sections[0].record_refs.some(row => pinnedKey(row) === pinnedKey(ref))) detail.sections[0].record_refs.push(ref);
+        }
+        Object.assign(fixture.projection.record_locations.find(row => pinnedKey(row.ref) === pinnedKey(ref)), {detail_key:fixture.earlier.detail_key,section_key:fixture.other.sections[0].key});
+      }
+      fixture.own.reader.arguments[1].argument_ref = refs[0];
+      fixture.own.reader.arguments[1].groups[0].group_ref = refs[1];
+      fixture.own.reader.provenance_groups = [{...fixture.own.reader.arguments[1].groups[0],group_ref:refs[0]}];
+    }, 'arguments'],
+    ['already owned section', fixture => { const saved = fixture.projection.record_locations.find(row => pinnedKey(row.ref) === pinnedKey(fixture.owned[0])); fixture.own.sections.push({key:'saved_owner_section',kind:'derivations',title:'Saved section',record_refs:[fixture.owned[0]],obligation_ids:[]}); Object.assign(saved,{detail_key:fixture.major.detail_key,section_key:'saved_owner_section'}); }, 'arguments'],
+  ];
+  for (const [name,change,collection] of cases) {
+    const fixture = relocatedEvidenceFixture(); change(fixture);
+    const before = JSON.stringify(fixture.projection);
+    const {html} = renderProjection(Buffer.from(JSON.stringify(fixture.input)));
+    const entries = JSON.parse(scanHtml(html).elements.find(row => row.attrs.id === 'proof-reader-search').text);
+    const refs = [fixture.owned.find(ref => ref.collection === collection), ...fixture.projection.records.filter(row => ['anchors','uses','application_details'].includes(row.ref.collection)).map(row => row.ref)];
+    for (const ref of refs) {
+      const saved = fixture.projection.record_locations.find(row => pinnedKey(row.ref) === pinnedKey(ref));
+      const entry = entries.find(row => row.key === pinnedKey(ref));
+      if (!saved || !entry) continue;
+      assert.equal(entry.detail,saved.detail_key,name);
+      assert.equal(entry.section,saved.section_key,name);
+    }
+    assert.equal(JSON.stringify(fixture.projection),before,name);
+  }
+});
 
 test('native node activation remains below route capture and cannot toggle off a repeated selection', () => {
   const template = readFileSync(new URL('./assets/archify/template.html', import.meta.url),'utf8');
@@ -78,10 +250,18 @@ test('pretruncated math summaries disclose the limit and preserve literal source
 });
 
 test('reader payload keeps scientific text literal and aliases out of navigation labels', () => {
-  const searchText = '</script><script>alert(1)</script>';
-  const runtime = readerRuntime({targets:[{key:'item:opaque-id',articleId:'article-1',nodeId:'opaque-id'}],searchEntries:[{key:'source:1',aliases:['opaque-id'],label:'Theorem 1',detail:'item:opaque-id',section:null,owner:'Main result',text:searchText}],graphAvailable:false});
+  const searchText = '</script><script>alert(1)</script> & <literal>';
+  const searchEntries = [{key:'source:1',aliases:['opaque-id'],label:'Theorem 1',detail:'item:opaque-id',section:null,owner:'Main result',text:searchText}];
+  const payload = readerSearchData(searchEntries);
+  const searchScripts = scanHtml(payload).elements.filter(element => element.tag === 'script');
+  assert.equal(searchScripts.length,1);
+  assert.equal(searchScripts[0].attrs.id,'proof-reader-search');
+  assert.equal(searchScripts[0].attrs.type,'application/json');
+  assert(!/[<>&]/.test(searchScripts[0].text),'Saved text must not terminate the JSON script.');
+  assert.deepEqual(JSON.parse(searchScripts[0].text),searchEntries);
+  const runtime = readerRuntime({targets:[{key:'item:opaque-id',articleId:'article-1',nodeId:'opaque-id'}],graphAvailable:false});
   new vm.Script(runtime);
-  assert(!runtime.includes(searchText),'Untrusted saved text must not terminate the script.');
+  assert(!runtime.includes('source:1'),'The runtime must not serialize the search entries again.');
   const entries = [{key:'item:opaque-id',nodeId:'opaque-id',articleId:'article-1',label:'Theorem 1',caption:'Variance identity',kind:'theorem'}];
   const navigation = resultsNavigation({entries,mainIds:['opaque-id'],heading:'Main results',graphAvailable:true});
   const scan = scanHtml(navigation), link = scan.elements.find(element=>element.tag==='a');

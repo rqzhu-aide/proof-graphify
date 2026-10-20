@@ -88,10 +88,6 @@ paraphrases. Explain binder domains and target hypotheses in `reasoning`; leave
 `checks.conditions` empty when no separately listed scope condition is invoked.
 An unmatched condition keeps availability conditional even when the local check
 is complete. A real extra restriction requires a separately scoped target or route.
-A restricted replacement proof needs a separate target. An actually authored new
-proof of the unchanged statement needs a separate route and provenance; keep the
-original proof's judgment. An obvious one-line correction or routine justification
-inside the examination is not a replacement proof and needs no separate route or reviewer.
 
 ## Omitted arguments, unavailable sources and restrictions
 
@@ -121,7 +117,7 @@ A test with a fixed \(p\) cannot refute or verify that universal growing-sequenc
 
 Use short hand-written deductions and exact equations to explain an immediately
 apparent witness. Do not turn refutation into a counterexample search. Do not run
-simulations, numerical validation, parameter sweeps, optimization or random searches,
+simulations, numerical validation, symbolic verification, parameter sweeps, optimization or random searches,
 empirical experiments, numerical solvers, interval validation, computer algebra or
 proof assistants to establish mathematical truth. Supplied experimental results are context,
 not proof credit. Source extraction, PDF inspection, database arithmetic, hashes,
@@ -138,18 +134,23 @@ research severity. State whether it affects one application, a written route, th
 exact statement or a later use. Use an evidence-backed impact explanation and the
 rubric below; no legacy severity, repair-search or per-line risk ledger is required.
 
-Ambiguity is not a proved mismatch. When two readings imply different targets,
-record the readings and what source evidence could distinguish them. Likewise,
+Ambiguity is not a proved mismatch. For encountered competing readings or differing
+source formulations, identify them and their source passages, and state the source
+basis of any formulation saved or assessed; retain unresolved ambiguity. Likewise,
 separate an estimator's relation to a theorem's target, implementation consistency
 with that estimator, and evidence linking the inspected code to reported experiments.
 A missing execution link does not refute an abstract theorem assuming an oracle.
 
-A plausible repair stays provisional; failure to discover a repair does not show
-none exists. Describe an already apparent correction without constructing a new
-proof route. An obvious one-line justification correction needs no separate route
-or repair review. For an actually authored replacement proof, retain its provenance
-and actual examination and independent review. Checked sufficiency does not mean
-the manuscript was edited or its original defect resolved.
+A plausible repair stays provisional; failure to discover a repair does not show none exists.
+Describe an already apparent correction without constructing a new proof route.
+An obvious one-line correction or routine justification inside the examination is not
+a replacement proof and needs no separate route or reviewer. An actually authored
+replacement proof of the unchanged statement needs a separate route, provenance and
+actual examination and independent review; a restricted replacement statement needs
+its own target. Its sufficiency remains provisional until that mathematics and its
+required review are completed. Do not construct a replacement proof merely to choose
+severity. Keep the original proof's judgment. Checked sufficiency does not mean the
+manuscript was edited or its original defect resolved.
 
 Preserve independent response bytes and original outcomes. Reconcile conflicting
 judgments on the same exact question with explicit reasons, retaining unresolved disagreement when appropriate.

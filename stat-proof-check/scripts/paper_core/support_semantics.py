@@ -40,13 +40,20 @@ class SupportClosure:
 
     def admissibility_issue(self, source_scope, active_scope, discharges=()):
         """The first rejected scope, using exactly the support reducer's rule."""
-        active = {sid for sid, _ in self.ancestry(active_scope)}
+        active_chain = self.ancestry(active_scope)
+        active = {sid for sid, _ in active_chain}
+        hypotheses = {(ref["collection"], ref["id"])
+                      for _, scope in active_chain if scope is not None
+                      for ref in scope.body["assumptions"]}
         discharged = set(discharges)
         for sid, scope in self.ancestry(source_scope):
             if sid in active or sid in discharged:
                 continue
             if scope is None or any(scope.body.get(field) for field in
-                                    ("argument_id", "assumptions", "binders", "conditions")):
+                                    ("argument_id", "binders", "conditions")):
+                return sid
+            if any((ref["collection"], ref["id"]) not in hypotheses
+                   for ref in scope.body["assumptions"]):
                 return sid
         return None
 
@@ -60,19 +67,23 @@ class SupportClosure:
         return "available" if all(s == "supported" for s in states) else "conditional"
 
     def _statement_rules(self, key):
-        _, collection, ident, scope_id = key
+        _, collection, ident, scope_id = key[:4]
+        definition_context = key[4:] == ("definition_context",)
         ref = {"collection": collection, "id": ident}
         record = self.snap.get(ref)
         if record is None:
             return [("unavailable", ())]
         # Explicit hypothetical premises remain usable even when the assertion
         # is false outside that context. This does not establish the assertion.
-        if f"{collection}:{ident}" in self.snap.scope_assumptions(scope_id):
+        if not definition_context and f"{collection}:{ident}" in self.snap.scope_assumptions(scope_id):
             return [("available", ())]
         if not self.admissible(self.snap.exact_scope(ref), scope_id):
             return [("unavailable", ())]
         if self.d.statement_refuted(ref):
             return [("unavailable", ())]
+        if definition_context:
+            # Context supplies an exact definition, not a globally proved premise.
+            return [("available" if self.d.exact_target_current(ref) else "conditional", ())]
         kind = self.snap.kind_of(ref)
         if kind in ("assumption", "definition"):
             return [("conditional", ())]
@@ -149,8 +160,12 @@ class SupportClosure:
         if active_scope != group_scope and not (
                 group.body["kind"] == "cases" and active_scope in group.body["case_scope_ids"]):
             return [("unavailable", ())]
-        return [(self._local(_ref(record), ["application"]),
-                 (self.statement_key(body["from"], active_scope),))]
+        supplier_key = self.statement_key(body["from"], active_scope)
+        supplier = self.snap.get(body["from"])
+        if body.get("type") == "definition" and supplier is not None \
+                and supplier.collection == "items" and supplier.body.get("kind") == "definition":
+            supplier_key += ("definition_context",)
+        return [(self._local(_ref(record), ["application"]), (supplier_key,))]
 
     def solve(self, roots):
         """Materialize only recorded contexts, then propagate founded support."""
@@ -249,6 +264,10 @@ class SupportClosure:
                     return dict(detail, code="statement_refuted", message="An open refutation applies to this exact supplier statement.")
                 if not self.d.exact_target_current(ref):
                     return dict(detail, code="exact_target_pending", message="The supplier's exact target and source comparison are not current.")
+                if len(current) == 4 and self.snap.kind_of(ref) in ("assumption", "definition"):
+                    return dict(detail, code="premise_not_active", active_scope_id=active_scope,
+                                message="This assumption or definition is not declared as a premise in the active scope; "
+                                        "its source comparison does not establish it as a mathematical assertion.")
             elif current[0] == "use":
                 app = self.snap.application(record)
                 group = self.snap.live("groups", app.get("group_id"))

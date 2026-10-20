@@ -253,7 +253,8 @@ def _response_guidance(mode):
                 "optional_finding_example": _finding_example(),
                 "finding_card_note": FINDING_CARD_NOTE,
                 "note": "Use assigned task IDs; required nullable fields stay present. "
-                        "Keep each scaffold row's type: source_fidelity uses result, note and evidence_refs; "
+                        "For source_fidelity, compare the exact saved claim and its formulas with the source, "
+                        "using result, note and evidence_refs; "
                         "check uses state, outcome, reasoning and its check fields. Do not fill source rows as checks. "
                         "Return the rows actually examined; leave missing work pending rather than filling defaults. "
                         "Author the judgments. Finding rows create new issues. After an accepted submission, "

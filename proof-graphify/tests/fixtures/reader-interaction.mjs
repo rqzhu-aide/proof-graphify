@@ -113,6 +113,11 @@ class Element {
 }
 
 const document = new Element(packet.document), window = new Element({ tag: 'window' });
+assert.equal(document.querySelectorAll('#proof-reader-search').length,1,'Each overview must retain exactly one scientific search payload.');
+const searchPayload = document.querySelector('#proof-reader-search').textContent;
+assert(!/[<>&]/.test(searchPayload),'Script-like source text must remain safely escaped in the retained payload.');
+assert(JSON.parse(searchPayload).some(entry => entry.text.includes('</script><script>literal_source()</script> & <literal>')),
+  'The retained payload must preserve the literal source text.');
 document.getElementById = id => document.querySelector('#' + id);
 document.createElement = tag => new Element({ tag });
 document.createTextNode = text => new Element({ tag: '#text', text });
@@ -170,8 +175,10 @@ const outsideClick = packet.scripts.flatMap(source => [...source.matchAll(
 assert(outsideClick, 'Generated outside-click handler is missing.');
 vm.runInNewContext(outsideClick, { document, chip, container, lensDragClickPointer:null, clear: () => focus.clear() });
 }
+let searchParses = 0;
 const context = vm.createContext({
   document, window, Archify: { focus, view: { centerAt() { centers++; }, reset() {} } },
+  JSON:{parse(value) { searchParses++; return JSON.parse(value); }},
   location: {hash:process.argv[3]?.startsWith('fragment') ? (process.argv[3].includes('use') ? '#proof-index-use-independence-use' : '#proof-index-item-result') : ''},
   MutationObserver: class { constructor(callback) { this.callback = callback; } observe() { observers.push(this.callback); } },
   requestAnimationFrame: schedule, cancelAnimationFrame: id => callbacks.delete(id),
@@ -181,11 +188,13 @@ const context = vm.createContext({
 window.Archify = { focus, view: { centerAt() { centers++; }, reset() {} } };
 const runtime = packet.scripts.find(source => source.includes('function initializeScientificReader'));
 assert(runtime, 'Generated proof runtime is missing.');
+assert(!runtime.includes('SOURCE_QUOTE'),'The runtime must not serialize the scientific search entries again.');
 const auditMode = process.argv[3] === 'audit';
 if (auditMode) {
   document.querySelector('.proof-reader').classList.add('proof-audit');
 }
 vm.runInContext(runtime, context); flush();
+assert.equal(searchParses,1,'Reader initialization must parse the retained search payload once.');
 assert.equal(centers, 0, 'Opening the overview must retain the complete selected graph.');
 if (process.argv[3]?.startsWith('fragment')) {
   const isUse = process.argv[3].includes('use');
@@ -207,6 +216,16 @@ if (process.argv[3]?.startsWith('fragment')) {
   process.exit(0);
 }
 function sharedSourceSearchAndPrint() {
+  const outgoingSearch = document.getElementById('proof-search'); outgoingSearch.value = 'RELATION_TEXT';
+  dispatch(outgoingSearch,{type:'input'}); flush();
+  const outgoingHit = document.getElementById('proof-search-results').querySelectorAll('button').find(button => button.textContent.includes('Used by'));
+  assert(outgoingHit, 'Outgoing contributions have a separately labelled search result.');
+  dispatch(outgoingHit,{type:'click'}); flush();
+  const outgoing = document.querySelector('.is-target');
+  assert.equal(outgoing.getAttribute('data-reader-search-key'),'item:assumption:outgoing');
+  assert.equal(outgoing.tagName,'details');
+  assert(outgoing.hasAttribute('open'), 'The target disclosure itself must open.');
+  assert.equal(document.activeElement,outgoing);
   const search = document.getElementById('proof-search'); search.value = 'SOURCE_QUOTE';
   dispatch(search,{type:'input'}); flush();
   const hit = document.getElementById('proof-search-results').querySelector('button'); assert(hit);
@@ -224,7 +243,7 @@ function sharedSourceSearchAndPrint() {
   assert.deepEqual(disclosures.map(element=>element.hasAttribute('open')),states);
   assert.equal(active,selected); assert.equal(relation?.id,relationId);
   dispatch(destination,{type:'keydown',key:'Escape'});flush();assert.equal(document.activeElement,hit);
-  return {source_search_exact_destination:true,print_state_restored:true,escape_restored_activator:true};
+  return {source_search_exact_destination:true,outgoing_search_exact_destination:true,print_state_restored:true,escape_restored_activator:true};
 }
 if (process.argv[3]==='preview') {
   const tip=document.getElementById('proof-tooltip'),node=svg.querySelector('[data-node-id="assumption"]');

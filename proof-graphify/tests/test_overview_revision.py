@@ -29,16 +29,32 @@ class RenderedGraph(HTMLParser):
         self.edges = {}
         self.tags = []
         self.text = []
+        self.result_groups = []
+        self._in_results = False
+        self._result_group = None
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         self.tags.append((tag, attrs))
+        if tag == "nav" and attrs.get("id") == "proof-results":
+            self._in_results = True
+        if self._in_results and tag == "section":
+            self._result_group = []
+            self.result_groups.append(self._result_group)
+        if self._result_group is not None and tag == "a":
+            self._result_group.append(attrs)
         if "data-node-id" in attrs:
             self.nodes.add(attrs["data-node-id"])
         if "data-edge-from" in attrs and "data-edge-to" in attrs:
             key = (attrs["data-edge-from"], attrs["data-edge-to"])
             self.edges[key] = attrs
+
+    def handle_endtag(self, tag):
+        if tag == "section":
+            self._result_group = None
+        if tag == "nav":
+            self._in_results = False
 
     def handle_data(self, data):
         self.text.append(data)
@@ -149,9 +165,13 @@ class OverviewRevisionTests(unittest.TestCase):
     @unittest.skipUnless(NODE_AVAILABLE, "A shared Node installation is required for HTML rendering.")
     def test_main_result_navigation_matches_the_authored_selection(self):
         _, _, _, _, graph = self.render()
-        choices = {attrs["data-proof-main"] for tag, attrs in graph.tags
-                   if tag == "button" and "data-proof-main" in attrs}
+        self.assertTrue(graph.result_groups)
+        choices = {attrs["data-reader-node"] for attrs in graph.result_groups[0]}
         self.assertEqual(choices, set(self.data["main_items"]))
+        for attrs in graph.result_groups[0]:
+            item = attrs["data-reader-node"]
+            self.assertEqual(attrs["data-reader-open"], "item:" + item)
+            self.assertEqual(attrs["href"], "#proof-index-item-" + item)
         full_controls = [(tag, attrs) for tag, attrs in graph.tags
                          if attrs.get("id") == "proof-full-structure"]
         self.assertEqual(len(full_controls), 1)
@@ -165,8 +185,8 @@ class OverviewRevisionTests(unittest.TestCase):
         result_kinds = {"lemma", "proposition", "theorem", "corollary"}
         terminals = {item["id"] for item in self.data["items"]
                      if item["kind"] in result_kinds and item["id"] not in used_as_input}
-        choices = {attrs["data-proof-main"] for tag, attrs in graph.tags
-                   if tag == "button" and "data-proof-main" in attrs}
+        self.assertTrue(graph.result_groups)
+        choices = {attrs["data-reader-node"] for attrs in graph.result_groups[0]}
         self.assertEqual(choices, terminals)
         self.assertEqual(graph.nodes, {item["id"] for item in self.data["items"]})
 

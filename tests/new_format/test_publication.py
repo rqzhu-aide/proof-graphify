@@ -111,6 +111,85 @@ class MathRenderTests(unittest.TestCase):
         self.assertEqual(root.get("aria-label"), "LaTeX: " + tex)
         return root, namespace
 
+    def test_ordinary_product_spacing_preserves_tree_and_exact_source(self):
+        for tex in (r"Y=W\!\cdot\!b+\varepsilon", r"2\!\cdot\!3",
+                    r"x\!\cdot\!2", r"2\!\cdot\!x", r"x\!\cdot\!y\!\cdot\!z"):
+            with self.subTest(tex=tex):
+                actual, namespace = self.assert_math_source(tex)
+                expected, _ = self.assert_math_source(tex.replace(r"\!", " "))
+                self.assertFalse(actual.findall(".//m:mspace", namespace))
+                self.assertIn("·", [node.text for node in actual.findall(".//m:mo", namespace)])
+                for root in (actual, expected):
+                    root.attrib.pop("aria-label")
+                    root.find(".//m:annotation", namespace).text = "source"
+                self.assertEqual(ET.tostring(actual), ET.tostring(expected))
+
+    def test_other_product_spacing_keeps_readable_literal_fallback(self):
+        for tex in (r"x\!y", r"x\!\cdot y", r"x\cdot\!y", r"x\!\!\cdot\!y",
+                    r"x\!\cdot\!\!y", r"x_i\!\cdot\!y", r"x\!\cdot\!y^2",
+                    r"{x+y}\!\cdot\!z", r"x\!\cdot\!\frac{y}{z}",
+                    r"\!\cdot\!x", r"x\!\cdot\!", r"x\!\times\!y"):
+            with self.subTest(tex=tex):
+                diagnostics = []
+                literal = "$" + tex + "$"
+                markup = render_text(literal, diagnostics)
+                self.assertIn('class="math-fallback"', markup)
+                self.assertNotIn("<math", markup)
+                self.assertEqual(diagnostics[0]["excerpt"], literal)
+                self.assertIn("negative spacing", diagnostics[0]["reason"])
+
+    def test_product_spacing_rejects_nonbare_or_malformed_nodes(self):
+        thin = '<mspace width="negativethinmathspace"/>'
+        row = '<mi>x</mi>' + thin + '<mo>·</mo>' + thin + '<mn>2</mn>'
+        bad_spaces = (
+            '<mspace width="negativethinmathspace" height="1em"/>',
+            '<mspace width="negativethinmathspace"> </mspace>',
+            thin + 'tail', '<mspace width="negativethinmathspace"><mi>a</mi></mspace>',
+            '<mspace width="negativeverythinmathspace"/>', '<f:mspace width="negativethinmathspace"/>',
+        )
+        malformed = []
+        for bad in bad_spaces:
+            malformed.extend((row.replace(thin, bad, 1), row.rsplit(thin, 1)[0] + bad + '<mn>2</mn>'))
+        for bad in ('<mo form="infix">·</mo>', '<mo>·<mi>a</mi></mo>', '<mo>·</mo>tail',
+                    '<mo> ·</mo>', '<mo>⋅</mo>', '<f:mo>·</f:mo>'):
+            malformed.append(row.replace('<mo>·</mo>', bad))
+        for bad in ('<mi/>', '<mi> </mi>', '<mtext>x</mtext>', '<mi>x<mn>1</mn></mi>',
+                    '<msub><mi>x</mi><mn>1</mn></msub>', '<mi>x</mi>tail', '<f:mi>x</f:mi>'):
+            malformed.append(row.replace('<mi>x</mi>', bad))
+        malformed.append(row.replace('<mi>x</mi>', '<mi onclick="bad">x</mi>'))
+        for fragment in malformed:
+            with self.subTest(fragment=fragment), self.assertRaises(ValueError):
+                math_render._safe_mathml('<math xmlns:f="urn:foreign"><mrow>' + fragment
+                                         + '</mrow></math>', "original", "inline")
+        for namespace in ('', ' xmlns="' + math_render.MATHML_NS + '"'):
+            root = ET.fromstring(math_render._safe_mathml('<math' + namespace + '><mrow>'
+                                + row + '</mrow></math>', "original", "inline"))
+            self.assertEqual([node.text for node in root.iter()
+                              if node.tag.endswith('}mo')], ["·"])
+
+    def test_frozen_render_input_regenerates_product_display_without_scientific_changes(self):
+        tex = r"Y=W\!\cdot\!b+\varepsilon"
+        snapshot = {"paper": {"title": "Frozen display fixture"}, "revision": 7,
+                    "audit_id": "aud_original", "source_identity": "saved-source",
+                    "kind": "working", "producer": {"core_version": "saved-producer"},
+                    "process_complete": False, "representation_settled": True,
+                    "finalization_blockers": [], "finalization_blocker_count": 0,
+                    "projection": {"records": [{"ref": {"collection": "items", "id": "itm_product", "version": 1},
+                        "body": {"statement": {"form": "verbatim", "text": "$" + tex + "$"}}}]}}
+        original = copy.deepcopy(snapshot)
+        digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest()
+        payload = publish.frozen_render_input(snapshot, snapshot_sha256=digest)
+        self.assertEqual(snapshot, original)
+        self.assertEqual(payload["projection"], original["projection"])
+        self.assertEqual(payload["build"]["scientific_producer"], original["producer"])
+        self.assertEqual(payload["build"]["source_identity"], original["source_identity"])
+        self.assertEqual(payload["build"]["finalization"]["snapshot_sha256"], digest)
+        markup = payload["display"]["refs"]["items:itm_product:1"]["statement_html"]
+        self.assertNotIn("math-fallback", markup)
+        root = ET.fromstring(markup)
+        self.assertEqual(root.find(".//m:annotation", {"m": math_render.MATHML_NS}).text, tex)
+        self.assertEqual(payload["display"]["math_diagnostics"], [])
+
     def test_all_sized_brace_commands_and_aliases_keep_size_and_fence_attributes(self):
         for size in ("big", "Big", "bigg", "Bigg"):
             for suffix in ("", "l", "r", "m"):
@@ -184,6 +263,72 @@ class MathRenderTests(unittest.TestCase):
                 else:
                     root, namespace = self.assert_math_source(tex)
                     self.assertEqual([node.text for node in root.findall(".//m:mo", namespace)], operators)
+
+    def test_all_sized_norm_commands_keep_size_and_operator_attributes(self):
+        from latex2mathml.converter import convert
+        for size, extent in (("big", "1.2em"), ("Big", "1.623em"),
+                             ("bigg", "2.047em"), ("Bigg", "2.470em")):
+            for suffix in ("", "l", "r", "m"):
+                command = "\\" + size + suffix
+                tex = command + r"\|x" + command + r"\|"
+                with self.subTest(tex=tex):
+                    root, namespace = self.assert_math_source(tex)
+                    bars = root.findall(".//m:mo", namespace)
+                    self.assertEqual([bar.text for bar in bars], ["‖", "‖"])
+                    raw = ET.fromstring(convert(tex)).findall(".//m:mo", namespace)
+                    self.assertEqual([bar.attrib for bar in bars], [bar.attrib for bar in raw])
+                    self.assertEqual([(bar.get("minsize"), bar.get("maxsize")) for bar in bars],
+                                     [(extent, extent)] * 2)
+
+    def test_sized_norm_scripts_keep_the_sized_bar_as_their_base(self):
+        for size in ("big", "Big", "bigg", "Bigg"):
+            for left, right in ((size, size), (size + "l", size + "r"), (size + "m", size + "m")):
+                for script, tag, contents in (("_2", "msub", ["2"]), ("^2", "msup", ["2"]),
+                                               ("_2^3", "msubsup", ["2", "3"])):
+                    tex = "\\" + left + r"\|x" + "\\" + right + r"\|" + script
+                    with self.subTest(tex=tex):
+                        root, namespace = self.assert_math_source(tex)
+                        node = root.find(".//m:" + tag, namespace)
+                        self.assertIsNotNone(node)
+                        self.assertEqual(node[0].tag, "{" + math_render.MATHML_NS + "}mrow")
+                        self.assertEqual(len(node[0]), 1)
+                        self.assertEqual(node[0][0].text, "‖")
+                        self.assertTrue(node[0][0].get("minsize"))
+                        self.assertEqual(node[0][0].get("minsize"), node[0][0].get("maxsize"))
+                        self.assertEqual(["".join(child.itertext()) for child in node][1:], contents)
+
+    def test_norm_normalization_is_limited_to_exact_sized_operator_leaves(self):
+        fragments = (
+            (r'<mo minsize="1em" maxsize="1em" fence="true">\|</mo>', "‖"),
+            (r'<mo>\|</mo>', r"\|"),
+            (r'<mo minsize="1em" maxsize="2em">\|</mo>', r"\|"),
+            (r'<mo minsize="" maxsize="">\|</mo>', r"\|"),
+            (r'<mo minsize="1em">\|</mo>', r"\|"),
+            (r'<mi minsize="1em" maxsize="1em">\|</mi>', r"\|"),
+            (r'<mtext minsize="1em" maxsize="1em">\|</mtext>', r"\|"),
+            (r'<mo minsize="1em" maxsize="1em">\|<mi>x</mi></mo>', r"\|"),
+            (r'<mo minsize="1em" maxsize="1em"> \|</mo>', r" \|"),
+            (r'<mo minsize="1em" maxsize="1em">\|\|</mo>', r"\|\|"),
+        )
+        for fragment, expected in fragments:
+            with self.subTest(fragment=fragment):
+                root = ET.fromstring(math_render._safe_mathml("<math>" + fragment + "</math>",
+                                                             "original source", "inline"))
+                namespace = {"m": math_render.MATHML_NS}
+                token = root.find(".//m:mrow", namespace)[0]
+                raw = ET.fromstring(fragment)
+                self.assertEqual(token.text, expected)
+                self.assertEqual(token.attrib, raw.attrib)
+                self.assertEqual(len(token), len(raw))
+                self.assertEqual(root.find(".//m:annotation", namespace).text, "original source")
+
+    def test_unsized_and_named_norm_bars_keep_their_existing_display(self):
+        for tex in (r"\|x\|_2", r"\left\|x\right\|_2", r"\lVert x\rVert_2",
+                    r"\bigl\lVert x\bigr\rVert_2", r"\Biggl\Vert x\Biggr\Vert_2"):
+            with self.subTest(tex=tex):
+                root, namespace = self.assert_math_source(tex)
+                self.assertEqual([bar.text for bar in root.findall(".//m:mo", namespace)], ["‖", "‖"])
+        self.assertEqual(render_text(r"A literal \big\| in prose."), r"A literal \big\| in prose.")
 
     def test_brace_normalization_is_limited_to_exact_sized_operator_leaves(self):
         probes = (

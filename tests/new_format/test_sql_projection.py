@@ -6,6 +6,7 @@ import shutil
 import subprocess
 
 from support import CORE, R, TempCase, edit
+from test_review_display import CurrentFixture
 from paper_core import projection, publish
 
 
@@ -107,7 +108,8 @@ class SQLProjectionTests(TempCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         receipt = json.loads(completed.stdout)
         self.assertEqual(receipt["representation"]["status"], "pass", receipt)
-        self.assertEqual(receipt["geometry"]["status"], "pass", receipt)
+        self.assertEqual(receipt["geometry"]["status"],
+                         "not_applicable" if dataset["layout"]["mode"] == "index" else "pass", receipt)
         return output.read_bytes()
 
     def test_canonical_record_body_is_not_repeated_for_added_detail_references(self):
@@ -144,3 +146,98 @@ class SQLProjectionTests(TempCase):
             with self.subTest(kind=kind):
                 self.assertNotEqual(page, changed)
                 self.assertEqual(publish.mechanical_acceptance(changed, dataset)["status"], "fail")
+
+    def hypothesis_fixture(self):
+        fixture = CurrentFixture(self.path("hypothesis-paper")).primary()
+        with fixture.open() as db:
+            assumption = fixture.item_edit("itm_assumption", "assumption", "Standing assumption",
+                                           "anc_lem", "anc_lem_proof")
+            assumption["body"]["passages"] = assumption["body"]["passages"][:1]
+            edits = [assumption, edit("create", "scopes", "scp_hypothesis", {
+                "argument_id": None, "parent_id": None, "assumptions": [R("items", "itm_assumption")],
+                "binders": [], "conditions": [], "evidence_refs": []})]
+            for name in ("lem", "thm"):
+                current = db.head("target_specs", f"tgt_{name}")
+                edits.append(edit("replace", "target_specs", current.id,
+                                  dict(current.body, scope_id="scp_hypothesis"), expected=current.version))
+            use = dict(db.head("uses", "use_lem_thm").body,
+                       **{"from": R("items", "itm_assumption"), "reason": "Recorded standing premise",
+                          "needed_form": assumption["body"]["statement"]})
+            edits.append(edit("create", "uses", "use_assumption_thm", use))
+            fixture.apply(db, edits)
+            result = projection.build_projection(db, audit_id=fixture.audit_id)
+        self.assertEqual(len(result["hypothesis_connections"]), 2)
+        self.assertEqual(sum(row["proof_connection_id"] is not None for row in result["hypothesis_connections"]), 1)
+        return fixture, result
+
+    def test_hypothesis_publication_counts_and_provenance_in_graph_and_index(self):
+        fixture, dataset = self.hypothesis_fixture()
+        for mode in ("dag", "index"):
+            with self.subTest(mode=mode):
+                dataset["layout"]["mode"] = mode
+                page = self.render(fixture, dataset)
+                receipt = publish.mechanical_acceptance(page, dataset)
+                self.assertEqual(receipt["status"], "pass", receipt)
+                self.assertEqual(receipt["connections"], len(dataset["connections"]))
+                self.assertEqual(receipt["hypothesis_connections"], 2)
+                for relation in dataset["hypothesis_connections"]:
+                    path = f'data-edge-id="{relation["id"]}"'.encode()
+                    self.assertEqual(page.count(path), int(mode == "dag" and relation["proof_connection_id"] is None))
+                    marker = f'data-proof-index-hypothesis="{relation["id"]}"'.encode()
+                    self.assertEqual(page.count(marker), int(mode == "index"))
+                    context = f'data-hypothesis-context="{relation["id"]}"'.encode()
+                    self.assertEqual(page.count(context), 1 + int(relation["proof_connection_id"] is not None))
+
+    def test_hypothesis_publication_rejects_corrupt_relation_without_changing_projection(self):
+        fixture, dataset = self.hypothesis_fixture()
+        page = self.render(fixture, dataset)
+        relation = next(row for row in dataset["hypothesis_connections"] if row["proof_connection_id"] is None)
+        identity = re.escape(relation["id"].encode())
+        path = re.search(rb'<path\b[^>]*data-edge-id="' + identity + rb'"[^>]*>', page).group()
+        context = re.search(rb'<[^>]+data-hypothesis-context="' + identity + rb'"[^>]*>', page).group()
+        alterations = {
+            "state": path.replace(b'data-edge-state="hypothesis"', b'data-edge-state="gray"'),
+            "endpoint": path.replace(b'data-edge-to="itm_lem"', b'data-edge-to="itm_thm"'),
+            "kind": path.replace(b'data-edge-kind="hypothesis"', b'data-edge-kind="setup"'),
+            "destination": path.replace(b'data-detail-key="item:itm_lem"', b'data-detail-key="item:itm_thm"'),
+            "assessment": path.replace(b'proof-hypothesis', b'proof-hypothesis s-gray'),
+            "arrowhead": path.replace(b'url(#proof-hypothesis-arrow)', b'url(#proof-arrow-gray)'),
+        }
+        corruptions = {name: page.replace(path, altered, 1) for name, altered in alterations.items()}
+        corruptions["missing"] = page.replace(path, b"", 1)
+        corruptions["scope pin"] = page.replace(context, re.sub(
+            rb'data-hypothesis-scopes="[^"]*"', b'data-hypothesis-scopes="[]"', context), 1)
+        corruptions["statement pin"] = page.replace(context, re.sub(
+            rb'data-hypothesis-statement="[^"]*"', b'data-hypothesis-statement="items:itm_lem:999"', context), 1)
+        context_body = re.search(rb'<li\b[^>]*data-hypothesis-context="' + identity +
+                                 rb'"[^>]*>.*?</li>', page, re.DOTALL).group()
+        corruptions["empty visible context"] = page.replace(context_body, context + b"</li>", 1)
+        corruptions["hidden visible context"] = page.replace(context, context[:-1] + b" hidden>", 1)
+        for name, changed in corruptions.items():
+            with self.subTest(corruption=name):
+                self.assertNotEqual(page, changed)
+                self.assertEqual(publish.mechanical_acceptance(changed, dataset)["status"], "fail")
+        dataset["layout"]["mode"] = "index"
+        page = self.render(fixture, dataset)
+        article = re.search(rb'<article\b[^>]*data-proof-index-hypothesis="' + identity +
+                            rb'"[^>]*>.*?</article>', page, re.DOTALL).group()
+        index_alterations = {
+            "missing index relation": b"",
+            "index state": article.replace(b'data-edge-state="hypothesis"', b'data-edge-state="gray"'),
+            "index destination": article.replace(b'data-detail-key="item:itm_lem"',
+                                                  b'data-detail-key="item:itm_thm"'),
+            "index severity": article.replace(b'proof-hypothesis', b'proof-hypothesis s-red'),
+        }
+        for name, altered in index_alterations.items():
+            with self.subTest(corruption=name):
+                changed = page.replace(article, altered, 1)
+                self.assertNotEqual(page, changed)
+                self.assertEqual(publish.mechanical_acceptance(changed, dataset)["status"], "fail")
+
+    def test_old_projection_without_hypotheses_remains_accepted(self):
+        fixture = CurrentFixture(self.path("old-projection-paper")).primary()
+        with fixture.open() as db:
+            dataset = projection.build_projection(db, audit_id=fixture.audit_id)
+        dataset.pop("hypothesis_connections", None)
+        page = self.render(fixture, dataset)
+        self.assertEqual(publish.mechanical_acceptance(page, dataset)["status"], "pass")

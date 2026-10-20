@@ -49,6 +49,61 @@ class MathRenderingTests(unittest.TestCase):
             self.assertEqual(tex, annotation.text)
             self.assertEqual("LaTeX: " + tex, node.get("aria-label"))
 
+    def test_single_negative_thin_space_before_ordinary_opening_fences(self):
+        expressions = [
+            r"\exp\!\left\{x\right\}", r"E\!\left\lbrace x\right\rbrace",
+            r"P(\|\delta(t,t')\|_\infty>u)\le2k\exp\!\left\{-\frac{q u^2}{2L\|t-t'\|_2+(4G/3)u}\right\}.",
+            r"(\tilde\theta^*-\hat\theta)^2/\sigma_n^2=O_P\!\big(\mathrm{polylog}(n/s)\max\{s^{-2a},(s/n)^{1/3}\}\big)\to_p0",
+        ]
+        for size in ("big", "Big", "bigg", "Bigg"):
+            for opening, closing in (("(", ")"), ("[", "]"), (r"\{", r"\}"),
+                                     (r"\lbrace", r"\rbrace")):
+                expressions.append("E\\!\\" + size + opening + " x\\" + size + closing)
+        for tex in expressions:
+            with self.subTest(tex=tex):
+                document = self.document("$" + tex + "$")
+                formulas = self.formulas(document)
+                self.assertEqual(1, len(formulas))
+                self.assertEqual(tex, formulas[0].find(".//{" + math.MATHML_NS + "}annotation").text)
+                self.assertEqual("LaTeX: " + tex, formulas[0].get("aria-label"))
+        for tex in (r"\eta_n\ge{}^{4}\!\sqrt{s/n}", r"E\!\!\left\{x\right\}",
+                    r"E{\!}\!\big(x\big)", r"E\hspace{-1em}\!\big(x\big)",
+                    r"E\!\big\}", r"E\!\big\langle x"):
+            with self.subTest(tex=tex):
+                document = self.document("$" + tex + "$")
+                self.assertFalse(self.formulas(document))
+                self.assertEqual("$" + tex + "$", document.find(".//code").text)
+
+    def test_opening_fence_spacing_keeps_nonordinary_converter_shapes_unsupported(self):
+        space = '<mspace width="negativethinmathspace"/>'
+        fence = '<mo minsize="1.2em" maxsize="1.2em">(</mo>'
+        cases = [(space, '<mo minsize="' + size + '" maxsize="' + size + '">' + text + '</mo>', True)
+                 for size in ("1.2em", "1.623em", "2.047em", "2.470em")
+                 for text in ("(", "[", "{", r"\{", r"\lbrace")]
+        cases += [
+            (space, '<mo fence="true" form="prefix">{</mo>', True),
+            (space.replace('/>', '>x</mspace>'), fence, False),
+            (space + "x", fence, False),
+            (space.replace('/>', '><mi>x</mi></mspace>'), fence, False),
+            (space.replace('/>', ' height="1em"/>'), fence, False),
+            (space, fence.replace('maxsize="1.2em"', 'maxsize="1.623em"'), False),
+            (space, fence.replace("1.2em", "2em"), False),
+            (space, fence.replace('<mo ', '<mo fence="true" '), False),
+            (space, fence.replace(">(</mo>", "><mi>x</mi></mo>"), False),
+            (space * 2, fence, False),
+        ]
+        tex = r"original \!\{x & y\}"
+        for spacing, opening, accepted in cases:
+            raw = "<math><mrow><mi>E</mi>" + spacing + opening + "<mi>x</mi></mrow></math>"
+            with self.subTest(spacing=spacing, opening=opening):
+                if not accepted:
+                    with self.assertRaisesRegex(ValueError, "unsupported negative spacing"):
+                        math._safe_mathml(raw, tex, "inline")
+                    continue
+                node = ET.fromstring(math._safe_mathml(raw, tex, "inline"))
+                self.assertEqual(tex, node.find(".//{" + math.MATHML_NS + "}annotation").text)
+                self.assertEqual("LaTeX: " + tex, node.get("aria-label"))
+
     def test_powered_binomial_and_exact_c001_keep_grouped_base_and_original_tex(self):
         # Exact probes from the frozen paper's five-probe rendering diagnosis.
         plain = r"\binom{\beta n}{k}"
@@ -175,13 +230,16 @@ class MathRenderingTests(unittest.TestCase):
 
     def test_supported_multiline_cases_and_alignment_are_real_math(self):
         for tex in (r"\begin{cases}1 & x>0\\0 & x\le0\end{cases}",
-                    r"\begin{align*}a&=b+c\\d&=e\end{align*}"):
+                    r"\begin{align*}a&=b+c\\d&=e\end{align*}",
+                    r"\begin{aligned}a&=b\\c&=d\end{aligned}"):
             with self.subTest(tex=tex):
                 document = self.document("\\[" + tex + "\\]")
                 self.assertTrue(list(document.iter("{" + math.MATHML_NS + "}mtable")))
+                self.assertEqual(2, len(list(document.iter("{" + math.MATHML_NS + "}mtr"))))
+                self.assertEqual(tex, next(document.iter("{" + math.MATHML_NS + "}annotation")).text)
 
     def test_unsupported_environment_is_not_silently_dropped(self):
-        for tex in (r"\begin{aligned}a&=b\\c&=d\end{aligned}",
+        for tex in (r"\begin{aligned}[t]a&=b\\c&=d\end{aligned}",
                     r"\begin{unknown}x\end{unknown}"):
             with self.subTest(tex=tex):
                 document = self.document("\\[" + tex + "\\]")

@@ -53,8 +53,10 @@ class SkillStructureTests(unittest.TestCase):
         # Existing entrypoint included conservatively, even when a delegated worker
         # receives only its brief. Actual packets/scaffolds are measured separately.
         entry = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
-        # Explicit baseline for the promoted 3.0.11 role set, replacing the inherited v2 budget.
-        limits = {"primary": 4572, "independent": 4777}
+        # Reviewed 3.3.5 readsets, reduced from 5913/6084 by consolidating repetition.
+        # Retain the scientific and response contracts added since the 3.0.11 baseline;
+        # keep all assigned references in the measurement and allow no growth margin.
+        limits = {"primary": 5671, "independent": 5854}
         for mode, limit in limits.items():
             materials = [entry, *( (REFERENCES / name).read_text(encoding="utf-8")
                                   for name in ROLE_REFERENCES[mode]),

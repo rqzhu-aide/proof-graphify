@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import closing
 
 from support import Fixture, TempCase, R
-from paper_core import PROTOCOL_VERSION
+from paper_core import PROTOCOL_VERSION, packets
 from paper_core.authoring import create_unit, create_audit
 from paper_core.contract import validate_body
 from paper_core.errors import IncompatibleError, InvalidRequest
@@ -36,6 +36,35 @@ class ContractTests(TempCase):
             self.assertEqual(body["global_tasks"], [])
             self.assertIsNone(body["qualification_id"])
             self.assertTrue(body["independent_required"])
+
+    def test_optional_proof_idea_is_saved_without_review_credit_and_replays(self):
+        fixture = Fixture(self.path("explanation")).anchors()
+        with fixture.open() as db:
+            definition = dict(self.definition(), proof_idea="The source proves the bound by induction.")
+            result = create_unit(db, definition)
+            item = db.head("items", result["unit"]["item"])
+            self.assertEqual(definition["proof_idea"], item.body["proof_idea"])
+            independent = packets._packet_record(item, "independent", db)
+            self.assertNotIn("proof_idea", independent["body"])
+            self.assertEqual([], packets.blinding_violations({"records": [independent]}))
+            self.assertTrue(packets.blinding_violations({"records": [packets._packet_record(item, "primary", db)]}))
+            revision = db.max_revision()
+            self.assertTrue(create_unit(db, definition)["reused"])
+            self.assertEqual(revision, db.max_revision())
+            with self.assertRaises(InvalidRequest) as caught:
+                create_unit(db, dict(definition, proof_idea="A different explanation."))
+            self.assertEqual("UNIT_EXISTS", caught.exception.code)
+            self.assertEqual(revision, db.max_revision())
+            self.assertFalse(db.heads("checks"))
+            self.assertFalse(db.heads("responses"))
+            absent = dict(self.definition(), key="without_explanation")
+            create_unit(db, absent)
+            self.assertNotIn("proof_idea", db.head("items", "itm_without_explanation").body)
+            revision = db.max_revision()
+            for value in ("", "   ", None, 3, ["explanation"]):
+                with self.subTest(value=value), self.assertRaises(InvalidRequest):
+                    create_unit(db, dict(self.definition(), key="invalid_explanation", proof_idea=value))
+                self.assertEqual(revision, db.max_revision())
 
     def test_bad_supplier_leaves_no_partial_unit(self):
         fixture = Fixture(self.path("bad")).anchors()

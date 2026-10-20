@@ -149,18 +149,23 @@ class GroupedRecordTests(TempCase):
         with fixture.open() as db:
             for kind in ("assumption", "definition") + INTERMEDIATE_KINDS:
                 definition = self.record_definition(kind, kind, **({"owner_id": "itm_thm"} if kind in INTERMEDIATE_KINDS else {}))
+                definition["proof_idea"] = "The source's local explanation for " + kind + "."
                 created = authoring.create_record(db, definition)
                 version = db.max_revision()
                 self.assertTrue(authoring.create_record(db, definition)["reused"])
                 self.assertEqual(version, db.max_revision())
                 self.assertEqual(kind, db.head("items", created["unit"]["item"]).body["kind"])
+                self.assertEqual(definition["proof_idea"], db.head("items", created["unit"]["item"]).body["proof_idea"])
                 self.assertIsNone(created["unit"]["argument"])
             self.assertEqual(2, len(db.heads("arguments")))
             self.assertFalse(db.heads("checks"))
             for kind in INTERMEDIATE_KINDS:
                 created = authoring.create_record(db, self.record_definition("separate_" + kind, kind,
-                    owner_id="itm_thm", separate_examination=True, proof_complete=True))
+                    owner_id="itm_thm", separate_examination=True, proof_complete=True,
+                    proof_idea="The source derives this result in its separate argument."))
                 self.assertIsNotNone(db.head("arguments", created["unit"]["argument"]))
+                self.assertEqual("The source derives this result in its separate argument.",
+                                 db.head("items", created["unit"]["item"]).body["proof_idea"])
             with self.assertRaises(InvalidRequest):
                 authoring.create_record(db, self.record_definition("unowned", "equation"))
 

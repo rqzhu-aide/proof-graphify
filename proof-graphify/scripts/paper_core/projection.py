@@ -371,6 +371,33 @@ class _Projector:
     def constituents_for_group(self, group: Record) -> list:
         return self.d.group_constituents(group, with_uses=False)
 
+    def finalized_use_assessment(self, use: Record) -> dict:
+        return self.A["assessments"].get(key_of(ref_of(use))) or self.d.use_assessment(use)
+
+    def examined_aggregate(self, value: dict, constituents: list, boundary_uses: list) -> dict:
+        """Retain exact examination annotations without changing the reduced judgment."""
+        if value["state"] != "gray" or value["label"] != "unassessed":
+            return value
+        if any(refinement.body["state"] != "registered" for use in boundary_uses
+               for refinement in self.refinements_by_use.get(use.id, ())):
+            return value
+        examined = None
+        for constituent in constituents:
+            if constituent.get("role", "primary") != "primary":
+                continue
+            # A gray/unassessed reduction has no substantive primary constituent.
+            target = constituent.get("target")
+            exact = self.A["assessments"].get(key_of(target)) if target else None
+            if not exact or exact["state"] != "gray" or exact["label"] != "examined in proof":
+                return value
+            examined = exact
+        if examined is None:
+            return value
+        result = dict(value, label=examined["label"], explanation=examined["explanation"])
+        if result.get("local_state") == "gray" and result.get("local_label") == "unassessed":
+            result["local_label"] = examined["label"]
+        return result
+
     # -- node set --------------------------------------------------------------
     def scoped_majors(self) -> dict:
         majors = OrderedDict()
@@ -417,6 +444,49 @@ class _Projector:
                 continue
             pairs[(source.id, target.id)].append(use)
         return OrderedDict(sorted(pairs.items()))
+
+    def hypothesis_connections(self, nodes: dict, proof_pairs: dict) -> list:
+        """Display only named conditions of an audited exact major target.
+
+        The exact target scope, including its recorded ancestry, is authoritative.
+        Proof-local, part-only, historical and proposed contexts never enlarge it.
+        """
+        if self.overview:
+            return []
+        pairs = OrderedDict()
+        for ref in sorted(self.A["statements"], key=key_of):
+            target = self.snap.get(ref)
+            if target is None or target.collection != "items" or target.id not in nodes \
+                    or target.body["kind"] not in MAJOR_KINDS:
+                continue
+            spec = self.snap.target_spec(ref)
+            if spec is None or spec.body["state"] != "registered":
+                continue
+            statement = self.pinned_record(spec.body["statement_ref"]) if spec.body["statement_ref"] else spec
+            if statement is None or statement.body is None:
+                # The detail builder reports the missing exact statement. Do not
+                # silently replace that historical form with a current synopsis.
+                continue
+            for scope in self.scope_chain(self.snap.exact_scope(ref)):
+                for premise_ref in scope.body["assumptions"]:
+                    premise = self.snap.get(premise_ref)
+                    if premise is None or premise.collection != "items" \
+                            or premise.body["kind"] not in ("assumption", "definition") \
+                            or premise.id == target.id:
+                        continue
+                    pair = (premise.id, target.id)
+                    if pair not in pairs:
+                        pairs[pair] = {"id": "hyp_" + connection_id(*pair)[5:],
+                            "from": premise.id, "to": target.id,
+                            "kind": "hypothesis" if premise.body["kind"] == "assumption" else "setup",
+                            "premise_ref": pinned_of(premise), "target_ref": pinned_of(target),
+                            "spec_ref": pinned_of(spec), "statement_ref": pinned_of(statement),
+                            "scope_refs": [], "detail_key": f"item:{target.id}",
+                            "proof_connection_id": connection_id(*pair) if pair in proof_pairs else None}
+                    pin = pinned_of(scope)
+                    if pin not in pairs[pair]["scope_refs"]:
+                        pairs[pair]["scope_refs"].append(pin)
+        return [pairs[pair] for pair in sorted(pairs)]
 
     # -- boundary traces (handoff 7.2) -----------------------------------------
     def trace(self, use: Record, owner: Record) -> dict:
@@ -858,7 +928,7 @@ class _Projector:
             detail.add("premises", [supplier])
             self.add_source_material(detail, self.anchors_of([supplier]), [supplier])
             scope_id = application.get("scope_id") or (group.body["scope_id"] if associated else None)
-            assessment = public_assessment(self.d.use_assessment(use))
+            assessment = public_assessment(self.finalized_use_assessment(use))
             if extension is None and not application.get("needed_form"):
                 assessment = public_assessment(reduce([]))
                 assessment.update(label="recorded connection", explanation=
@@ -994,6 +1064,12 @@ class _Projector:
         snap, A = self.snap, self.A
         nodes, scoped = self.node_set()
         pairs = self.boundary_uses(nodes, scoped)
+        hypotheses = self.hypothesis_connections(nodes, pairs)
+        # Add only required endpoints. Computing proof pairs first preserves the
+        # existing audit boundary and prevents context nodes from expanding it.
+        for relation in hypotheses:
+            nodes.setdefault(relation["from"], snap.get(relation["premise_ref"]))
+        nodes = OrderedDict(sorted(nodes.items()))
         connections, connection_details = [], OrderedDict()
         edges = []
         for (source_id, target_id), uses in pairs.items():
@@ -1026,7 +1102,8 @@ class _Projector:
                 display_targets.extend(c["target"] for c in constituents if c.get("target"))
                 connection_targets.extend(display_targets)
                 obligation_ids = sorted({c["obligation_id"] for c in constituents if c.get("obligation_id")})
-                group_assessment = reduce(constituents)
+                group_assessment = self.examined_aggregate(reduce(constituents), constituents,
+                    [use for use, _ in members])
                 if A["mode"] == "triage":
                     group_assessment = _triage_assessment(group_assessment)
                 groups_out.append({"argument_id": argument_id, "group_id": group_id,
@@ -1057,8 +1134,9 @@ class _Projector:
                 application_assessments.append({"use_id": use_id, "group_id": application.get("group_id"),
                     "scope_id": application.get("scope_id") or (group.body["scope_id"] if group else None),
                     "argument_id": group.body["argument_id"] if group else None,
-                    "assessment": public_assessment(self.d.use_assessment(use))})
-            connection_assessment = public_assessment(reduce(all_constituents))
+                    "assessment": public_assessment(self.finalized_use_assessment(use))})
+            connection_assessment = public_assessment(self.examined_aggregate(
+                reduce(all_constituents), all_constituents, uses))
             summary_uses = [u.id for u in uses if snap.live("application_details", u.id) is None]
             if not all_constituents and summary_uses:
                 connection_assessment.update({"label": "source contribution",
@@ -1083,6 +1161,8 @@ class _Projector:
                                 "detail_key": f"conn:{cid}"})
             connection_details[cid] = (traces, list(context.values()))
             edges.append((source_id, target_id))
+        edges.extend((relation["from"], relation["to"]) for relation in hypotheses
+                     if relation["proof_connection_id"] is None)
         node_list = []
         details = OrderedDict()
         for item_id, item in nodes.items():
@@ -1188,6 +1268,7 @@ class _Projector:
             "layout": layout,
         }
         if not self.overview:
+            projection["hypothesis_connections"] = hypotheses
             displays = self.d.review_display
             projection["finding_displays"] = {ident: displays.finding(ident) for ident in sorted(displays.findings)}
             logical = reduce([c for statement in self.d.statements

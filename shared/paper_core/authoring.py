@@ -15,7 +15,7 @@ from .semantics import related
 
 UNIT_DEFINITION = Obj({
     "key": Str(nonempty=True), "kind": Enum(("theorem", "lemma", "proposition", "corollary") + INTERMEDIATE_KINDS),
-    "label": Str(nonempty=True), "statement": Str(nonempty=True),
+    "label": Str(nonempty=True), "statement": Str(nonempty=True), "proof_idea": Str(nonempty=True),
     "statement_anchors": Arr(Id("anchors"), nonempty=True), "proof_anchors": Arr(Id("anchors")),
     "proof_complete": Bool(), "source_matched": Bool(), "source_note": Str(nonempty=True),
     "aliases": Arr(Str(nonempty=True)), "conditions": Arr(Str(nonempty=True)), "binders": Arr(BINDER),
@@ -24,7 +24,7 @@ UNIT_DEFINITION = Obj({
         "type": Enum(("dependency", "definition", "proof_argument")), "substitutions": Arr(SUBSTITUTION),
         "evidence_refs": Arr(Id("anchors"))}, optional=("type", "substitutions", "evidence_refs"))),
     "proof_spans": Arr(Obj({"anchor_id": Id("anchors"), "start_offset": Int(0), "end_offset": Int(0)}), nonempty=True),
-}, optional=("aliases", "conditions", "binders", "assumptions", "reviewer", "suppliers", "proof_spans", "owner_id"))
+}, optional=("aliases", "conditions", "binders", "assumptions", "reviewer", "suppliers", "proof_spans", "owner_id", "proof_idea"))
 
 RECORD_DEFINITION = Obj({
     **{key: value for key, value in UNIT_DEFINITION.fields.items()
@@ -32,7 +32,7 @@ RECORD_DEFINITION = Obj({
     "kind": Enum(("assumption", "definition") + INTERMEDIATE_KINDS),
     "argument_id": Id("arguments"), "scope_id": Id("scopes", nullable=True),
 }, optional=("aliases", "conditions", "binders", "assumptions", "reviewer", "suppliers", "owner_id",
-             "proof_anchors", "argument_id", "scope_id"))
+             "proof_anchors", "argument_id", "scope_id", "proof_idea"))
 
 
 def _edit(collection, identity, body):
@@ -59,7 +59,7 @@ def create_unit(db, definition: dict) -> dict:
         raise InvalidRequest("invalid unit definition", records=errors)
     required = {"key", "kind", "label", "statement", "statement_anchors", "proof_anchors",
                 "proof_complete", "source_matched", "source_note"}
-    allowed = required | {"aliases", "conditions", "binders", "assumptions", "suppliers", "proof_spans", "reviewer", "owner_id"}
+    allowed = required | {"aliases", "conditions", "binders", "assumptions", "suppliers", "proof_spans", "reviewer", "owner_id", "proof_idea"}
     if required - definition.keys() or definition.keys() - allowed:
         raise InvalidRequest("unit definition fields are invalid", records=[{
             "missing": sorted(required - definition.keys()), "unknown": sorted(definition.keys() - allowed)}])
@@ -125,7 +125,7 @@ def create_unit(db, definition: dict) -> dict:
                          [{"role": "proof", "anchor_id": a} for a in proof],
              "aliases": definition.get("aliases", []),
              "uncertainty": NO_PROOF_CUE if statement_only else None, "origin": "source", "owner_id": definition.get("owner_id"),
-             "scope_id": scope}),
+             "scope_id": scope, **({"proof_idea": definition["proof_idea"]} if "proof_idea" in definition else {})}),
         _edit("scopes", scope, {"argument_id": None, "parent_id": owner.body.get("scope_id") if owner else None, "assumptions": definition.get("assumptions", []),
              "binders": definition.get("binders", []), "conditions": definition.get("conditions", []), "evidence_refs": statements}),
         _edit("arguments", argument, {"target": target, "label": "Written proof of " + definition["label"],
@@ -227,7 +227,8 @@ def create_record(db, definition: dict) -> dict:
         "passages": [{"role": "statement", "anchor_id": a} for a in statements] +
                     [{"role": "proof", "anchor_id": a} for a in proof],
         "aliases": definition.get("aliases", []), "uncertainty": None, "origin": "source",
-        "owner_id": definition.get("owner_id"), "scope_id": scope}),
+        "owner_id": definition.get("owner_id"), "scope_id": scope,
+        **({"proof_idea": definition["proof_idea"]} if "proof_idea" in definition else {})}),
         _edit("target_specs", spec, {"target": target, "statement_ref": {**target, "version": 1},
             "statement": None, "scope_id": scope, "evidence_refs": statements,
             "state": "registered", "fidelity_ref": None}),

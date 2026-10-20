@@ -1,7 +1,7 @@
 ---
 name: stat-proof-check
 metadata:
-  version: "3.2.8"
+  version: "3.3.5"
 description: Rigorous, non-formal proof audits from manuscript and supplement sources to a graph database, findings and an Archify HTML report. Use only when explicitly invoked as $stat-proof-check.
 ---
 
@@ -15,7 +15,7 @@ Build the evidence-backed graph, examine important connections and their combine
 
 - Triage maps arguments, suspected defects and unavailable evidence. It makes no completed proof-audit claim.
 - Focused examines the selected exact results and necessary prerequisites, with actual independent review.
-- Full accounts for the manuscript and supplied supplements. Independently review the in-scope proof examinations, including their important connections to other results. Report any additional cross-proof inspection at its actual review level.
+- Full accounts for the manuscript and supplied supplements, including substantive application claims and meaningful unnumbered arguments; the numbered-result inventory is a navigation aid rather than the scope boundary. Independently review the in-scope proof examinations, including their important connections to other results. Report any additional cross-proof inspection at its actual review level.
 
 Record omissions and source limits. Prioritizing results does not silently narrow Full scope. This is a non-formal examination, not a theorem-certification service.
 

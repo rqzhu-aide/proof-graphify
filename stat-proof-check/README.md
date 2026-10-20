@@ -1,6 +1,6 @@
 # Stat Proof Check
 
-Version `3.2.8` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
+Version `3.3.5` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
 
 ## Use
 
@@ -32,7 +32,17 @@ Keep the database and frozen artifacts for continuation. Report what was examine
 
 ## Runtime and compatibility
 
-This package bundles `paper_core` version `3.2.8` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+This package bundles `paper_core` version `3.3.4` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+
+Version 3.3.5 bundles paper core 3.3.4. It corrects support propagation for definitions used as notation context without granting their mathematical properties proof credit, fixes narrow-screen review-card layout, and consolidates repeated examiner instructions. Scientific standards and assigned work are unchanged.
+
+Version 3.3.4 clarifies how to retain conflicting source formulations and unresolved mathematical notation during the existing examination. It adds no review stage or repair work and retains paper core 3.3.3.
+
+Version 3.3.2 combines assessments, current issues and limitations in one Review card, followed by an optional saved proof idea and compact prerequisites. Exact conditions and evidence remain available. Optional explanations are written during existing source reading; this release adds no backfill, examination or review stage.
+
+Version 3.3.1 corrects sized norm bars, prioritizes exact labels and aliases in search, and routes current result matches to their own cards while preserving historical evidence destinations. These renderer changes add no examination or review work.
+
+Version 3.3.0 displays recorded hypotheses as neutral connections to their consuming results and improves reader navigation, graph framing and mathematical display. Hypothesis connections reuse saved target scopes and add no proof duties, review pass or duplicate authoring.
 
 Version 3.2.8 corrects the recovery command for editing audit records and clarifies response coverage fields, inherited premises, unresolved interpretations and Full coverage of unnumbered arguments. These changes act within the existing workflow and add no review pass or retry loop.
 

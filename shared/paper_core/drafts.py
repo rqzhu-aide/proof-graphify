@@ -224,6 +224,8 @@ def consolidate_drafts(bundles):
                         "statement": {"form": "verbatim", "text": item["statement"]}, "passages": passages,
                         "aliases": unit.get("aliases", []), "uncertainty": None, "origin": "source",
                         "owner_id": owner.get("id") if owner else None, "scope_id": None}
+                if "proof_idea" in unit:
+                    body["proof_idea"] = unit["proof_idea"]
                 if item["kind"] in INTERMEDIATE_KINDS and not body["owner_id"]:
                     pending.append("identify the existing proof unit that owns this intermediate result")
                 if not passages:

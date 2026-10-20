@@ -37,7 +37,8 @@ Readable local drafts are sufficient. When structured returns are convenient, th
         "proof_anchors": ["anc_lemma1_proof"],
         "source_matched": true,
         "proof_complete": true,
-        "source_note": "The examiner compared these captured statement and proof passages."
+        "source_note": "The examiner compared these captured statement and proof passages.",
+        "proof_idea": "The source first bounds the sequence by induction. Together with monotonicity, this bound gives convergence."
       }
     }
   ],
@@ -55,6 +56,8 @@ Readable local drafts are sufficient. When structured returns are convenient, th
 
 `unit` is optional. Without captured anchors, return source locators and let the coordinator capture the needed passages. Its fields, when supplied, follow the [ordinary record or proof-unit definition](graph-records.md); booleans describe actual source judgments. Setup records need no proof-completeness answer. `context` may record a material source case or local condition so it is not lost during matching. Keep all hypotheses explicit in the statement or its named references as well. Intermediate equations or claims name their owning proof item with `owner`. When their derivation was selected inside that proof, `derivation_in` names the local owning item; the helper maps it to the proposed argument. For an existing argument, use its actual `unit.argument_id`. See graph-records for the distinction between grouped derivation, ownership and a separate proof-unit route.
 
+Optional `unit.proof_idea` follows the [source-argument explanation contract](graph-records.md#ordinary-written-proof); do not add a draft-level explanation field. Different explanations stay with their originating authoring options and do not change claim identity or become one merged summary.
+
 A connection runs from supplier to consuming claim. For items in the same draft:
 
 ~~~json
@@ -71,9 +74,9 @@ The output contains the local-to-proposed mapping, items, connections, original 
 
 Choose one authoring option per shared item after checking existing records. Different source-boundary judgments remain alternatives, not automatically adopted answers. For ready `add-unit` or `add-record` options, save the chosen `definition` to a file and run the named command. `authoring_order` puts required records first, including an owner before its owned result. `authoring_shape_ready` describes input shape, not scientific approval. Both helpers save `definition.suppliers`; do not register those links again.
 
-When an owner consumes its own intermediate, its chosen option includes `deferred_connections`: create the owner and intermediate, then submit those use edits through the existing author-packet/apply path before preparing the examination. Select the deferred edits from the same authoring options you used, not every alternative in the output. This resolves the ordinary owner/prerequisite ordering without a worker round trip. For `template` options, obtain an author packet and an item template, fill its body from the proposal, and author its remaining links separately. Generated IDs are proposed identities only: when reusing an existing node, use its actual IDs in the affected definitions, deferred links and response mappings.
+When an owner consumes its own intermediate, its chosen option includes `deferred_connections`: create the owner and intermediate, then submit those use edits through the existing author-packet/apply path before preparing the examination. Select the deferred edits from the same authoring options you used, not every alternative in the output. This resolves the ordinary owner/prerequisite ordering without a worker round trip. For `template` options, obtain an author packet and an item template. Use the chosen option's body for new items; for existing items obtain the current replacement template and edit only intended fields. Omission of optional prose in a draft does not instruct erasing saved prose. Author remaining links separately. Generated IDs are proposed identities only: when reusing an existing node, use its actual IDs in the affected definitions, deferred links and response mappings.
 
-A named assumption stays an assumption and source/setup context. The helper keeps its context connections separate from proof-supplier links, and includes available captured setup anchors with the consuming claim's statement evidence. `context` here is a draft classification, not a new database edge type. Keep the named reference in the exact statement and supply any missing setup passage to the examinations; do not copy ordinary hypotheses into private scopes or create proof duties for assumptions. Material local conditions remain explicit.
+A named assumption stays an assumption and source/setup context. The helper keeps its context connections separate from proof-supplier links, and includes available captured setup anchors with the consuming claim's statement evidence. `context` here is a draft classification, not a new database edge type. Keep the named reference in the exact statement and supply any missing setup passage to the examinations. For source-stated hypotheses of the consuming claim, use the existing `assumptions` field with the actual shared item IDs during ordinary authoring. A draft context connection alone does not establish a target hypothesis; preserve genuine local conditions or cases in their own context, and create no proof duties for assumptions.
 
 Resolve only listed local authoring issues, such as a missing captured anchor or unresolved supplier. `cyclic_items` need existing record/link authoring, not repeated `add-unit` calls. None of these diagnostics asks a worker to re-prove the paper. This consolidated file contains primary opinions and is coordinator material; it is not an independent-review delivery file.
 

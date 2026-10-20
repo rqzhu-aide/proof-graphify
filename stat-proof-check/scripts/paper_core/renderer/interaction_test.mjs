@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { BOX, layoutGraph, renderProjection } from './render_projection.mjs';
 import { scanHtml, textOf, decodeEntities } from './html_scan.mjs';
 import { readerFixture } from './selftest.mjs';
+import { readerRuntime, readerSearchData } from './scientific_reader.mjs';
 
 function disconnectedLayout() {
   const isolated = {nodeList:Array.from({length:18}, (_, i) => ({id:`isolated_${i}`})), connectionList:[], layout:{mode:'dag'}};
@@ -38,8 +39,32 @@ function disconnectedLayout() {
     mixed_components:graph.components.length, stable_layout:true};
 }
 
-function runFixture(name, withWork = false, withReader = false, buildKind = null, sharedOwners = false) {
+function runFixture(name, withWork = false, withReader = false, buildKind = null, sharedOwners = false, searchScenario = null) {
   const input = withReader ? readerFixture() : JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
+  let relocated;
+  if (searchScenario === 'relocated') {
+    input.projection.layout.mode = name === 'index_fallback.json' ? 'index' : 'dag';
+    const projection = input.projection;
+    const major = projection.nodes.find(node => node.kind === 'theorem');
+    const earlier = projection.nodes.find(node => node.kind === 'definition');
+    const other = projection.details[earlier.detail_key], own = projection.details[major.detail_key];
+    const old = {...major.item_ref,version:1};
+    const pin = ref => `${ref.collection}:${ref.id}:${ref.version}`;
+    const argument = own.reader.arguments.find(row => row.relation === 'target');
+    const target = own.reader.arguments.find(row => row.relation === 'subsidiary').target_ref;
+    own.reader.targets.push({...own.reader.targets[0],target_ref:target,statement_ref:target});
+    const observation = {collection:'observations',id:'obs_navigation',version:1};
+    projection.records.push({ref:observation,body:{label:'Source comparison',target:{collection:target.collection,id:target.id}}});
+    own.record_refs.push(observation); own.sections[0].record_refs.push(observation);
+    projection.record_locations.push({ref:observation,detail_key:major.detail_key,section_key:own.sections[0].key});
+    const owned = [argument.argument_ref,argument.groups[0].group_ref,observation];
+    for (const ref of [major.item_ref,old,...owned]) {
+      other.record_refs.push(ref); other.sections[0].record_refs.push(ref);
+      Object.assign(projection.record_locations.find(row => pin(row.ref) === pin(ref)),
+        {detail_key:earlier.detail_key,section_key:other.sections[0].key});
+    }
+    relocated = {major,earlier,old,pin,owned};
+  }
   if (sharedOwners) {
     // The article's saved assessment is shared too; only graph identity differs.
     input.projection.nodes[1].detail_key = input.projection.nodes[0].detail_key;
@@ -72,6 +97,8 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
   input.projection.summary.limitations = ['Coverage incomplete: a < b & c.'];
   const { html } = renderProjection(Buffer.from(JSON.stringify(input)));
   const scan = scanHtml(html);
+  assert.equal(scan.elements.filter(element => element.attrs.id === 'proof-reader-search').length,1,
+    'Each report must retain exactly one scientific search payload.');
   const reportState = scan.elements.find(e => Object.hasOwn(e.attrs, 'data-reader-report-state'));
   const openingText = textOf(scan, reportState);
   const completion = input.projection.summary.progress.process_complete ? 'Registered examinations complete.' : 'Registered examinations incomplete.';
@@ -238,12 +265,116 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
   const windowEvents = new Map();
   const initialArticle = document.querySelector('[data-reader-article]');
   location.hash = '#'+initialArticle.id;
+  let searchParses = 0;
   const context = vm.createContext({ document, window: { Archify, addEventListener(type,callback) { windowEvents.set(type,callback); } }, location,
+    JSON:{parse(value) { searchParses++; return JSON.parse(value); }},
     MutationObserver: class { constructor(callback) { this.callback = callback; } observe(target, options) { observers.push({ callback: this.callback, options }); } },
     requestAnimationFrame: schedule, setTimeout: schedule, clearTimeout: id => callbacks.delete(id) });
   const stateBeforeInteraction = document.querySelector('[data-reader-report-state]').textContent;
   const runtime = scripts.find(s => s.attrs.id === 'proof-runtime');
-  vm.runInContext(runtime.text, context); flush();
+  let runtimeText = runtime.text;
+  if (searchScenario === 'exact' || searchScenario === 'declaration') {
+    const [first,second] = input.projection.nodes;
+    const detail = first.detail_key;
+    const source = (key,label,text,aliases=[]) => ({key,label,text,aliases,detail,section:null,owner:first.label});
+    let entries = [source('source:80','Lemma 80','A discussion of Lemma 80 with ordinary content.')];
+    for (let i=0;i<45;i++) entries.push(source(`source:${i}`,`Earlier passage ${i}`,'Incidental Lemma 8 and ordinary content.'));
+    entries.push(source('source:exact','Lemma 8','The label is absent from this scientific body.', ['result-eight','items:lemma8:2']));
+    entries.push(source(detail,'Lemma 8','Full result body without its title.', ['result-eight','items:lemma8:2']));
+    entries.push({...source(second.detail_key,'Lemma 8','Another full result.', ['result-eight']),detail:second.detail_key});
+    if (searchScenario === 'declaration') {
+      entries = Array.from({length:45}, (_, i) => source(`passage:${i}`,`Earlier passage ${i}`,'Incidental Theorem 3 and ordinary content.'));
+      for (const identifier of ['30','3.1','3a','3(a)']) entries.push(source(`boundary:${identifier}`,`Theorem ${identifier}: Boundary`,`Theorem ${identifier}: Boundary`));
+      entries.push(source('prose','Theorem 3 is false','Theorem 3 is false'));
+      entries.push(source('external','Author (2018), Theorem 3','Author (2018), Theorem 3'));
+      entries.push(source('items:theorem3:1','Theorem 3: Consistency','Historical theorem body.', ['items:theorem3:1']));
+      entries.push(source('evidence:exact','Theorem 3','Exact evidence body.'));
+      entries.push({...source('items:theorem3:2','Theorem 3: Consistency','Current theorem body.', ['items:theorem3:2']),isDirectResult:true});
+      entries.push({...source(second.detail_key,'Theorem 3 (Graphify)','Graphify theorem body.'),detail:second.detail_key});
+      entries.push(source('evidence:declaration','Theorem 3: Evidence','Declaration evidence body.'));
+      entries.push({...source('items:alias:2','Alias result','Exact direct alias body.', ['Theorem 3']),isDirectResult:true});
+      entries.push({...source('items:alpha:2','Lemma α: Continuity','Greek identifier body.'),isDirectResult:true});
+      entries.push({...source('items:math:2','Theorem $3$: Consistency','Literal mathematical identifier body.'),isDirectResult:true});
+    }
+    const targets = input.projection.nodes.map(node => ({key:node.detail_key,nodeId:node.id,
+      articleId:document.querySelector(`[data-proof-detail="${node.detail_key}"]`).id}));
+    document.getElementById('proof-reader-search').textContent = scanHtml(readerSearchData(entries)).elements.find(element => element.tag === 'script').text;
+    runtimeText = readerRuntime({targets,graphAvailable:!!svg});
+  }
+  vm.runInContext(runtimeText, context); flush();
+  assert.equal(searchParses,1,'Reader initialization must parse the retained search payload once.');
+  if (searchScenario) {
+    const search = document.getElementById('proof-search'), results = document.getElementById('proof-search-results');
+    const status = document.getElementById('proof-search-status');
+    const query = value => { search.value = value; dispatch(search,{type:'input'}); flush(); return results.querySelectorAll('button'); };
+    const labels = buttons => buttons.map(button => button.querySelector('strong').textContent);
+    if (searchScenario === 'exact') {
+      assert.equal(status.textContent,'Type to search the saved scientific content.');
+      assert.equal(results.children.length,0);
+      let buttons = query('  lEmMa   8  ');
+      assert.equal(buttons.length,40);
+      assert.deepEqual(labels(buttons).slice(0,5),['Lemma 8','Lemma 8','Lemma 8','Lemma 80','Earlier passage 0']);
+      assert.equal(status.textContent,'Showing the top 40 matching passages; further matches exist.');
+      assert(buttons[0].textContent.includes('Full result body'), 'A full card precedes an earlier source inheriting its label.');
+      assert(buttons[1].textContent.includes('Another full result'), 'Multiple direct exact matches retain input order.');
+      buttons[0].click(); flush();
+      assert(document.activeElement.closest(`[data-proof-detail="${input.projection.nodes[0].detail_key}"]`));
+      for (const alias of ['  RESULT-EIGHT  ','ITEMS:LEMMA8:2']) {
+        buttons = query(alias); assert.equal(labels(buttons)[0],'Lemma 8');
+        assert(buttons[0].textContent.includes('Full result body'));
+      }
+      assert.deepEqual(labels(query('Lemma 80')),['Lemma 80'],'Whole label equality must distinguish 8 from 80.');
+      assert.equal(query('ordinary content').length,40);
+      assert.equal(labels(results.querySelectorAll('button'))[0],'Lemma 80','Ordinary content search retains input order.');
+      search.value='Lemma 8'; dispatch(search,{type:'keydown',key:'Enter'}); flush();
+      assert(document.activeElement.closest(`[data-proof-detail="${input.projection.nodes[0].detail_key}"]`), 'Enter reaches the first exact result.');
+      assert.equal(query('not present anywhere').length,0); assert.equal(status.textContent,'No matches.');
+      assert.equal(query(' \t ').length,0); assert.equal(status.textContent,'Type to search the saved scientific content.');
+    } else if (searchScenario === 'declaration') {
+      let buttons = query('  tHeOrEm   3  ');
+      assert.equal(buttons.length,40);
+      assert.equal(status.textContent,'Showing the top 40 matching passages; further matches exist.');
+      assert.deepEqual(labels(buttons).slice(0,8),['Alias result','Theorem 3','Theorem 3: Consistency','Theorem 3 (Graphify)','Theorem 3: Consistency','Theorem 3: Evidence','Earlier passage 0','Earlier passage 1'],
+        'The five match buckets retain their input order and fit declarations inside the display limit.');
+      assert(buttons[2].textContent.includes('Current theorem body.'),'The pinned current result precedes the historical same-label record.');
+      buttons = query('Theorem3');
+      assert.deepEqual(labels(buttons),['Theorem 3: Consistency','Theorem 3 (Graphify)','Theorem 3: Consistency','Theorem 3','Theorem 3: Evidence'],
+        'Optional kind spacing promotes complete declaration names only.');
+      buttons[0].click(); flush();
+      assert(document.activeElement.closest(`[data-proof-detail="${input.projection.nodes[0].detail_key}"]`),'Click opens the first declaration result.');
+      search.value='Theorem3'; dispatch(search,{type:'keydown',key:'Enter'}); flush();
+      assert(document.activeElement.closest(`[data-proof-detail="${input.projection.nodes[0].detail_key}"]`),'Enter opens the first declaration result.');
+      for (const identifier of ['30','3.1','3a','3(a)']) {
+        const hits = query(`Theorem ${identifier}`);
+        assert.equal(hits.length,1,`Identifier ${identifier} must remain distinct from 3.`);
+        assert.equal(labels(hits)[0],`Theorem ${identifier}: Boundary`);
+      }
+      for (const [value,body] of [['items:theorem3:1','Historical theorem body.'],['items:theorem3:2','Current theorem body.']]) {
+        buttons=query(value); assert.equal(buttons.length,1); assert(buttons[0].textContent.includes(body),'Pinned historical/current IDs retain precise priority.');
+      }
+      buttons=query('Theorem 3: Consistency');
+      assert(buttons[0].textContent.includes('Current theorem body.')); assert(buttons[1].textContent.includes('Historical theorem body.'));
+      assert.deepEqual(labels(query('Lemmaα')),['Lemma α: Continuity'],'Opaque Greek identifiers remain literal.');
+      assert.deepEqual(labels(query('Theorem$3$')),['Theorem $3$: Consistency'],'Mathematical identifier punctuation is preserved.');
+      assert(!labels(query('Theorem3')).includes('Theorem $3$: Consistency'),'Declaration lookup must not infer TeX equivalence.');
+      assert.deepEqual(labels(query('ordinary content')).slice(0,3),['Earlier passage 0','Earlier passage 1','Earlier passage 2'],
+        'Passage-only search retains the original order.');
+    } else {
+      const {major,earlier,old,pin,owned} = relocated;
+      for (const [value,owner,record] of [[major.label,major,null],[pin(major.item_ref),major,pin(major.item_ref)],[pin(old),earlier,pin(old)],...owned.map(ref => [pin(ref),major,pin(ref)])]) {
+        for (const method of ['click','Enter']) {
+          const buttons = query(value); assert(buttons.length, 'Exact current and historical queries must return a result.');
+          if (method === 'click') buttons[0].click(); else dispatch(search,{type:'keydown',key:'Enter'});
+          flush();
+          const article = document.querySelector(`[data-proof-detail="${owner.detail_key}"]`);
+          assert(article.contains(document.activeElement), `${method} for ${value} must open its pinned owner.`);
+          if (svg) assert.equal(active,owner.id);
+          if (record) assert.equal(document.querySelector('.is-target').getAttribute('data-record-ref'),record);
+        }
+      }
+    }
+    return {fixture:name,search_scenario:searchScenario,exact_search_and_navigation:true};
+  }
   assert.equal(location.hash,'#'+initialArticle.id,'Fresh article links retain their public address.');
   assert(initialArticle.classList.contains('is-active'));
   assert(initialArticle.contains(document.activeElement),'Fresh links focus the requested scientific content.');
@@ -391,8 +522,13 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     assert(label.querySelector('math'), 'A linked supplier label must retain its typeset formula.');
     const labelLink = label.closest('.proof-jump');
     labelLink.click(); flush();
-    assert.equal(document.querySelector('.is-target').getAttribute('data-record-ref'), labelLink.getAttribute('data-jump-record'),
-      'Typesetting a label must preserve its exact evidence destination.');
+    if (labelLink.hasAttribute('data-jump-record')) {
+      assert.equal(document.querySelector('.is-target').getAttribute('data-record-ref'), labelLink.getAttribute('data-jump-record'),
+        'Typesetting a label must preserve its exact evidence destination.');
+    } else {
+      assert(detail(labelLink.getAttribute('data-jump-detail')).contains(document.activeElement),
+        'Typesetting a current result label must preserve its full-card destination.');
+    }
     search.value = 'Bound $J_\\lambda$';
     dispatch(search, {type:'input'}); flush();
     const labelHit = document.getElementById('proof-search-results').querySelector('button');
@@ -420,4 +556,9 @@ console.log(JSON.stringify([
   runFixture('dag_small.json', false, true),
   runFixture('long_math.json', false, false, 'release'),
   runFixture('dag_small.json', false, false, null, true),
+  runFixture('dag_small.json', false, false, null, false, 'exact'),
+  runFixture('dag_small.json', false, false, null, false, 'declaration'),
+  runFixture('index_fallback.json', false, false, null, false, 'declaration'),
+  runFixture('dag_small.json', false, true, null, false, 'relocated'),
+  runFixture('index_fallback.json', false, true, null, false, 'relocated'),
 ]));

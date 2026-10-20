@@ -37,6 +37,32 @@ class DraftTests(TempCase):
         self.assertNotIn("reasoning", str(result["items"]))
         self.assertNotIn("outcome", str(result["items"]))
 
+    def test_proof_ideas_preserve_each_origin_without_changing_identity(self):
+        a, b, c = bundle(), bundle("worker-b"), bundle("worker-c")
+        a["items"][0]["unit"] = {"statement_anchors": ["anc_lem"], "proof_anchors": ["anc_lem_proof"],
+                                  "source_matched": True, "proof_complete": True, "source_note": "Located proof.",
+                                  "proof_idea": "The source proves the bound by induction."}
+        b["items"][0]["unit"] = dict(a["items"][0]["unit"], proof_idea="The induction controls each successive term.")
+        c["items"][0]["unit"] = {k: v for k, v in a["items"][0]["unit"].items() if k != "proof_idea"}
+        original = deepcopy([a, b, c])
+        result = consolidate_drafts([a, b, c])
+        self.assertEqual(1, len(result["items"]))
+        self.assertNotIn("proof_idea", result["items"][0])
+        options = {row["origin"]["namespace"]: row for row in result["authoring"]}
+        for draft in (a, b):
+            option = options[draft["namespace"]]
+            self.assertTrue(option["authoring_shape_ready"], option["issues"])
+            self.assertEqual(draft["items"][0]["unit"]["proof_idea"], option["definition"]["proof_idea"])
+        self.assertNotIn("proof_idea", options["worker-c"]["definition"])
+        self.assertEqual(original, [a, b, c])
+        for kind in ("external_result", "definition"):
+            with self.subTest(kind=kind):
+                draft = bundle()
+                draft["items"][0].update(kind=kind, unit={"proof_idea": "The source's saved explanation."})
+                option = consolidate_drafts([draft])["authoring"][0]
+                self.assertEqual("template", option["command"])
+                self.assertEqual(draft["items"][0]["unit"]["proof_idea"], option["body"]["proof_idea"])
+
     def test_repeated_inputs_and_order_are_idempotent(self):
         a, b = bundle(), bundle("worker-b")
         self.assertEqual(consolidate_drafts([a, b]), consolidate_drafts([b, a, a]))
