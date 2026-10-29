@@ -1,6 +1,8 @@
 """Issue display preserves scoped logical evidence, review level and history."""
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import replace
 from unittest.mock import patch
 
 from support import Fixture, R, TempCase, edit
@@ -52,6 +54,109 @@ class ReviewDisplayTests(TempCase):
         self.assertEqual(row["independent_review"], "pending")
         self.assertIn("Initial review", row["review_display"]["explanation"])
 
+    def linked_composition(self, fixture, db, severity="minor"):
+        old = fixture.pin(db, "checks", "chk_comp_lem")
+        fixture.apply(db, [fixture.check_edit("chk_refuted", R("arguments", "arg_lem"), "composition",
+            outcome="refuted", evidence=["anc_lem_proof"], supersedes=old)], *fixture.ITEMS, mode="primary")
+        self.add_finding(fixture, db, severity=severity, category="statement_refutation",
+            target=R("items", "itm_lem"), check_refs=[fixture.pin(db, "checks", "chk_refuted")])
+        derivation, result = derive_full(db, audit_id=fixture.audit_id)
+        obligation = next(o for o in result["obligations"] if o["target"] == R("arguments", "arg_lem")
+                          and o["kind"] == "composition" and o["role"] == "primary")
+        return derivation, result, obligation
+
+    def test_composition_keeps_saved_claim_finding_severity_and_scientific_fields(self):
+        def scientific(value):
+            if isinstance(value, dict):
+                return {k: scientific(v) for k, v in value.items() if k != "review_display"}
+            if isinstance(value, list):
+                return [scientific(v) for v in value]
+            return value
+
+        for severity in ("minor", "moderate", "severe"):
+            with self.subTest(severity=severity):
+                fixture = self.fixture(severity).primary()
+                with fixture.open() as db:
+                    d, result, obligation = self.linked_composition(fixture, db, severity)
+                    self.assertTrue(obligation["satisfied"])
+                    self.assertEqual(obligation["outcome"], "refuted")
+                    self.assertEqual(obligation["freshness"], "current")
+                    display = obligation["assessment"]["review_display"]
+                    self.assertEqual(display["status"], severity)
+                    self.assertEqual(display["finding_refs"], ["fnd_1"])
+                    with patch.object(type(d), "_composition_display_findings", return_value=[]):
+                        _, before = derive_full(db, audit_id=fixture.audit_id)
+                    self.assertEqual(scientific(result), scientific(before))
+                    for original, corrected in zip(before["obligations"], result["obligations"]):
+                        if corrected["kind"] != "composition":
+                            self.assertEqual(original, corrected)
+
+    def test_composition_extra_findings_require_exact_claim_and_current_usable_pin(self):
+        fixture = self.fixture().primary()
+        with fixture.open() as db:
+            d, _, obligation = self.linked_composition(fixture, db)
+            finding = d.review_display.findings["fnd_1"]
+            pin = finding.body["check_refs"][0]
+            saved = deepcopy(obligation)
+            cases = [
+                ("exact", finding.body["target"], [pin], True),
+                ("supplier", R("items", "itm_thm"), [pin], False),
+                ("audit", R("audits", fixture.audit_id), [pin], False),
+                ("sibling route", R("arguments", "arg_thm"), [pin], False),
+                ("sibling check", finding.body["target"], [dict(pin, id="chk_comp_thm")], False),
+                ("other version", finding.body["target"], [dict(pin, version=pin["version"] + 1)], False),
+                ("other collection", finding.body["target"], [dict(pin, collection="observations")], False),
+            ]
+            for name, target, refs, accepted in cases:
+                with self.subTest(scope=name):
+                    d.review_display.findings["fnd_1"] = replace(finding, body=dict(finding.body,
+                        target=target, check_refs=refs))
+                    self.assertEqual(d._composition_display_findings(obligation), ["fnd_1"] if accepted else [])
+            d.review_display.findings["fnd_1"] = finding
+            # Both supported reducer reference shapes identify the same saved finding.
+            obligation["assessment"]["finding_refs"] = ["fnd_1"]
+            self.assertEqual(d._composition_display_findings(obligation), ["fnd_1"])
+            obligation = deepcopy(saved)
+            argument = d.snap.get(obligation["target"])
+            original_get = d.snap.get
+            part = R("parts", "prt_exact")
+            with patch.object(d.snap, "get", side_effect=lambda ref: replace(argument,
+                    body=dict(argument.body, target=part)) if ref == obligation["target"] else original_get(ref)):
+                for target in (part, R("items", "itm_lem"), R("parts", "prt_sibling")):
+                    with self.subTest(part=target):
+                        d.review_display.findings["fnd_1"] = replace(finding, body=dict(finding.body, target=target))
+                        self.assertEqual(d._composition_display_findings(obligation),
+                                         ["fnd_1"] if target == part else [])
+            d.review_display.findings["fnd_1"] = finding
+            info = d.judgment_info(d.snap.get(pin))
+            for changes in ({"state": "draft"}, {"freshness": "needs_review"}, {"superseded": True}):
+                with self.subTest(check=changes), patch.object(d, "judgment_info", return_value=dict(info, **changes)):
+                    self.assertEqual(d._composition_display_findings(obligation), [])
+            with patch.object(d, "judgment_info", return_value=dict(info, role="independent")), \
+                    patch.object(d, "independent_usable", return_value=False):
+                self.assertEqual(d._composition_display_findings(obligation), [])
+            for kind in ("source_fidelity", "derivation", "reconciliation"):
+                self.assertEqual(d._composition_display_findings(dict(obligation, kind=kind)), [])
+            self.assertEqual(obligation, saved)
+
+    def test_linked_composition_finding_keeps_lifecycle_freshness_and_dispute_rules(self):
+        fixture = self.fixture().primary()
+        with fixture.open() as db:
+            d, _, obligation = self.linked_composition(fixture, db)
+            finding = d.review_display.findings["fnd_1"]
+            def display():
+                d.review_display.displays.clear()
+                return d.review_display.assessment(obligation["assessment"], targets=[obligation["target"]],
+                    finding_ids=d._composition_display_findings(obligation))
+            d.review_display.findings["fnd_1"] = replace(finding, body=dict(finding.body, lifecycle="resolved"))
+            self.assertEqual(display()["finding_refs"], [])
+            d.review_display.findings["fnd_1"] = finding
+            with patch("paper_core.assessment.judgment_freshness", return_value={"freshness": "needs_review"}):
+                self.assertEqual(display()["finding_refs"], [])
+            with patch.object(d.review_display, "_disputed", return_value=True):
+                self.assertEqual(display()["status"], "unresolved")
+                self.assertEqual(display()["finding_refs"], ["fnd_1"])
+
     def test_highest_current_severity_with_unrated_and_inconclusive_notes(self):
         fixture = self.fixture().primary()
         with fixture.open() as db:
@@ -66,6 +171,8 @@ class ReviewDisplayTests(TempCase):
         self.assertEqual(len(row["finding_refs"]), 4)
         self.assertIn("unresolved", row["explanation"])
         self.assertEqual(view["finding_displays"]["fnd_unknown"]["status"], "unresolved")
+        self.assertEqual(view["summary"]["findings"]["current_by_review_status"],
+                         {"severe": 0, "moderate": 1, "minor": 1, "unresolved": 1, "unrated": 1})
         self.assertEqual(view["details"]["item:itm_lem"]["review_display"], row)
         self.assertEqual(view["details"]["item:itm_lem"]["reader"]["targets"][0]["assessment"]["review_display"], row)
 
@@ -75,6 +182,9 @@ class ReviewDisplayTests(TempCase):
             self.add_finding(fixture, db, "fnd_resolved", severity="severe", lifecycle="resolved", resolution="Corrected.")
             self.add_finding(fixture, db, "fnd_old", severity="severe", lifecycle="superseded", resolution="Replaced.")
             self.add_finding(fixture, db, "fnd_current", severity="minor")
+            view = build_projection(db, audit_id=fixture.audit_id)
+            self.assertEqual(view["summary"]["findings"]["current_by_review_status"],
+                             {"severe": 0, "moderate": 0, "minor": 1, "unresolved": 0, "unrated": 0})
             derivation, result = derive_full(db, audit_id=fixture.audit_id)
             original = derivation.review_display.finding("fnd_current")
             self.assertEqual(original["status"], "minor")
@@ -112,6 +222,29 @@ class ReviewDisplayTests(TempCase):
             view = build_projection(db, audit_id=fixture.audit_id)
         self.assertEqual(self.node(view, "itm_thm")["review_display"]["status"], "minor")
         self.assertEqual(view["connections"][0]["assessment"]["review_display"]["status"], "minor")
+        self.assertEqual(view["summary"]["findings"]["current_by_review_status"]["minor"], 1)
+
+    def test_auxiliary_citation_keeps_owner_warning_without_painting_supported_consumer(self):
+        fixture = self.fixture().structure()
+        with fixture.open() as db:
+            auxiliary = fixture.item_edit("itm_aux", "intermediate_result", "Unused auxiliary bound",
+                                          "anc_lem_proof", "anc_lem_proof")
+            auxiliary["body"]["owner_id"] = "itm_lem"
+            fixture.apply(db, [auxiliary,
+                fixture.group_edit("grp_aux", "arg_lem", "itm_aux", "anc_lem_proof")], *fixture.ITEMS)
+        fixture.primary()
+        with fixture.open() as db:
+            before = build_projection(db, audit_id=fixture.audit_id)
+            self.add_finding(fixture, db, severity="moderate", target=R("items", "itm_aux"),
+                             check_refs=[fixture.pin(db, "checks", "chk_comp_lem")])
+            view = build_projection(db, audit_id=fixture.audit_id)
+        self.assertEqual(self.node(view)["availability"], "available")
+        self.assertEqual(self.node(view)["review_display"]["status"], "moderate")
+        self.assertEqual(self.node(view, "itm_thm")["availability"], "available")
+        self.assertEqual(self.node(view, "itm_thm")["review_display"]["status"], "checked")
+        connection = view["connections"][0]["assessment"]
+        self.assertEqual(connection["review_display"], before["connections"][0]["assessment"]["review_display"])
+        self.assertEqual(connection["review_display"]["finding_refs"], [])
 
     def test_application_group_issue_colors_its_edge_without_owner_overreach(self):
         fixture = self.fixture().primary()

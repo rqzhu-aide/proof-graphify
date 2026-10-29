@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderProjection, representationReceipt } from './render_projection.mjs';
+import { decodeReaderSearchData } from './scientific_reader.mjs';
 import { scanHtml, textOf } from './html_scan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -279,7 +280,7 @@ function checkScientificRecords(results) {
   if (!templateText.includes(check.body.reasoning) || templateText.includes('internal_request_secret'))
     problems.push('scientific reasoning or administrative selection failed');
   if (!templateText.includes('Saved synopsis')) problems.push('the saved form was presented as an exact transcription');
-  const search = JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text);
+  const search = decodeReaderSearchData(JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text));
   if (!search.some(row => row.text.includes(application.body.substitutions[0].condition))
       || search.some(row => row.text.includes('internal_request_secret')))
     problems.push('search does not share scientific selection');

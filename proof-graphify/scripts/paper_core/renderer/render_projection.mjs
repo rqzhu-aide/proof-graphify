@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { esc, textUnits } from './assets/archify/utils.mjs';
 import { scanHtml, textOf, descendants, hasAttr, sameMultiset } from './html_scan.mjs';
 import { archifyPage, auditResults } from './archify_adapter.mjs';
-import { KINDS, BOX, readerRuntime, readerSearchData, viewControls, scientificSearchPanel, readingSection, sourceDisclosure, mathDisplayNotes, SCIENTIFIC_READER_CSS } from './scientific_reader.mjs';
+import { KINDS, BOX, alignSourcePrerequisites, readerRuntime, readerSearchData, decodeReaderSearchData, viewControls, scientificSearchPanel, readingSection, sourceDisclosure, mathDisplayNotes, SCIENTIFIC_READER_CSS } from './scientific_reader.mjs';
 import { createReaderContent } from './reader_content.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -55,15 +55,16 @@ const reviewDisplay = assessment => {
   return {status, color, label, explanation:saved?.explanation || '', unrated_count:saved?.unrated_count || 0};
 };
 const displayState = assessment => reviewDisplay(assessment).color;
+const FINDING_STATUSES = ['severe', 'moderate', 'minor', 'unresolved', 'unrated'];
 const REVIEWS = ['not_required', 'pending', 'complete', 'disputed', 'compromised'];
 const REVIEW_LABELS = { not_required: 'not required', pending: 'pending', complete: 'complete', disputed: 'disputed', compromised: 'compromised' };
 const SECTION_KINDS = ['statement', 'applications', 'derivations', 'premises', 'coverage', 'findings', 'sources', 'review', 'composition', 'limitations'];
 const ROLES = ['primary', 'independent', 'coordinator'];
 const BUILD_KINDS = ['working', 'release'];
 const LAYOUT_MODES = ['dag', 'cyclic', 'index'];
-const DISPLAY_KEYS = ['label_html', 'statement_html', 'reason_html', 'needed_form_html', 'rationale_html', 'conditions_html', 'reasoning_html', 'description_html', 'proof_idea_html', 'regime_html', 'uncertainty_html', 'impact_reason_html'];
+const DISPLAY_KEYS = ['label_html', 'statement_html', 'reason_html', 'needed_form_html', 'rationale_html', 'conditions_html', 'reasoning_html', 'description_html', 'proof_idea_html', 'regime_html', 'uncertainty_html', 'impact_reason_html', 'resolution_html', 'note_html', 'coverage_note_html', 'next_action_html', 'caption_html'];
 // Record body field -> display fragment that replaces its raw text.
-const FRAGMENT_FIELDS = { label: 'label_html', statement: 'statement_html', reason: 'reason_html', needed_form: 'needed_form_html', rationale: 'rationale_html', conditions: 'conditions_html', reasoning: 'reasoning_html', description: 'description_html', proof_idea: 'proof_idea_html', regime: 'regime_html', uncertainty: 'uncertainty_html', impact_reason: 'impact_reason_html' };
+const FRAGMENT_FIELDS = { label: 'label_html', statement: 'statement_html', reason: 'reason_html', needed_form: 'needed_form_html', rationale: 'rationale_html', conditions: 'conditions_html', reasoning: 'reasoning_html', description: 'description_html', proof_idea: 'proof_idea_html', regime: 'regime_html', uncertainty: 'uncertainty_html', impact_reason: 'impact_reason_html', resolution: 'resolution_html', note: 'note_html', coverage_note: 'coverage_note_html', next_action: 'next_action_html', caption: 'caption_html' };
 const PROGRESS_FIELDS = ['required_obligations', 'completed_current_obligations', 'draft_checks', 'major_results', 'source_unbound_items'];
 
 const ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]{0,254}$/;
@@ -490,6 +491,12 @@ export function validateInput(input) {
   else {
     for (const field of ['open', 'resolved', 'superseded']) if (!isCount(summary.findings[field])) bad(`projection.summary.findings.${field} must be a nonnegative integer`);
     validateIdList(summary.findings.refs, 'projection.summary.findings.refs', { unique: true });
+    const counts = summary.findings.current_by_review_status;
+    if (counts !== undefined) {
+      if (!isObject(counts)) bad('projection.summary.findings.current_by_review_status must be an object');
+      else for (const status of FINDING_STATUSES) if (!isCount(counts[status]))
+        bad(`projection.summary.findings.current_by_review_status.${status} must be a count`);
+    }
   }
   validateIdList(summary.source_limits, 'projection.summary.source_limits', { unique: true });
   if (summary.limitations !== undefined && (!Array.isArray(summary.limitations) || !summary.limitations.every(isString))) bad('projection.summary.limitations must be an array of strings');
@@ -509,6 +516,12 @@ export function validateInput(input) {
         if (!isCount(factual.statement_support.counts[field])) bad(`projection.summary.factual.statement_support.counts.${field} must be a count`);
       for (const field of ['supported', 'gap', 'refuted', 'inconclusive'])
         if (!isCount(factual.work.current_primary_outcomes[field])) bad(`projection.summary.factual.work.current_primary_outcomes.${field} must be a count`);
+      const effectiveOutcomes = factual.work.current_effective_outcomes;
+      if (effectiveOutcomes !== undefined) {
+        if (!isObject(effectiveOutcomes)) bad('projection.summary.factual.work.current_effective_outcomes must be an object');
+        else for (const field of ['supported', 'gap', 'refuted', 'inconclusive'])
+          if (!isCount(effectiveOutcomes[field])) bad(`projection.summary.factual.work.current_effective_outcomes.${field} must be a count`);
+      }
       const groups = factual.work.obligation_groups;
       if (groups !== undefined && groups !== null) {
         if (!Array.isArray(groups)) bad('projection.summary.factual.work.obligation_groups must be an array or null');
@@ -544,6 +557,17 @@ export function validateInput(input) {
       if (!Array.isArray(factual.independent_review.qualification_limitations) ||
           !factual.independent_review.qualification_limitations.every(isString))
         bad('projection.summary.factual qualification limitations must be text');
+      const reviewerContext = factual.independent_review.reviewer_context;
+      if (reviewerContext !== undefined) {
+        if (!isObject(reviewerContext)) bad('projection.summary.factual.independent_review.reviewer_context must be an object');
+        else for (const role of ['primary', 'independent']) {
+          const row = reviewerContext[role];
+          if (!isObject(row) || !Array.isArray(row.items) || !row.items.every(isString) ||
+              row.items.length > 3 || new Set(row.items).size !== row.items.length ||
+              !isCount(row.total) || row.items.length > row.total)
+            bad(`projection.summary.factual.independent_review.reviewer_context.${role} must contain up to three unique identities and their total`);
+        }
+      }
     }
   }
 
@@ -572,6 +596,22 @@ export function validateInput(input) {
   }
   const mathDiagnostics = isObject(display) && display.math_diagnostics !== undefined ? display.math_diagnostics : [];
   const mathDiagnosticSummary = isObject(display) && display.math_diagnostic_summary !== undefined ? display.math_diagnostic_summary : null;
+  const sourceCaptureNotes = isObject(display) && display.source_capture_notes !== undefined ? display.source_capture_notes : [];
+  if (!Array.isArray(sourceCaptureNotes)) bad('display.source_capture_notes must be an array');
+  else sourceCaptureNotes.forEach((entry, index) => {
+    const where = `display.source_capture_notes[${index}]`;
+    if (!isObject(entry)) { bad(`${where} must be an object`); return; }
+    validateRef(entry.source_ref, `${where}.source_ref`, true);
+    if (entry.source_ref?.collection !== 'sources') bad(`${where}.source_ref must reference sources`);
+    if (!(entry.source_path === null || isString(entry.source_path))) bad(`${where}.source_path must be text or null`);
+    if (!isObject(entry.locator)) bad(`${where}.locator must be an object`);
+    if (!isString(entry.description) || !entry.description.trim()) bad(`${where}.description must be nonblank text`);
+    if (!Array.isArray(entry.anchor_refs) || !entry.anchor_refs.length) bad(`${where}.anchor_refs must be a nonempty array`);
+    else entry.anchor_refs.forEach((ref, at) => {
+      requirePinned(ref, `${where}.anchor_refs[${at}]`);
+      if (ref?.collection !== 'anchors') bad(`${where}.anchor_refs[${at}] must reference anchors`);
+    });
+  });
   if (!Array.isArray(mathDiagnostics)) bad('display.math_diagnostics must be an array');
   else mathDiagnostics.forEach((entry, index) => {
     const where = `display.math_diagnostics[${index}]`;
@@ -585,7 +625,7 @@ export function validateInput(input) {
   done();
 
   return {
-    mathDiagnostics, mathDiagnosticSummary,
+    mathDiagnostics, mathDiagnosticSummary, sourceCaptureNotes,
     title: input.title,
     build,
     projection,
@@ -662,8 +702,8 @@ function feedbackEdges(nodes, outgoing) {
   return feedback;
 }
 
-// Longest-path layers keep prerequisites to the left when acyclic. Ordering
-// uses stable barycentres; coordinates confer no mathematical assessment.
+// Longest-path layers place consuming results; source prerequisites move next
+// to their earliest consumer. Coordinates confer no mathematical assessment.
 export function layoutGraph(model) {
   const nodes = new Map(model.nodeList.map((node, order) => [node.id, { id: node.id, order, rank: 0, source: node }]));
   const incoming = new Map(model.nodeList.map((node) => [node.id, []]));
@@ -690,6 +730,7 @@ export function layoutGraph(model) {
     const cycle = findCycle(stuck, outgoing);
     fail('layout', 'Connections form a cycle; a dag layout is impossible and no index fallback is applied.', [`cycle: ${cycle.join(' -> ')}`, `nodes blocked by the cycle: ${stuck.join(', ')}`]);
   }
+  alignSourcePrerequisites(nodes, incoming, outgoing);
   const components = [];
   const assigned = new Set();
   nodes.forEach((start) => {
@@ -1147,8 +1188,17 @@ ${links ? `<p>${links}</p>` : ''}<p>${this.humanLink(ref, 'Finding and supportin
     if (!factual) return '<div class="proof-card"><h3>Scientific status</h3><p class="proof-muted">Read each saved assessment for its support conditions and review limits.</p></div>';
     const support = factual.statement_support, independent = factual.independent_review;
     const fact = (name, value) => `<span data-proof-fact="${name}">${esc(String(value))}</span>`;
+    const effectiveOutcomes = factual.work.current_effective_outcomes;
+    const outcomeCounts = effectiveOutcomes ?? factual.work.current_primary_outcomes;
     const outcomes = ['supported', 'gap', 'refuted', 'inconclusive'].map(outcome =>
-      factual.work.current_primary_outcomes[outcome] > 0 ? outcome : null).filter(Boolean);
+      outcomeCounts[outcome] > 0 ? (effectiveOutcomes ? `${outcomeCounts[outcome]} ${outcome}` : outcome) : null).filter(Boolean);
+    const outcomeLabel = effectiveOutcomes ? 'Current examination outcomes' : 'Current initial assessment outcomes';
+    const outcomeEmpty = effectiveOutcomes ? 'No completed current mathematical outcome is recorded.' : 'No completed current initial mathematical outcome is recorded.';
+    const findingCounts = this.model.summary.findings.current_by_review_status;
+    const findingBadges = findingCounts === undefined ? [] : FINDING_STATUSES.filter(status => findingCounts[status] > 0)
+      .map(status => `<span data-proof-finding-status="${status}">${stateBadge(DISPLAY[status][0], `${findingCounts[status]} ${status}`)}</span>`);
+    const findingSummary = findingCounts === undefined ? '' : `<p data-proof-fact="current_findings">${findingBadges.length ? `Current findings: ${findingBadges.join(', ')}.` : 'No current local findings recorded.'}</p>
+<p data-proof-fact="finding_count_basis">Examination outcomes count complete required mathematical examinations. Current findings describe separately recorded local concerns and may have different totals.</p>`;
     const unresolved = support.unresolved.map((row, index) => {
       const premise = ['assumption', 'definition'].includes(row.kind) ? ` (declared ${row.kind}; scope-dependent premise)` : '';
       return `<li>${fact(`unresolved.${index}`, `${row.label}: ${row.availability}${premise}`)}</li>`;
@@ -1157,7 +1207,8 @@ ${links ? `<p>${links}</p>` : ''}<p>${this.humanLink(ref, 'Finding and supportin
     const external = factual.unresolved_external_sources.map((row, index) => `<li>${fact(`external.${index}`, `${row.label}: ${row.availability}`)}</li>`);
     return `<div class="proof-card" data-proof-factual>
 <h3>Current scientific status</h3>
-<p data-proof-fact="primary_outcomes">${outcomes.length ? `Current initial assessment outcomes: ${outcomes.join(', ')}.` : 'No completed current initial mathematical outcome is recorded.'} Completion of the examination does not establish that every statement is supported.</p>
+<p data-proof-fact="primary_outcomes">${outcomes.length ? `${outcomeLabel}: ${outcomes.join(', ')}.` : outcomeEmpty} Completion of the examination does not establish that every statement is supported.${effectiveOutcomes ? ' Pending, stale or disputed integrations retain initial opinions.' : ''}</p>
+${findingSummary}
 <p data-proof-fact="statement_support">Read each result and application for its exact support conditions.</p>
 ${unresolved.length ? `<details><summary>Conditional or unavailable statements</summary><ul>${unresolved.join('')}</ul><p>Declared assumptions and definitions can be available as premises in an explicitly authorizing scope. Their status here does not by itself indicate a proof gap; availability must be checked at each use.</p></details>` : ''}
 <p data-proof-fact="independent_review">${esc(independent.explanation ?? `Independent review: ${REVIEW_LABELS[independent.state]}.`)}</p>
@@ -1218,7 +1269,7 @@ ${limitItems.length ? `<ul class="proof-finding-list">${limitItems.join('')}</ul
 ${summary.factual?.scope.explanation ? `<p data-proof-fact="scope_explanation">${esc(summary.factual.scope.explanation)}</p>` : ''}
 <dl class="proof-kv">
 <dt>Mode</dt><dd data-proof-scope-mode>${esc(scope.mode)}</dd>
-<dt>Audit targets</dt><dd data-proof-scope-targets>${scope.target_refs.length ? scope.target_refs.map((ref) => `<span data-proof-scope-target="${esc(looseKey(ref))}">${this.humanLink(ref, this.humanLabel(ref))}</span>`).join(', ') : `<span class="proof-muted">${projection.audit_id === null ? 'Recorded items; no audit selected' : 'No explicit audit targets recorded'}</span>`}</dd>
+<dt>${scope.mode === 'full' ? 'Explicit targets' : 'Audit targets'}</dt><dd data-proof-scope-targets>${scope.target_refs.length ? scope.target_refs.map((ref) => `<span data-proof-scope-target="${esc(looseKey(ref))}">${this.humanLink(ref, this.humanLabel(ref))}</span>`).join(', ') : `<span class="proof-muted">${projection.audit_id === null ? 'Recorded items; no audit selected' : scope.mode === 'full' ? 'No explicit targets recorded' : 'No explicit audit targets recorded'}</span>`}</dd>
 <dt>Audit exclusions</dt><dd data-proof-scope-exclusions>${exclusionItems.length ? `<ul class="proof-plain-list">${exclusionItems.join('')}</ul>` : '<span class="proof-muted">none recorded</span>'}</dd>
 </dl>
 ${overviewBoundaries}
@@ -1740,6 +1791,32 @@ ${obligation.role === 'primary' ? this.assessmentBlock(obligation.assessment) : 
     });
   }
 
+  sourceReviewLinks() {
+    const links = [];
+    for (const [key, location] of this.locationsByPinned) {
+      const ref = location.ref;
+      if (ref.collection !== 'source_reviews' || !Number.isInteger(ref.version) || !this.model.records.has(key)) continue;
+      const section = this.model.details.get(location.detail_key)?.sections.find(row => row.key === location.section_key);
+      if (!section?.record_refs.some(pin => refKey(pin) === key)) continue;
+      const owners = this.owners.get(location.detail_key) || [];
+      const owner = owners.length === 1 ? owners[0] : null;
+      const label = owner?.type === 'node' ? owner.node.label : owner?.type === 'connection'
+        ? `${this.nodeLabel(owner.connection.from)} applied to ${this.nodeLabel(owner.connection.to)}` : null;
+      links.push(this.humanLink(ref, label ? `Source-review note for ${label}` : 'Source-review note'));
+    }
+    return links;
+  }
+
+  sourceEvidenceHtml() {
+    const notes = this.model.sourceCaptureNotes, links = this.sourceReviewLinks();
+    if (!notes.length && !links.length) return '';
+    const captures = notes.length ? `<h4>Captured source text</h4><p>These notes describe captured text; source comparisons and mathematical assessments are reported separately.</p><ul>${notes.map((note, index) => {
+      const locator = Object.entries(note.locator).map(([key, value]) => `${humanize(key)}: ${isString(value) ? value : JSON.stringify(value)}`).join(', ') || 'Saved source locator';
+      return `<li data-source-capture-note="${index}" data-source-ref="${esc(JSON.stringify(note.source_ref))}" data-source-path="${esc(JSON.stringify(note.source_path))}" data-source-locator="${esc(JSON.stringify(note.locator))}" data-source-anchor-refs="${esc(JSON.stringify(note.anchor_refs))}"><span data-source-capture-description>${esc(note.description)}</span> <span class="proof-muted" data-source-capture-locator>${esc((note.source_path ? `${note.source_path}: ` : '') + locator)}</span></li>`;
+    }).join('')}</ul>` : '';
+    return `<details class="proof-build-disclosure" data-source-evidence><summary>Source evidence</summary>${captures}${links.length ? `<h4>Saved source-review notes</h4><ul>${links.map(link => `<li>${link}</li>`).join('')}</ul>` : ''}</details>`;
+  }
+
   readerReportState() {
     const summary = this.model.summary;
     const limits = [...(summary.factual?.source_limits || []).map(row => `${row.source_path || row.label}: ${row.description}`), ...(summary.factual?.independent_review?.qualification_limitations || [])];
@@ -1754,6 +1831,9 @@ ${obligation.role === 'primary' ? this.assessmentBlock(obligation.assessment) : 
   page(fontStyle) {
     const { model } = this;
     const searchEntries = this.searchEntries();
+    const excerptCandidates = model.projection.records
+      .filter(record => record.ref.collection === 'anchors' && typeof record.body.excerpt === 'string')
+      .flatMap(record => [record.body.excerpt, record.body.excerpt.replace(/\s+/gu, ' ').trim()]);
     const requestedItems = new Set(model.summary.scope.target_refs.filter((ref) => ref.collection === 'items').map((ref) => ref.id));
     const requested = model.nodeList.filter(node => requestedItems.has(node.item_ref?.id)).map(node => node.id);
     const beforeGraph = `<div id="proof-main" class="proof-reader proof-audit">${this.readerReportState()}${mathDisplayNotes(model.mathDiagnosticSummary)}<details class="proof-build-disclosure"><summary>Scientific findings, scope and review limits</summary>${this.summaryHtml()}</details>${this.graph && model.layout.reasons.length ? `<ul class="proof-reasons">${model.layout.reasons.map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>` : ''}</div>
@@ -1762,13 +1842,14 @@ ${this.graph ? viewControls({traceHtml:`<p class="proof-trace-note">Tracing foll
     const afterGraph = `<div class="proof-reader proof-audit">${this.graph ? this.legendHtml() : this.indexHtml()}
 ${scientificSearchPanel()}
 ${this.detailsHtml()}
+${this.sourceEvidenceHtml()}
 <footer class="proof-footer">
 <p>Archify 3.0.1 viewer (MIT); JetBrains Mono under the SIL Open Font License. Audit evidence and assessments are drawn from the saved paper records.</p>
 </footer></div>`;
     const data = `
 <script id="proof-projection" type="application/json">${jsonForScript(model.projection)}</script>
 <script id="proof-render-input" type="application/json">${jsonForScript({ title: model.title, build: model.build })}</script>
-${readerSearchData(searchEntries)}
+${readerSearchData(searchEntries, { excerptCandidates })}
 `;
     // The common page assembler removes this template placeholder in index mode.
     // It has no identity-bearing elements and is never presented as a graph.
@@ -2040,8 +2121,10 @@ export function representationReceipt(model, scan) {
       if (parent.tag === 'template' || hasAttr(parent, 'hidden') || hasAttr(parent, 'data-proof-evidence')) return false;
     } return true; }), 'opening statements, strategy, contextual dependencies or material issues differ from their pinned records');
   const reportState = byAttr('data-reader-report-state');
-  check('visible_report_state', reportState.length === 1 && scan.html.slice(reportState[0].start, reportState[0].closeEnd) === canonicalRenderer.readerReportState(),
-    'the always-visible report state and limitations differ from the saved snapshot');
+  const sourceEvidence = byAttr('data-source-evidence'), expectedEvidence = canonicalRenderer.sourceEvidenceHtml();
+  check('visible_report_state', reportState.length === 1 && scan.html.slice(reportState[0].start, reportState[0].closeEnd) === canonicalRenderer.readerReportState()
+    && (expectedEvidence ? sourceEvidence.length === 1 && scan.html.slice(sourceEvidence[0].start, sourceEvidence[0].closeEnd) === expectedEvidence : sourceEvidence.length === 0),
+    'the report state, limitations or source evidence differ from the saved snapshot');
   const assessmentMatches = (element, assessment) => {
     const display = reviewDisplay(assessment);
     if (!element || !classList(element).includes(`s-${display.color}`) || element.attrs['data-review-status'] !== display.status) return false;
@@ -2116,7 +2199,7 @@ export function representationReceipt(model, scan) {
     'unfinished, partial or stale saved opinions lost their current-examination limitation');
   const searchData = all.filter(element => element.attrs.id === 'proof-reader-search');
   let searchOk = false;
-  try { searchOk = searchData.length === 1 && JSON.stringify(JSON.parse(searchData[0].text)) === JSON.stringify(canonicalRenderer.searchEntries()); } catch { /* invalid data fails below */ }
+  try { searchOk = searchData.length === 1 && JSON.stringify(decodeReaderSearchData(JSON.parse(searchData[0].text))) === JSON.stringify(canonicalRenderer.searchEntries()); } catch { /* invalid data fails below */ }
   check('scientific_search_content', searchOk, 'search differs from the selected scientific evidence or its destinations');
   const searchInputs = all.filter((element) => element.tag === 'input' && element.attrs.id === 'proof-search');
   check('search_input', searchInputs.length === 1, 'input#proof-search must appear exactly once');

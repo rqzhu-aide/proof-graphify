@@ -1,6 +1,10 @@
 # Proof Graphify
 
-[![Version v3.3.5](https://img.shields.io/badge/version-v3.3.5-6366f1)](proof-graphify/SKILL.md)
+[![Proof Graphify v3.4.10](https://img.shields.io/badge/Proof%20Graphify-v3.4.10-6366f1)](proof-graphify/SKILL.md)
+[![Proof Check v3.4.10](https://img.shields.io/badge/Proof%20Check-v3.4.10-0ea5e9)](stat-proof-check/SKILL.md)
+[![Paper Core v3.3.15](https://img.shields.io/badge/Paper%20Core-v3.3.15-64748b)](shared/paper_core)
+
+Current release: [v3.4.10](https://github.com/rqzhu-aide/proof-graphify/releases/tag/v3.4.10), containing both skills at v3.4.10 and shared paper core v3.3.15.
 
 **Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
 
@@ -20,10 +24,10 @@ This repository maintains two independently installable skills for understanding
 
 | Skill | Version | Main use |
 |---|---|---|
-| `proof-graphify` | v3.3.5 | Build a selective, source-backed map of main results and important prerequisites |
-| `stat-proof-check` | v3.3.5 | Audit written mathematical arguments with independent review and explicit findings |
+| `proof-graphify` | v3.4.10 | Build a selective, source-backed map of main results and important prerequisites |
+| `stat-proof-check` | v3.4.10 | Audit written mathematical arguments with independent review and explicit findings |
 
-The shared `paper_core` version is `3.3.4`. Skill and core versions are independent: bump the affected skill for workflow changes, and bump the core when its implementation changes. Source comparisons in Graphify do not establish proof validity. A new Proof Check audit starts independently from the manuscript in its own folder and database. Proof Check runs only when explicitly invoked as `$stat-proof-check`.
+The shared `paper_core` version is `3.3.15`. Skill and core versions are independent: bump the affected skill for workflow changes, and bump the core when its implementation changes. Source comparisons in Graphify do not establish proof validity. A new Proof Check audit starts independently from the manuscript in its own folder and database. Proof Check runs only when explicitly invoked as `$stat-proof-check`.
 
 ## Repository layout
 

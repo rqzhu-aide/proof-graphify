@@ -238,6 +238,15 @@ class PreparationGuidanceTests(TempCase):
                 self.assertIn("examination_note", guidance)
                 if mode == "independent":
                     self.assertIn("judgment_shape", guidance)
+                    exposure = guidance["exposure_report_shape"]["fields"]
+                    self.assertEqual({"status", "note"}, set(exposure))
+                    self.assertEqual(["none_known", "possible_exposure"], exposure["status"]["enum"])
+                    self.assertEqual({"type": "string"}, exposure["note"])
+                    self.assertIn("no known exposure to disallowed mathematical opinions", guidance["note"])
+                    self.assertIn("original source-only work", guidance["note"])
+                    self.assertIn("without becoming source-only review", guidance["note"])
+                    for private_key in ("draft_refs", "primary_checks", "assigned_task_ids", "prerequisite_ids"):
+                        self.assertNotIn(private_key, guidance)
                     self.assertNotIn("response_shape", guidance)
                     self.assertNotIn("optional_finding_example", guidance)
                     self.assertNotIn("authoring_note", guidance)
@@ -246,8 +255,69 @@ class PreparationGuidanceTests(TempCase):
                         self.assertNotIn("checked against the source", Path(files[name]["path"]).read_text(encoding="utf-8"))
                     self.assertIn("question_id", scaffold["judgments"][0])
                 else:
+                    self.assertNotIn("exposure_report_shape", guidance)
                     self.assertIn("optional_finding_example", guidance)
                     self.assertTrue(all(row["type"] in ("source_fidelity", "check") for row in scaffold["results"]))
+
+    def test_metadata_only_exposure_correction_keeps_same_packet_reasoning_and_originals(self):
+        fixture, prepared = self.prepare("metadata-correction", "independent")
+        response = self.authored(prepared)
+        response["exposure_report"] = {
+            "status": "possible_exposure",
+            "note": "Only neutral filenames, paths and administrative IDs were encountered."}
+        with fixture.open() as db:
+            packet = deepcopy(db.packet(prepared["packet_id"]))
+            payload = db.get_blob(packet["payload_sha256"])
+
+            def obligation():
+                return next(row for row in assessment.derive_assessment(db, audit_id=fixture.audit_id)["obligations"]
+                            if row["role"] == "independent" and row["kind"] == "composition"
+                            and row["target"] == R("arguments", "arg_lem"))
+
+            first = self.submit(db, prepared, response)
+            self.assertEqual("accepted", first["state"], first)
+            original = next(row for row in db.heads("responses")
+                            if db.get_blob(row.body["original_blob"]) == self.raw(response))
+            original_body = deepcopy(original.body)
+            self.assertEqual("compromised", original.body["exposure"])
+            original_obligation = obligation()
+            self.assertFalse(original_obligation["satisfied"])
+            original_checks = [deepcopy(row.body) for row in db.heads("checks")
+                               if row.body["response_id"] == original.id]
+
+            corrected = deepcopy(response)
+            corrected["exposure_report"] = {
+                "status": "none_known",
+                "note": "Reviewer clarification: encountered metadata contained no mathematical judgment. "
+                        "The examination and reasoning are unchanged."}
+            self.assertEqual(response["judgments"], corrected["judgments"])
+            second = self.submit(db, prepared, corrected)
+            self.assertEqual("accepted", second["state"], second)
+            self.assertNotEqual(first["request_id"], second["request_id"])
+            replacement = next(row for row in db.heads("responses")
+                               if db.get_blob(row.body["original_blob"]) == self.raw(corrected))
+            self.assertNotEqual(original.id, replacement.id)
+            self.assertEqual("source_only", replacement.body["exposure"])
+            self.assertEqual(original_body, db.head("responses", original.id).body)
+            self.assertEqual(self.raw(response), db.get_blob(original_body["original_blob"]))
+            self.assertEqual(self.raw(corrected), db.get_blob(replacement.body["original_blob"]))
+            self.assertEqual(original_checks, [row.body for row in db.heads("checks")
+                                               if row.body["response_id"] == original.id])
+            corrected_obligation = obligation()
+            self.assertEqual(original_obligation["id"], corrected_obligation["id"])
+            self.assertTrue(corrected_obligation["satisfied"], corrected_obligation)
+            derived = assessment._Derivation(assessment.Snapshot(db, db.max_revision()),
+                                              db.head("audits", fixture.audit_id))
+            for identity, usable in ((original.id, False), (replacement.id, True)):
+                checks = [row for row in db.heads("checks") if row.body["response_id"] == identity]
+                self.assertTrue(checks)
+                self.assertTrue(all(derived.independent_usable(derived.judgment_info(row)) == usable
+                                    for row in checks))
+            self.assertEqual(packet, db.packet(prepared["packet_id"]))
+            self.assertEqual(payload, db.get_blob(packet["payload_sha256"]))
+            before_replay = self.science_snapshot(db)
+            self.assertEqual(second, self.submit(db, prepared, corrected))
+            self.assertEqual(before_replay, self.science_snapshot(db))
 
     def test_source_fidelity_only_export_has_no_composition_instructions(self):
         fixture = self.fixture("source-only").audit()

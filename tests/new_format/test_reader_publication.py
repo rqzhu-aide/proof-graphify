@@ -167,7 +167,34 @@ class ReaderPublicationTests(TempCase):
             envelope = publish.render_input(db, dataset, release=False, source_identity="reader-test")
         return dataset, envelope
 
-    def render(self, envelope, name="reader"):
+    def resolution_paper(self):
+        # Render tests need saved records, without the legacy audit protocol in primary().
+        fixture = self.fixture().structure()
+        fixture.audit_id = "aud_resolution"
+        resolution = r"Corrected $a_n \le 1$. Literal <script>alert(1)</script> & saved."
+        with fixture.open() as db:
+            fixture.apply(db, [edit("create", "audits", fixture.audit_id, {
+                "paper_id": fixture.paper_id, "mode": "focused", "targets": list(fixture.ITEM_REFS),
+                "exclusions": [], "protocol_version": "coherent-proof-audit/1", "independent_required": False,
+                "qualification_id": None, "report_path": "reports/resolution.html", "global_tasks": [
+                    {"kind": kind, "applicability": "not_applicable", "reason": "outside this fixture"}
+                    for kind in ("global_consistency", "adversarial", "method_interface")]})],
+                *fixture.ITEMS, mode="primary")
+            fixture.apply(db, [edit("create", "findings", "fnd_resolution", {
+                "audit_id": fixture.audit_id, "target": R("groups", "grp_thm"), "category": "proof_gap",
+                "lifecycle": "resolved", "description": "The bound was questioned.",
+                "evidence_refs": ["anc_thm_proof"], "check_refs": [], "affected_uses": [],
+                "impact_reason": "The theorem uses this bound.", "resolution": resolution})], *fixture.ITEMS)
+            packet = fixture.packet(db, *fixture.ITEMS, mode="primary")
+            sources.review_sources(db, batch=fixture.batch([edit("create", "source_issues", "sis_resolution", {
+                "source_id": fixture.source_id, "anchor_id": "anc_thm_proof", "category": "locator_limit",
+                "description": "The formula was unreadable.", "lifecycle": "resolved", "resolution": resolution,
+                "reviewer": "fixture"})], packet["packet_id"]))
+            dataset = projection.build_projection(db, audit_id=fixture.audit_id)
+            envelope = publish.render_input(db, dataset, release=False, source_identity="resolution-test")
+        return dataset, envelope
+
+    def render(self, envelope, name="reader", *, expected_error=None):
         node = shutil.which("node")
         if not node:
             self.skipTest("shared Node is unavailable")
@@ -175,11 +202,17 @@ class ReaderPublicationTests(TempCase):
         source.write_text(json.dumps(envelope), encoding="utf-8")
         result = subprocess.run([node, str(CORE / "renderer" / "render_projection.mjs"), str(source), str(output)],
                                 capture_output=True, text=True, encoding="utf-8")
+        if expected_error is not None:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual("validate", json.loads(result.stderr)["stage"])
+            self.assertIn(expected_error, result.stderr)
+            self.assertFalse(output.exists())
+            return
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return output.read_bytes()
 
     @staticmethod
-    def fields(page, *, context=None, field=None):
+    def fields(page, *, context=None, field=None, scientific=False):
         text = page.decode()
         starts = [0]
         for line in text.splitlines(keepends=True):
@@ -203,10 +236,62 @@ class ReaderPublicationTests(TempCase):
 
         scan = Fields()
         scan.feed(text)
+        marker = "data-scientific-path" if scientific else "data-reader-field"
+        value = json.dumps([field]) if scientific else field
         return [text[row["start"]:row["end"]].encode() for row in scan.elements
-                if "data-reader-field" in row["attrs"] and "end" in row
+                if marker in row["attrs"] and "end" in row
                 and (context is None or row["attrs"].get("data-reader-context") == context)
-                and (field is None or row["attrs"]["data-reader-field"] == field)]
+                and (field is None or row["attrs"][marker] == value)]
+
+    def test_resolutions_render_math_in_contextual_finding_and_canonical_record_fields(self):
+        dataset, envelope = self.resolution_paper()
+        untouched = deepcopy(envelope)
+        page = self.render(envelope, "resolution-math")
+        self.assertEqual(publish.mechanical_acceptance(page, dataset)["status"], "pass")
+        contextual = self.fields(page, context="finding:0", field="resolution")
+        self.assertTrue(contextual)
+        canonical = self.fields(page, field="resolution", scientific=True)
+        self.assertEqual(2, len(canonical))
+        for collection, identity in (("findings", "fnd_resolution"), ("source_issues", "sis_resolution")):
+            pin = f'data-scientific-ref="{collection}:{identity}:1"'.encode()
+            self.assertEqual(1, sum(pin in row for row in canonical))
+        for row in contextual + canonical:
+            self.assertIn(b"<math", row)
+            self.assertIn(b'encoding="application/x-tex">a_n \\le 1</annotation>', row)
+            self.assertIn(b"Corrected ", row)
+            self.assertIn(b"&lt;script&gt;", row)
+            self.assertIn(b"&amp; saved.", row)
+            self.assertNotIn(b"<script>", row)
+            altered = page.replace(row, row.replace(b"Corrected", b"Invented"), 1)
+            self.assertEqual(publish.mechanical_acceptance(altered, dataset)["status"], "fail")
+        self.assertEqual(untouched, envelope)
+
+    def test_older_input_without_resolution_fragments_keeps_escaped_literal_fallback(self):
+        dataset, envelope = self.resolution_paper()
+        for fragments in envelope["display"]["refs"].values():
+            fragments.pop("resolution_html", None)
+        page = self.render(envelope, "old-resolution-input")
+        self.assertEqual(publish.mechanical_acceptance(page, dataset)["status"], "pass")
+        rows = self.fields(page, field="resolution") + self.fields(page, field="resolution", scientific=True)
+        self.assertGreaterEqual(len(rows), 3)
+        for row in rows:
+            self.assertIn(b"$a_n \\le 1$", row)
+            self.assertIn(b"&lt;script&gt;", row)
+            self.assertNotIn(b"<math", row)
+            self.assertNotIn(b"<script>", row)
+
+    def test_resolution_fragment_addition_keeps_unknown_key_and_wrong_type_rejection(self):
+        _, envelope = self.resolution_paper()
+        pin = "findings:fnd_resolution:1"
+        for index, (field, value, message) in enumerate((
+            ("resolution_extra_html", "plain", "is not a known display fragment"),
+            ("resolution_html", None, "resolution_html must be a string"),
+            ("resolution_html", ["plain"], "resolution_html must be a string"),
+        )):
+            with self.subTest(field=field, value=value):
+                invalid = deepcopy(envelope)
+                invalid["display"]["refs"][pin][field] = value
+                self.render(invalid, f"invalid-resolution-{index}", expected_error=message)
 
     def test_reader_displays_pinned_claim_strategy_contexts_and_unresolved_evidence(self):
         dataset, envelope = self.reader_paper()

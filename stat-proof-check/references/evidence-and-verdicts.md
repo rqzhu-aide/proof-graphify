@@ -180,21 +180,25 @@ calibration, not a universal journal grading standard.
   corrects that derivation. An isolated typo surrounded by the correct calculation,
   or a wrong theorem name with the exact inequality already justified, is minor.
 - Check inherited setup first. A condition already inherited is not an added
-  assumption or defect. A routine omitted qualification that changes no intended
-  model or conclusion can be minor; a familiar condition excluding intended
-  distributions or regimes can be severe. Mathematical familiarity informs this
-  judgment without requiring a literature search.
+  assumption or defect. Judge a hypothesis correction by its known effect on the
+  exact stated claim and intended applications, not the size of the textual edit;
+  explain that effect briefly in the existing finding reasoning. A routine omitted
+  qualification that changes no intended model or conclusion can be minor; a
+  familiar condition excluding important intended distributions or regimes can be
+  severe. Mathematical familiarity informs this judgment without requiring a
+  literature search.
 - Separate conditional theorem validity from a material limitation of its important
-  intended regime; retain that limitation and explain its consequence. An accurately
+  intended regime; retain that limitation and explain its consequence. If supplied
+  setup contradicts a premise needed for a claim that the result applies, attach
+  the finding to that application; finite fitted values do not remove the
+  contradiction. An accurately
   disclosed benchmark restriction need create no defect, and conditional validity
   alone neither establishes severity nor dismisses the limitation. Practical tuning
   outside a theoretical guarantee ordinarily warrants at most a minor qualification
   when the boundary needs clarification. Numerical evidence gives context, not an
   extension of the theorem. If the paper promises the guarantee for the implemented
   rule, assess that promise at its actual impact.
-- A false incidental formula with an obvious intended correction is not automatically
-  severe. Name the affected claim; an auxiliary defect does not automatically
-  invalidate the main result.
+- A false incidental formula is not automatically severe. A positive factor independent of the candidate preserves an objective's optimizer, but need not preserve its value, rate or uncertainty formula. An obvious normalization correction with unchanged intended choice and guarantee can be minor. Otherwise assess the affected claim at its established impact or retain uncertainty. An auxiliary defect does not automatically invalidate the main result.
 - A presentation concern outside the assigned inference must not turn a supported
   composition into `gap`. If that inference fails, retain `gap` even when severity
   is minor. A sufficient alternative route can preserve exact-target support while

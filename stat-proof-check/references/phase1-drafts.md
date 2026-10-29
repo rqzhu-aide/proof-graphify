@@ -6,7 +6,7 @@ Name an original-return location with each assignment. A writable worker saves i
 
 After the group's returns, the coordinator organizes them into the shared graph:
 
-1. Match proposed items by their source claim and context. The same Equation (12) in the same document and conditions normally becomes one node. Equal labels or a shared page alone are insufficient. Keep different claims, conditions and source versions distinct. Routine algebra can stay in the containing examination.
+1. Match proposed items by exact source claim and context, preserving distinct result identities already present in the returned draft. Sharing a reviewer assignment is not a reason to merge those records. Merge only the same claim in the same context; keep different claims, conditions and source versions distinct. Routine algebra stays in the containing examination. If a return supplies only a bundled question and verdict, preserve that scope rather than inventing per-result judgments or splitting it for presentation.
 2. Reuse an existing shared record or register one canonical item. Keep each consuming proof's actual use and needed consequence. A shared result's own derivation belongs to its owning proof unit; consumers check its applicability without each reconstructing that derivation.
 3. Save the returned primary examinations against the consolidated questions, preserving their authors, reasoning, limitations and disagreements. Formatting and identity mapping belong to the coordinator. The same unchanged question does not need another mathematical examination.
 4. Send the ready group to ordinary independent review in Stage 2. A missing worker return remains a local coverage limitation and does not block other groups.

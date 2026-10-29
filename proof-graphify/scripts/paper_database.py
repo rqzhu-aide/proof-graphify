@@ -14,6 +14,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import sqlite3
 import sys
 import tempfile
@@ -416,6 +417,7 @@ def _common_dispatch(native, db_path, *args, **kwargs):
                     elif name == "render_database":
                         # The HTML is already published. The authoritative build
                         # record may fail independently of the disposable native log.
+                        result['database'] = str(Path(db_path).resolve())
                         result["build_recorded"] = True
                         result.pop("build_record_error", None)
                         try:
@@ -566,7 +568,7 @@ def get_packet(db_path, item_id, snapshot_id=None):
             # The selected item's own derived fidelity, distinct from the
             # database-wide comparison aggregate below.
             "target_fidelity": fidelity[("items", item_id)],
-            "source_status": records.source_status(data, _source_root(db_path)), "comparison_status": records.comparison_status(data, fidelity)}
+            "source_status": records.source_status(data, _source_root(db_path)), "comparison_status": records.comparison_status(data, fidelity, all_applicable)}
 
 
 def compact_evidence_packet(packet):
@@ -728,13 +730,72 @@ def apply_edits(db_path, patch):
     return _publish(db_path, updated, data["snapshot_id"])
 
 
+_COMPARISON_BASES = frozenset({'typeset', 'tex', 'source_text', 'extracted_text'})
+_ATOM_COMMANDS = ('alpha beta gamma delta epsilon varepsilon zeta eta theta vartheta iota kappa lambda mu nu xi pi varpi rho varrho sigma varsigma tau upsilon phi varphi chi psi omega Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega ell').split()
+_FONT_COMMANDS = 'mathcal mathbb mathrm mathbf mathsf mathtt mathfrak boldsymbol'.split()
+_COMMAND_ATOM = r'\\(?:' + '|'.join(_ATOM_COMMANDS) + r')(?![A-Za-z])'
+_ATOM = r'(?:[A-Za-z]|' + _COMMAND_ATOM + r')'
+_FONT = r'\\(?:' + '|'.join(_FONT_COMMANDS) + r')(?![A-Za-z])'
+_SPACE = r'[ \t]*'
+_BASE = r'(?:' + _ATOM + '|' + _FONT + _SPACE + r'(?:' + _ATOM + r'|\{' + _SPACE + _ATOM + _SPACE + r'\}))'
+_INDEX = r'(?:[A-Za-z0-9]|' + _COMMAND_ATOM + r'|\{' + _SPACE + r'(?:[A-Za-z0-9]+|' + _COMMAND_ATOM + r')' + _SPACE + r'\})'
+_IDENTIFIER_REFERENCE = re.compile(_SPACE + _BASE + _SPACE + r'(?:_' + _SPACE + _INDEX + _SPACE + r')?')
+
+
+def _comparison_evidence_errors(data, targets, basis_by_target, result):
+    """Check declarations and explicit target math without reading source bytes."""
+    from overview_math import _spans
+    rows = {collection: {row['id']: row for row in data[collection]} for collection in ('items', 'uses')}
+    anchors = {row['id']: row for row in data['anchors']}
+    sources = {row['id']: row for row in data['source_revision']['files']}
+    errors = []
+    for target in targets:
+        key = target['collection'], target['id']
+        name = '/'.join(key)
+        row = rows[key[0]].get(key[1])
+        if row is None:
+            errors.append(name + ': target is absent.')
+            continue
+        own_ids = ([p['anchor_id'] for p in row['passages']] if key[0] == 'items' else row['evidence_refs'])
+        own = [anchors[identity] for identity in own_ids]
+        located = [{'anchor_id': a['id'], 'file': sources.get(a.get('file_id'), {}).get('path'),
+                    'locator': a['locator']} for a in own]
+        basis = basis_by_target[key]
+        problems = []
+        if not isinstance(basis, str) or basis not in _COMPARISON_BASES:
+            problems.append('basis must be typeset, tex, source_text, or extracted_text')
+        elif basis in {'tex', 'source_text'}:
+            bound_sources = [sources[a['file_id']] for a in own if a.get('file_id') in sources]
+            tex_suffixes = {'.tex', '.ltx', '.sty', '.cls'}
+            associated = any(source['media_type'] == 'text/plain'
+                             and ((Path(source['path']).suffix.lower() in tex_suffixes) == (basis == 'tex'))
+                             for source in bound_sources)
+            if not associated:
+                problems.append('basis ' + basis + " requires an own anchor to captured " +
+                                ('TeX text (.tex/.ltx/.sty/.cls)' if basis == 'tex' else 'non-PDF original text outside TeX suffixes'))
+        if basis == 'extracted_text' and result == 'matched':
+            fields = ([('statement.text', row['statement']['text']), ('proof_idea', row.get('proof_idea', '')), ('issue', row.get('issue', ''))]
+                      if key[0] == 'items' else [(field, row.get(field, '')) for field in ('reason', 'regime', 'issue')])
+            restricted = next(((field, text[start:end]) for field, text in fields
+                               for start, end, inner, _ in _spans(text)
+                               if inner is None or _IDENTIFIER_REFERENCE.fullmatch(inner) is None), None)
+            if restricted:
+                problems.append('extracted_text cannot support matched compound or malformed mathematics in ' +
+                                restricted[0] + ': ' + repr(restricted[1]))
+        if problems:
+            errors.append(name + ': ' + '; '.join(problems) + '. Located source references: ' + _json(located))
+    return errors
+
+
 def compare_records(db_path, batch):
     """Record an actual source comparison; the caller supplies its result."""
-    if not isinstance(batch, dict) or set(batch) - {"expected_snapshot", "targets", "reviewer", "note", "result", "reuse_from", "changes_reviewed"}:
-        raise DatabaseError("A comparison batch supports expected_snapshot, targets, reviewer, note, result, and optional reuse_from with changes_reviewed.")
+    if not isinstance(batch, dict) or set(batch) - {"expected_snapshot", "targets", "reviewer", "note", "result", "basis", "reuse_from", "changes_reviewed"}:
+        raise DatabaseError("A comparison batch supports expected_snapshot, targets, reviewer, note, result, basis, and optional reuse_from with changes_reviewed.")
     _require_schema3(db_path)
     reuse = 'reuse_from' in batch
     if reuse:
+        if 'basis' in batch:
+            raise DatabaseError('Reuse inherits the prior evidence basis exactly; omit batch basis.')
         if not isinstance(batch['reuse_from'], str) or not batch['reuse_from'].strip():
             raise DatabaseError('reuse_from must identify a retained baseline snapshot.')
         if batch.get('changes_reviewed') is not True or not isinstance(batch.get('note'), str) or not batch['note'].strip():
@@ -748,10 +809,12 @@ def compare_records(db_path, batch):
         raise DatabaseError("Comparison targets must be a nonempty list of item or use references.")
     seen = set()
     for target in targets:
-        if (not isinstance(target, dict) or set(target) != {"collection", "id"}
+        if (not isinstance(target, dict) or not {'collection', 'id'} <= set(target) or set(target) - {'collection', 'id', 'basis'}
                 or not isinstance(target["collection"], str) or target["collection"] not in {"items", "uses"}
                 or not isinstance(target["id"], str) or not target["id"]):
             raise DatabaseError("Each comparison target needs collection items/uses and a nonempty id.")
+        if reuse and 'basis' in target:
+            raise DatabaseError('Reuse inherits the prior evidence basis exactly; omit target basis.')
         key = (target["collection"], target["id"])
         if key in seen:
             raise DatabaseError("Comparison targets contain a duplicate; compare each target once per batch.")
@@ -762,9 +825,18 @@ def compare_records(db_path, batch):
         raise DatabaseError("A comparison note must be text.")
     if not isinstance(batch.get("result", "matched"), str) or batch.get("result", "matched") not in {"matched", "needs_attention"}:
         raise DatabaseError("Comparison result must be matched or needs_attention.")
+    if batch.get('result', 'matched') == 'needs_attention' and not batch.get('note', '').strip():
+        raise DatabaseError('A needs_attention comparison requires a nonblank note describing the unresolved source question.')
     data = export_snapshot(db_path)
     if batch.get("expected_snapshot") != data["snapshot_id"]:
         raise DatabaseError(f"Stale comparison: current snapshot is {data['snapshot_id']}. Compare the current input before recording a result.")
+    basis_by_target = None
+    errors = []
+    if not reuse:
+        if not isinstance(batch.get('basis'), str) or batch['basis'] not in _COMPARISON_BASES:
+            errors.append('The ordinary comparison batch requires basis: typeset, tex, source_text, or extracted_text.')
+        basis_by_target = {(target['collection'], target['id']): target.get('basis', batch.get('basis')) for target in targets}
+        errors.extend(_comparison_evidence_errors(data, targets, basis_by_target, batch.get('result', 'matched')))
     if batch.get("result", "matched") == "matched":
         conflicts = {anchor_id for entry in records.locator_diagnostics(data)
                      if entry['code'] == 'statement_locator_conflict' for anchor_id in entry['anchor_ids']}
@@ -781,10 +853,14 @@ def compare_records(db_path, batch):
                     bound = set(row['evidence_refs'])
                     bound.update(p['anchor_id'] for endpoint in ('from', 'to') for p in items[row[endpoint]]['passages'])
                 if bound & conflicts:
-                    raise DatabaseError(f"Cannot mark {target['collection']}/{target['id']} matched: "
+                    errors.append(f"Cannot mark {target['collection']}/{target['id']} matched: "
                                         f"statement locator conflicts at {', '.join(sorted(bound & conflicts))}. "
                                         "Correct the label or range, or record needs_attention while unresolved.")
-    observations = records._make_observations_validated(data, batch.get("targets"), batch.get("reviewer"), note=batch.get("note", ""), result=batch.get("result", "matched"))
+    if errors:
+        raise DatabaseError('Comparison batch was not recorded:\n' + '\n'.join(errors) +
+                            '\nUse evidence actually inspected, or retain the source question as needs_attention with a specific note.')
+    normalized_targets = [{key: target[key] for key in ('collection', 'id')} for target in targets]
+    observations = records._make_observations_validated(data, normalized_targets, batch.get("reviewer"), note=batch.get("note", ""), result=batch.get("result", "matched"), basis_by_target=basis_by_target)
     connection = _connect(db_path, write=True)
     try:
         with connection:
@@ -811,6 +887,8 @@ def compare_records(db_path, batch):
                     if key not in eligible:
                         raise DatabaseError(f"Cannot reuse {key[0]}/{key[1]}: no applicable prior match, changed/affected evidence, or a current concern. Inspect changes and perform a fresh comparison.")
                     observation['carried_from'] = prior[key]['id']
+                    if 'basis' in prior[key]:
+                        observation['basis'] = prior[key]['basis']
                 checked = copy.deepcopy(current)
                 checked['observations'].extend(observations)
                 records.validate_records(checked)
@@ -1117,8 +1195,8 @@ def validate_database(db_path, snapshot_id=None):
         profile = _check_profile(connection, data)
     finally:
         connection.close()
-    fidelity = records.fidelity_by_row(data)
-    prepared = records.record_report(data, _source_root(db_path), fidelity)
+    observations, fidelity, _ = records._comparison_state(data)
+    prepared = records.record_report(data, _source_root(db_path), fidelity, observations)
     stale_targets = [{"collection": collection, "id": identifier}
                      for (collection, identifier), status in sorted(fidelity.items()) if status == "stale"]
     return {"valid": True, "snapshot_id": storage_id, "authoring_profile": profile,
@@ -1142,6 +1220,7 @@ def render_database(db_path, output_path, snapshot_id=None):
         connection.close()
     receipt = _render_validated_dataset(data, _source_root(db_path), Path(output_path), protected_paths=(Path(db_path),))
     receipt["snapshot_id"] = storage_id
+    receipt['database'] = str(Path(db_path).resolve())
     receipt["authoring_profile"] = profile
     connection = None
     try:
@@ -1189,8 +1268,9 @@ def export_database(db_path, output_path, snapshot_id=None):
     """
     data = export_snapshot(db_path, snapshot_id)
     written = _write_export(data, output_path, db_path)
+    observations, fidelity, _ = records._comparison_state(data)
     return {**written, "observations": len(data.get("observations", [])),
-            "source_comparison": records.comparison_status(data)}
+            "source_comparison": records.comparison_status(data, fidelity, observations)}
 
 
 def edit_template(db_path, output_path, *, item_ids=(), use_ids=()):
@@ -1298,7 +1378,7 @@ def main():
         if name == "reconcile":
             command.add_argument("audits", type=Path, help="Filled edge-audit JSON file or the folder scaffold wrote")
         if name in ("apply", "compare"):
-            command.add_argument("batch", type=Path, help=('JSON: expected_snapshot, edits [{collection, op, id, record}], optional set {title, scope, main_items}. Item records use passages [{role, anchor_id}]. See references/database.md.' if name == "apply" else "JSON: expected_snapshot, targets, reviewer, result, note. Use list for exact target IDs."))
+            command.add_argument("batch", type=Path, help=('JSON: expected_snapshot, edits [{collection, op, id, record}], optional set {title, scope, main_items}. Item records use passages [{role, anchor_id}]. See references/database.md.' if name == "apply" else "JSON: expected_snapshot, targets, reviewer, result, note, basis (typeset, tex, source_text, extracted_text); targets may override basis. needs_attention requires a nonblank note. reuse_from with changes_reviewed inherits prior basis and forbids basis fields. Use list for exact target IDs."))
         if name in ("export", "render", "backup"):
             command.add_argument("output", type=Path)
         if name == "scaffold":

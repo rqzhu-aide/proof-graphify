@@ -182,7 +182,7 @@ class OverviewWriteScopeTests(TempCase):
 
     def test_selection_archive_cannot_shadow_an_immutable_comparison(self):
         data = overview_cli.export_snapshot(self.db_path)
-        overview_cli.compare_records(self.db_path, {"expected_snapshot": data["snapshot_id"],
+        overview_cli.compare_records(self.db_path, {"basis": "source_text", "expected_snapshot": data["snapshot_id"],
             "targets": [{"collection": "items", "id": "T"}], "reviewer": "reader",
             "result": "needs_attention", "note": "The selected statement needs attention."})
         current = overview_cli.export_snapshot(self.db_path)

@@ -453,7 +453,98 @@ class PaperRecordsTests(unittest.TestCase):
         state = records.comparison_status(reviewed)
         self.assertEqual(state["needs_attention"], 1)
         self.assertEqual(state["matched"], 2)
+        self.assertEqual(state["status"], "complete_with_limits")
+        self.assertEqual(state["summary"], "All 3 records reviewed; 1 have unresolved source questions.")
+
+    def test_observation_basis_is_optional_metadata_with_a_bounded_enum(self):
+        data = self.migrate()
+        target = {"collection": "items", "id": "centering"}
+        before = records.target_digest(data, "items", "centering")
+        observation = records._make_observations_validated(
+            data, [target], "Reviewer", basis_by_target={("items", "centering"): "tex"})[0]
+        self.assertEqual(observation["basis"], "tex")
+        self.assertEqual(observation["target"], target)
+        data["observations"].append(observation)
+        self.assertEqual(records.validate_records(data)["snapshot_id"], data["snapshot_id"])
+        self.assertEqual(records.target_digest(data, "items", "centering"), before)
+        for basis in ("not_recorded", "unknown", None, ["tex"]):
+            with self.subTest(basis=basis):
+                changed = deepcopy(data)
+                changed["observations"][0]["basis"] = basis
+                with self.assertRaisesRegex(records.RecordError, "basis"):
+                    records.validate_records(changed)
+        del observation["basis"]
+        self.assertNotIn("basis", records.validate_records(data)["observations"][0])
+
+    def test_current_basis_counts_select_exact_input_and_exclude_stale_history(self):
+        historical = self.compare_all(self.migrate())
+        historical["observations"][0]["basis"] = "typeset"
+        changed = deepcopy(historical)
+        changed["items"][0]["statement"]["text"] += " Changed."
+        changed = self.compare_all(self.revalidate(changed))
+        for observation in changed["observations"][3:]:
+            observation["basis"] = "extracted_text"
+        historical["observations"] = deepcopy(changed["observations"])
+        state = records.comparison_status(historical)
+        self.assertEqual(state["basis_counts"], {
+            "typeset": 1, "tex": 0, "source_text": 0, "extracted_text": 0, "not_recorded": 2})
+        historical["items"][0]["statement"]["text"] += " Another version."
+        historical = self.revalidate(historical)
+        state = records.comparison_status(historical)
+        self.assertEqual(state["stale"], 3)
+        self.assertEqual(sum(state["basis_counts"].values()), 0)
+        projected = records.prepare_records(historical, self.base)
+        self.assertEqual(projected["items"][0]["comparison_basis"], "extracted_text")
+        self.assertEqual(projected["items"][0]["comparison_evidence"], "earlier")
+
+    def test_questions_remain_incomplete_with_pending_rows_and_empty_is_incomplete(self):
+        data = self.migrate()
+        data["observations"] = records.make_observations(
+            data, [{"collection": "items", "id": "centering"}], "Reviewer",
+            result="needs_attention", note="The source question remains.")
+        state = records.comparison_status(data)
         self.assertEqual(state["status"], "incomplete")
+        self.assertEqual(state["unreviewed"], 2)
+        self.assertEqual(state["needs_attention"], 1)
+        data["items"], data["uses"], data["observations"] = [], [], []
+        self.assertEqual(records.comparison_status(data)["status"], "incomplete")
+
+    def test_delivery_brief_preserves_saved_facts_and_exact_current_limits_once(self):
+        data = self.migrate()
+        data["items"][0]["issue"] = "An authored issue on a matched record."
+        data["items"][1]["issue"] = "Distinct note. "
+        data = self.compare_all(self.revalidate(data))
+        use_id = data["uses"][0]["id"]
+        note = "Shared unresolved question."
+        data["observations"].extend(records._make_observations_validated(
+            data, [{"collection": "items", "id": "centering"}, {"collection": "uses", "id": use_id}],
+            "Reviewer", result="needs_attention", note=note,
+            basis_by_target={("items", "centering"): "typeset", ("uses", use_id): "extracted_text"}))
+        with patch.object(records, "_comparison_state", wraps=records._comparison_state) as selected, \
+                patch.object(records, "source_status", wraps=records.source_status) as freshness:
+            prepared = records._prepare_records_validated(data, self.base)
+        self.assertEqual(selected.call_count, 1)
+        self.assertEqual(freshness.call_count, 1)
+        brief = prepared["delivery_brief"]
+        self.assertEqual(brief["title"], data["title"])
+        self.assertEqual(brief["scope"], data["scope"])
+        self.assertEqual(brief["counts"], {"items": 2, "uses": 1, "items_by_kind": {"assumption": 1, "theorem": 1}})
+        self.assertEqual(brief["main_results"], [{"id": "centering", "label": "Theorem 1", "caption": "Deterministic centering"}])
+        self.assertEqual([entry["text"] for entry in brief["limits"]],
+                         ["An authored issue on a matched record.", "Distinct note. ", note])
+        self.assertEqual(brief["limits"][-1]["targets"], [
+            {"collection": "items", "id": "centering", "field": "comparison_note"},
+            {"collection": "uses", "id": use_id, "field": "comparison_note"}])
+        self.assertEqual(brief["pending"], {"unreviewed": [], "stale": []})
+        self.assertEqual(prepared["items"][1]["comparison_evidence"], "current")
+        self.assertEqual(prepared["items"][0]["comparison_basis"], "not_recorded")
+        data["uses"][0]["reason"] += " Changed."
+        stale = records.prepare_records(self.revalidate(data), self.base)["delivery_brief"]
+        self.assertNotIn(note, [entry["text"] for entry in stale["limits"]])
+        self.assertEqual(stale["pending"]["stale"], [
+            {"collection": "items", "id": "centering"}, {"collection": "uses", "id": use_id}])
+        del data["main_items"]
+        self.assertEqual(records.prepare_records(self.revalidate(data), self.base)["delivery_brief"]["main_results"], [])
 
     def test_changed_use_stales_its_review_and_its_target_comparison(self):
         reviewed = self.compare_all(self.migrate())

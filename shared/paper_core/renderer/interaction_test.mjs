@@ -63,7 +63,9 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
       Object.assign(projection.record_locations.find(row => pin(row.ref) === pin(ref)),
         {detail_key:earlier.detail_key,section_key:other.sections[0].key});
     }
-    relocated = {major,earlier,old,pin,owned};
+    const anchors = projection.records.filter(row => row.ref.collection === 'anchors');
+    for (const anchor of anchors) anchor.body.excerpt = ('pool-source-needle α 🧪 </script> & literal source passage. ').repeat(16);
+    relocated = {major,earlier,old,pin,owned,source:anchors[0].ref};
   }
   if (sharedOwners) {
     // The article's saved assessment is shared too; only graph identity differs.
@@ -99,6 +101,8 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
   const scan = scanHtml(html);
   assert.equal(scan.elements.filter(element => element.attrs.id === 'proof-reader-search').length,1,
     'Each report must retain exactly one scientific search payload.');
+  if (searchScenario === 'relocated')
+    assert.equal(JSON.parse(scan.elements.find(element => element.attrs.id === 'proof-reader-search').text).format,'source-pool-v1');
   const reportState = scan.elements.find(e => Object.hasOwn(e.attrs, 'data-reader-report-state'));
   const openingText = textOf(scan, reportState);
   const completion = input.projection.summary.progress.process_complete ? 'Registered examinations complete.' : 'Registered examinations incomplete.';
@@ -298,7 +302,10 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
     }
     const targets = input.projection.nodes.map(node => ({key:node.detail_key,nodeId:node.id,
       articleId:document.querySelector(`[data-proof-detail="${node.detail_key}"]`).id}));
-    document.getElementById('proof-reader-search').textContent = scanHtml(readerSearchData(entries)).elements.find(element => element.tag === 'script').text;
+    const excerpt = searchScenario === 'exact' ? entries[1].text : entries[0].text;
+    const searchPayload = scanHtml(readerSearchData(entries,{excerptCandidates:[excerpt]})).elements.find(element => element.tag === 'script').text;
+    assert.equal(JSON.parse(searchPayload).format,'source-pool-v1');
+    document.getElementById('proof-reader-search').textContent = searchPayload;
     runtimeText = readerRuntime({targets,graphAvailable:!!svg});
   }
   vm.runInContext(runtimeText, context); flush();
@@ -360,7 +367,12 @@ function runFixture(name, withWork = false, withReader = false, buildKind = null
       assert.deepEqual(labels(query('ordinary content')).slice(0,3),['Earlier passage 0','Earlier passage 1','Earlier passage 2'],
         'Passage-only search retains the original order.');
     } else {
-      const {major,earlier,old,pin,owned} = relocated;
+      const {major,earlier,old,pin,owned,source} = relocated;
+      const passages = query('pool-source-needle');
+      assert(passages.length);
+      assert(passages[0].textContent.includes('pool-source-needle α 🧪 </script> & literal source passage.'));
+      query(pin(source))[0].click(); flush();
+      assert.equal(document.querySelector('.is-target').getAttribute('data-record-ref'),pin(source));
       for (const [value,owner,record] of [[major.label,major,null],[pin(major.item_ref),major,pin(major.item_ref)],[pin(old),earlier,pin(old)],...owned.map(ref => [pin(ref),major,pin(ref)])]) {
         for (const method of ['click','Enter']) {
           const buttons = query(value); assert(buttons.length, 'Exact current and historical queries must return a result.');

@@ -202,11 +202,49 @@ def _outer_aligned(tex: str, display: str) -> str:
         return tex
     if re.search(r"\\(?:begin|end|tag|label|notag|nonumber|cr|hline|hdashline|intertext|shortintertext|noalign|omit|span|multicolumn)(?![A-Za-z])", body):
         return tex
-    # Conservatively leave adjacent row-break/command slashes and modifiers alone.
-    if re.search(r"\\{3,}|(?<!\\)\\\\\s*[\[*]", body):
+    # Three slashes can join a row break directly to a control word.
+    # Inspect maximal runs so longer runs and control symbols stay excluded.
+    for run in re.finditer(r"\\{3,}", body):
+        if len(run[0]) != 3 or not re.match(r"[A-Za-z]", body[run.end():]):
+            return tex
+    if re.search(r"(?<!\\)\\\\\s*[\[*]", body):
         return tex
     return (tex[:match.start(1)].replace("{aligned}", "{align*}") + body
             + tex[match.end(1):].replace("{aligned}", "{align*}"))
+
+
+def _split_terminal_tag(tex: str, display: str) -> tuple[str, str | None]:
+    """Split one simple display tag; leave other forms for _check_tex to reject."""
+    matches = [match for match in re.finditer(r"\\tag(?![A-Za-z])", tex)
+               if not _escaped(tex, match.start())]
+    if display != "block" or len(matches) != 1:
+        return tex, None
+    position = matches[0].start()
+    suffix = re.fullmatch(r"\\tag\s*\{([A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*)\}\s*", tex[position:])
+    body = tex[:position]
+    if suffix is None or not body.strip():
+        return tex, None
+    depth = 0
+    for index, character in enumerate(body):
+        if _escaped(body, index):
+            continue
+        if character == "%":
+            return tex, None
+        if character in "{}":
+            depth += 1 if character == "{" else -1
+            if depth < 0:
+                return tex, None
+    environments = []
+    for match in re.finditer(r"\\(begin|end)\s*\{([^{}]*)\}", body):
+        if _escaped(body, match.start()):
+            continue
+        if match[1] == "begin":
+            environments.append(match[2])
+        elif not environments or environments.pop() != match[2]:
+            return tex, None
+    if depth or environments:
+        return tex, None
+    return body, suffix[1]
 
 
 def _check_tex(tex: str) -> None:
@@ -295,13 +333,28 @@ def _ordinary_spacing(elements) -> None:
         return ((tagged(element, "mi") or tagged(element, "mn"))
                 and not len(element) and bool((element.text or "").strip()) and not element.tail)
 
+    def scripted(element, base):
+        arity = next((size for name, size in (("msub", 2), ("msup", 2), ("msubsup", 3))
+                      if tagged(element, name)), None)
+        return (arity is not None and len(element) == arity
+                and not element.text and not element.tail and base(element[0]))
+
+    def integral(element):
+        return operator(element, "∫") or scripted(element, lambda base: operator(base, "∫"))
+
+    def bracket_edge(element, first):
+        # Inspect one ordinary row boundary without flattening or searching it.
+        if tagged(element, "mrow") and len(element) and not element.text and not element.tail:
+            return element[0 if first else -1]
+        return element
+
     for parent in elements:
         if tagged(parent, "msup") and len(parent) == 2:
             exponent = parent[1]
             if (tagged(exponent, "mrow") and not exponent.text and not exponent.tail
                     and len(exponent) == 2 and thin(exponent[0]) and operator(exponent[1], "⊤")):
                 exponent.remove(exponent[0])
-        if not tagged(parent, "mrow"):
+        if not (tagged(parent, "mrow") or tagged(parent, "mtd")):
             continue
         siblings = list(parent)
         for index in range(len(siblings) - 4):
@@ -332,12 +385,33 @@ def _ordinary_spacing(elements) -> None:
                     and thin(siblings[index + 1]) and operator(siblings[index + 2], "∫")):
                 parent.remove(siblings[index])
                 parent.remove(siblings[index + 1])
+        for index in range(1, len(siblings) - 1):
+            previous, space, following = siblings[index - 1:index + 2]
+            if not thin(space) or space not in parent:
+                continue
+            left, right = bracket_edge(previous, False), bracket_edge(following, True)
+            brackets = ((operator(left, "[") and operator(right, "["))
+                        or (operator(left, "]") and operator(right, "]")))
+            norm_bars = (
+                operator(previous, "‖") and operator(following, "|")
+                or operator(previous, "|") and (
+                    operator(following, "‖")
+                    or scripted(following, lambda base: operator(base, "‖"))
+                )
+            )
+            if (brackets or norm_bars
+                    or (operator(previous, "∫") and operator(following, "∫"))
+                    or ((operand(previous) or scripted(previous, operand)) and integral(following))):
+                parent.remove(space)
 
 
-def _safe_mathml(value: str, tex: str, display: str) -> str:
+def _safe_mathml(value: str, tex: str, display: str, equation_tag: str | None = None) -> str:
     if len(value) > 250_000 or re.search(r"<!\s*(?:DOCTYPE|ENTITY)", value, re.I):
         raise ValueError("unsupported converter output")
     root = ET.fromstring(value)
+    if equation_tag is not None:
+        ET.SubElement(root, "mspace", {"width": "1em"})
+        ET.SubElement(root, "mtext").text = "(" + equation_tag + ")"
     elements = list(root.iter())
     if len(elements) > 10_000:
         raise ValueError("formula is too large")
@@ -367,7 +441,8 @@ def _safe_mathml(value: str, tex: str, display: str) -> str:
         if (tag == "mo" and not len(element) and element.get("minsize")
                 and element.get("minsize") == element.get("maxsize")):
             element.text = {r"\{": "{", r"\}": "}", r"\lbrace": "{", r"\rbrace": "}",
-                            r"\langle": "⟨", r"\rangle": "⟩", r"\|": "‖"}.get(
+                            r"\langle": "⟨", r"\rangle": "⟩", r"\|": "‖",
+                            r"\lfloor": "⌊", r"\rfloor": "⌋"}.get(
                 element.text, element.text)
         if tag == "mo" and element.text in {r"\{", r"\}", r"\lbrace", r"\rbrace"}:
             raise ValueError("an unconverted LaTeX brace remains literal: " + element.text)
@@ -513,7 +588,8 @@ def _convert(tex: str, display: str) -> tuple[str | None, str]:
     except ImportError:
         return None, "The shared LaTeX converter is unavailable."
     try:
-        converter_tex = _outer_aligned(tex, display)
+        body, equation_tag = _split_terminal_tag(tex, display)
+        converter_tex = _outer_aligned(body, display)
         _check_tex(converter_tex)
         adapted = _independence_symbol(_argument_operator(_sized_named_bars(_group_scripted_binomials(converter_tex))))
         # Suppress converter-invented numbers without rewriting source TeX.
@@ -521,7 +597,7 @@ def _convert(tex: str, display: str) -> tuple[str | None, str]:
             match.group(0) if _escaped(adapted, match.start()) else
             match.group(0).replace("{align}", "{align*}")
         ), adapted)
-        return _safe_mathml(convert(adapted, display=display), tex, display), ""
+        return _safe_mathml(convert(adapted, display=display), tex, display, equation_tag), ""
     except Exception as exc:
         # Converter failures must never remove the original mathematical text.
         # The bounded reason locates the problem; a traceback would not.

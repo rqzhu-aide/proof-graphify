@@ -58,7 +58,7 @@ class SQLOverviewTest(TempCase):
 
     def compare(self, result="matched"):
         data = overview_cli.export_snapshot(self.db)
-        return overview_cli.compare_records(self.db, {"expected_snapshot": data["snapshot_id"],
+        return overview_cli.compare_records(self.db, {"basis": "tex", "expected_snapshot": data["snapshot_id"],
             "targets": [{"collection": "items", "id": "T"}, {"collection": "uses", "id": "uAT"}],
             "reviewer": "reader", "result": result, "note": "Compared saved statements and their incoming contribution"})
 
@@ -274,7 +274,7 @@ class SQLOverviewTest(TempCase):
     def test_shared_proof_idea_change_stales_own_and_downstream_comparisons(self):
         self.create(audit=True)
         data = overview_cli.export_snapshot(self.db)
-        overview_cli.compare_records(self.db, {"expected_snapshot": data["snapshot_id"],
+        overview_cli.compare_records(self.db, {"basis": "tex", "expected_snapshot": data["snapshot_id"],
             "targets": [{"collection": c, "id": row["id"]} for c in ("items", "uses") for row in data[c]],
             "reviewer": "reader", "note": "Compared the saved statements and contribution"})
         before = overview_cli.export_snapshot(self.db)

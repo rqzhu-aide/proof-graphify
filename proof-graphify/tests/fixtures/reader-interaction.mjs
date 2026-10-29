@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { decodeReaderSearchData } from '../../scripts/paper_core/renderer/scientific_reader.mjs';
 import { scanHtml, decodeEntities } from '../../scripts/paper_core/renderer/html_scan.mjs';
 
 const packet = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
@@ -116,7 +117,7 @@ const document = new Element(packet.document), window = new Element({ tag: 'wind
 assert.equal(document.querySelectorAll('#proof-reader-search').length,1,'Each overview must retain exactly one scientific search payload.');
 const searchPayload = document.querySelector('#proof-reader-search').textContent;
 assert(!/[<>&]/.test(searchPayload),'Script-like source text must remain safely escaped in the retained payload.');
-assert(JSON.parse(searchPayload).some(entry => entry.text.includes('</script><script>literal_source()</script> & <literal>')),
+assert(decodeReaderSearchData(JSON.parse(searchPayload)).some(entry => entry.text.includes('</script><script>literal_source()</script> & <literal>')),
   'The retained payload must preserve the literal source text.');
 document.getElementById = id => document.querySelector('#' + id);
 document.createElement = tag => new Element({ tag });

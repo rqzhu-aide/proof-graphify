@@ -226,9 +226,7 @@ class LocalBasis:
         record = self.snap.get(target)
         findings = list(self.d.findings_by_target.get(_key(target), ()))
         checks = self.d.checks_by_target.get(_key(target), ())
-        for check in checks:
-            if check.id not in self.d.superseded:
-                findings.extend(self.d.findings_by_check.get(check.id, ()))
+        # Check citations preserve evidence; targets and affected uses set applicability.
         if record is not None and record.collection == "arguments" and record.body["origin"] == "source":
             ids = {check.id for check in checks}
             findings.extend(f for f in self.d.findings_by_target.get(_key(record.body["target"]), ())

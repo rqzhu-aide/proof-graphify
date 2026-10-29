@@ -93,6 +93,15 @@ class FocusedOverviewTests(unittest.TestCase):
                                         for group in ("items", "uses") for row in data[group]],
                  "reviewer": "Synthetic source reader",
                  "note": "Compared the stated variance conditions and the located contribution passages."}
+        if 'reuse_from' not in extra:
+            batch['basis'] = 'tex'
+            batch['targets'] = deepcopy(batch['targets'])
+            for target in batch['targets']:
+                row = next(row for row in data[target['collection']] if row['id'] == target['id'])
+                if not (row['passages'] if target['collection'] == 'items' else row['evidence_refs']):
+                    # These fixtures deliberately omit locators. Simulate a
+                    # typeset comparison so the focused evidence guard is tested.
+                    target['basis'] = 'typeset'
         batch.update(extra)
         return database.compare_records(db_path, batch)
 
@@ -217,7 +226,7 @@ class FocusedOverviewTests(unittest.TestCase):
         self.assertEqual({row["id"] for row in report["not_mechanically_matchable"]},
                          {row["id"] for row in seed["items"]})
         self.assertEqual(database.export_snapshot(db_path), before)
-        self.compare(db_path)
+        self.compare(db_path, basis="source_text")
         self.assertEqual(database.validate_database(db_path)["source_comparison"]["matched"], 6)
         self.assertEqual(database.validate_database(db_path)["citation_candidates"],
                          "not applicable (no TeX sources captured)")
@@ -279,7 +288,7 @@ class FocusedOverviewTests(unittest.TestCase):
         ])
         self.assertEqual([row["path"] for row in data["source_revision"]["files"]], [manuscript.name])
         self.assertEqual(data["observations"], [])
-        self.compare(db_path, note="Compared the recorded descriptions and contribution with this manuscript; the cited external work was not inspected.")
+        self.compare(db_path, basis="source_text", note="Compared the recorded descriptions and contribution with this manuscript; the cited external work was not inspected.")
         export = self.base / "markdown-export.json"
         database.export_database(db_path, export)
         restored = self.base / "markdown-restored.sqlite"
@@ -634,7 +643,7 @@ class FocusedOverviewTests(unittest.TestCase):
         self.assertTrue(all(anchor["excerpt"] == "" for anchor in data["anchors"]))
         self.assertTrue(all(anchor["verification"]["method"] == "pdf_page_bounds"
                             for anchor in data["anchors"]))
-        self.compare(db_path, note="Compared the recorded statements and contributions with the page images.")
+        self.compare(db_path, basis="typeset", note="Compared the recorded statements and contributions with the page images.")
         status = database.validate_database(db_path)
         self.assertEqual(status["uses_without_evidence"], [])
         self.assertEqual(status["source_comparison"]["matched"], 6)

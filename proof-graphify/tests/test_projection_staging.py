@@ -138,7 +138,7 @@ class ProjectionStagingTests(unittest.TestCase):
             yield
 
     def compare_constant(self, snapshot):
-        return database.compare_records(self.db, {
+        return database.compare_records(self.db, {"basis": "tex",
             "expected_snapshot": snapshot,
             "targets": [{"collection": "items", "id": "constant"}],
             "reviewer": "Synthetic source reader", "result": "matched",

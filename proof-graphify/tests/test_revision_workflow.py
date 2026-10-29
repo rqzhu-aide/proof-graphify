@@ -130,7 +130,7 @@ class RevisionWorkflowTests(unittest.TestCase):
         initial = database.export_snapshot(self.db)
         self.targets = [{"collection": collection, "id": row["id"]}
                         for collection in ("items", "uses") for row in initial[collection]]
-        database.compare_records(self.db, {
+        database.compare_records(self.db, {"basis": "tex",
             "expected_snapshot": initial["snapshot_id"], "targets": self.targets,
             "reviewer": "Fixture source reviewer", "result": "matched",
             "note": "Compared the synthetic statements, cited passages, and source context.",
@@ -184,7 +184,7 @@ class RevisionWorkflowTests(unittest.TestCase):
         self.targets = [{"collection": collection, "id": row["id"]}
                         for collection in ("items", "uses") for row in data[collection]]
         self.all_targets = references(self.targets)
-        database.compare_records(self.db, {
+        database.compare_records(self.db, {"basis": "typeset",
             "expected_snapshot": data["snapshot_id"], "targets": self.targets,
             "reviewer": "Fixture source reviewer", "result": "matched",
             "note": "Compared the extended synthetic source records.",
@@ -377,7 +377,7 @@ class RevisionWorkflowTests(unittest.TestCase):
 
     def test_previous_needs_attention_cannot_be_carried_as_matched(self):
         target = [{"collection": "items", "id": "tail"}]
-        database.compare_records(self.db, {
+        database.compare_records(self.db, {"basis": "tex",
             "expected_snapshot": self.before["snapshot_id"], "targets": target,
             "reviewer": "Second source reviewer", "result": "needs_attention",
             "note": "The recorded use needs another comparison.",
@@ -393,7 +393,7 @@ class RevisionWorkflowTests(unittest.TestCase):
         self.replace(self.main, "A shrot note", "A short note")
         after = self.refresh()
         target = [{"collection": "items", "id": "tail"}]
-        database.compare_records(self.db, {
+        database.compare_records(self.db, {"basis": "tex",
             "expected_snapshot": after["snapshot_id"], "targets": target,
             "reviewer": "Revision source reviewer", "result": "needs_attention",
             "note": "A fresh source comparison found an unresolved dependency interpretation.",
@@ -581,7 +581,7 @@ class IntermediateRevisionTests(unittest.TestCase):
         data = database.export_snapshot(self.db)
         targets = [{"collection": collection, "id": row["id"]}
                    for collection in ("items", "uses") for row in data[collection]]
-        database.compare_records(self.db, {
+        database.compare_records(self.db, {"basis": "tex",
             "expected_snapshot": data["snapshot_id"], "targets": targets,
             "reviewer": "Fixture source reviewer", "result": "matched",
             "note": "Compared the synthetic statements, step uses, and source context.",
@@ -637,7 +637,7 @@ class IntermediateRevisionTests(unittest.TestCase):
         self.assertNotIn(("items", "owner"), candidates)
         self.assertNotIn(("uses", "use-premise-step"), candidates)
         # A fresh comparison returns the owner and its step to matched, history retained.
-        database.compare_records(self.db, {
+        database.compare_records(self.db, {"basis": "tex",
             "expected_snapshot": after["snapshot_id"],
             "targets": [{"collection": "items", "id": "owner"}, {"collection": "items", "id": "step"},
                         {"collection": "uses", "id": "use-premise-step"}],

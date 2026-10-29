@@ -303,7 +303,166 @@ class FoundedSupportTests(unittest.TestCase):
         self.assertEqual(graph.support("target"), "conditional")
 
 
+class PublicApplicationScopeTests(unittest.TestCase):
+    def graph(self):
+        graph = Graph()
+        graph.local_basis = object()
+        for ident in ("public_setup", "local_setup"):
+            graph.item(ident, kind="assumption").body["origin"] = "source"
+        graph.scope("supplier", ["public_setup"])
+        graph.scope("consumer", ["local_setup"])
+        for ident in ("supplier", "consumer"):
+            graph.item(ident, scope=ident).body["origin"] = "source"
+            graph.route(ident, ident, scope=ident)
+        graph.use("borrow", "supplier", "g_consumer")
+        graph.records["uses", "borrow"].body["type"] = "dependency"
+        return graph
+
+    def test_supported_application_uses_public_supplier_in_its_declared_scope(self):
+        for kind in ("theorem", "lemma", "proposition", "corollary"):
+            with self.subTest(kind=kind):
+                graph = self.graph()
+                graph.records["items", "supplier"].body["kind"] = kind
+                graph.scope("public_parent", ["public_setup"])
+                graph.scope("supplier", parent="public_parent")
+                self.assertFalse(graph.closure.admissible("supplier", "consumer"))
+                self.assertEqual(graph.support("supplier", "consumer"), "unavailable")
+                self.assertEqual(graph.support("consumer", "consumer"), "available")
+                self.assertEqual(graph.support("public_setup", "consumer"), "conditional")
+
+    def test_only_supported_public_dependency_applications_receive_scope_bridge(self):
+        cases = ("open_application", "defective_application", "stale_application", "noncoherent",
+                 "proof_argument", "definition_use", "owned_supplier", "reconstructed_supplier",
+                 "assumption_supplier", "external_supplier", "private_argument", "binder", "condition",
+                 "private_ancestor", "missing_scope", "missing_parent", "cyclic_parent", "missing_premise",
+                 "owned_premise", "scoped_premise", "exact_scoped_premise", "definition_premise",
+                 "reconstructed_premise", "theorem_premise", "wrong_application_scope")
+        for case in cases:
+            with self.subTest(case=case):
+                graph = self.graph()
+                supplier = graph.records["items", "supplier"].body
+                premise = graph.records["items", "public_setup"].body
+                scope = graph.records["scopes", "supplier"].body
+                if case in ("open_application", "defective_application", "stale_application"):
+                    graph.status["uses", "borrow", "application"] = {
+                        "open_application": "open", "defective_application": "defect", "stale_application": "stale"}[case]
+                elif case == "noncoherent":
+                    graph.local_basis = None
+                elif case in ("proof_argument", "definition_use"):
+                    graph.records["uses", "borrow"].body["type"] = "proof_argument" if case == "proof_argument" else "definition"
+                elif case == "owned_supplier":
+                    supplier["owner_id"] = "consumer"
+                elif case == "reconstructed_supplier":
+                    supplier["origin"] = "reconstruction"
+                elif case in ("assumption_supplier", "external_supplier"):
+                    supplier["kind"] = "assumption" if case == "assumption_supplier" else "external_result"
+                elif case == "private_argument":
+                    scope["argument_id"] = "a_supplier"
+                elif case == "binder":
+                    scope["binders"] = [{"symbol": "x", "domain": "real"}]
+                elif case == "condition":
+                    scope["conditions"] = ["x > 0"]
+                elif case == "private_ancestor":
+                    graph.scope("parent", conditions=["x > 0"])
+                    scope["parent_id"] = "parent"
+                elif case == "missing_scope":
+                    del graph.records["scopes", "supplier"]
+                elif case in ("missing_parent", "cyclic_parent"):
+                    scope["parent_id"] = "missing" if case == "missing_parent" else "supplier"
+                elif case == "missing_premise":
+                    del graph.records["items", "public_setup"]
+                elif case == "owned_premise":
+                    premise["owner_id"] = "supplier"
+                elif case == "scoped_premise":
+                    premise["scope_id"] = "supplier"
+                elif case == "exact_scoped_premise":
+                    ordinary_exact_scope = graph.exact_scope
+                    graph.exact_scope = lambda ref: "supplier" if ref == R("items", "public_setup") else ordinary_exact_scope(ref)
+                elif case in ("definition_premise", "theorem_premise"):
+                    premise["kind"] = "definition" if case == "definition_premise" else "theorem"
+                elif case == "reconstructed_premise":
+                    premise["origin"] = "reconstruction"
+                elif case == "wrong_application_scope":
+                    graph.scope("other", ["local_setup"])
+                    graph.records["application_details", "borrow"].body["scope_id"] = "other"
+                self.assertNotEqual(graph.support("consumer", "consumer"), "available")
+
+    def test_application_cannot_supply_a_missing_or_defective_supplier_proof(self):
+        for case in ("stale_source", "refuted", "defect", "unproved", "unfounded_cycle"):
+            with self.subTest(case=case):
+                graph = self.graph()
+                if case == "stale_source":
+                    graph.exact.remove(("items", "supplier"))
+                elif case == "refuted":
+                    graph.findings_by_target["items:supplier"].append(graph.put(
+                        "findings", "refutation", category="statement_refutation", lifecycle="open"))
+                elif case == "defect":
+                    graph.status["arguments", "a_supplier", "composition"] = "defect"
+                elif case == "unproved":
+                    graph.records["arguments", "a_supplier"].body["lifecycle"] = "draft"
+                else:
+                    graph.use("back", "consumer", "g_supplier")
+                    graph.records["uses", "back"].body["type"] = "dependency"
+                self.assertEqual(graph.status["uses", "borrow", "application"], "supported")
+                expected = "unavailable" if case in ("refuted", "defect") else "conditional"
+                self.assertEqual(graph.support("consumer", "consumer"), expected)
+
+    def test_explicit_active_supplier_hypothesis_keeps_ordinary_hypothetical_route(self):
+        graph = self.graph()
+        graph.records["scopes", "consumer"].body["assumptions"].append(R("items", "supplier"))
+        graph.records["arguments", "a_supplier"].body["lifecycle"] = "draft"
+        graph.records["scopes", "supplier"].body["conditions"] = ["private condition"]
+        self.assertEqual(graph.support("consumer", "consumer"), "available")
+
+
 class PublicSupportTests(TempCase):
+    def test_current_coherent_public_application_and_prerequisite_edit(self):
+        fixture = self.fixture().anchors()
+        with fixture.open() as db:
+            fixture.apply(db, [fixture.item_edit(ident, "assumption", ident, "anc_lem", "anc_lem_proof")
+                               for ident in ("hyp_public", "hyp_local")])
+            definition = dict(kind="lemma", statement="Under its named setup, x=x.",
+                              statement_anchors=["anc_lem"], proof_anchors=["anc_lem_proof"],
+                              proof_complete=True, source_matched=True,
+                              source_note="Exact statement and complete written proof inspected.")
+            create_unit(db, dict(definition, key="supplier", label="Supplier",
+                                 assumptions=[R("items", "hyp_public")]))
+            create_unit(db, dict(definition, key="consumer", label="Consumer",
+                                 assumptions=[R("items", "hyp_local")], suppliers=[{
+                                     "target": R("items", "itm_supplier"),
+                                     "reason": "The local setup establishes the public theorem's hypotheses.",
+                                     "needed_form": {"form": "verbatim", "text": "x=x"}}]))
+            targets = [R("items", "itm_" + key) for key in ("supplier", "consumer")]
+            fixture.apply(db, [edit("create", "audits", "aud_public", {
+                "paper_id": fixture.paper_id, "mode": "focused", "targets": targets, "exclusions": [],
+                "protocol_version": "coherent-proof-audit/1", "independent_required": False,
+                "qualification_id": None, "report_path": "reports/public.html", "global_tasks": []})])
+            checks = []
+            for key in ("supplier", "consumer"):
+                check = fixture.check_edit("chk_" + key, R("arguments", "arg_" + key), "composition",
+                                           audit_id="aud_public", evidence=["anc_lem_proof"])
+                check["body"].update(protocol_version="coherent-proof-audit/1", extent="whole_unit", omissions="")
+                checks.append(check)
+            fixture.apply(db, checks, "items:itm_supplier", "items:itm_consumer", mode="primary")
+            revision = db.max_revision()
+            before, result = derive_full(db, audit_id="aud_public")
+            application = R("uses", "use_consumer_1")
+            self.assertIsNotNone(before.local_basis)
+            self.assertFalse(before.support_closure.admissible("scp_supplier", "scp_consumer"))
+            self.assertEqual(before._obligation_supported(application, "application"), "supported")
+            self.assertEqual(result["support"]["items:itm_consumer"], "available")
+            self.assertEqual(len(db.records_at(revision, collection="checks")), 2)
+            prerequisite = db.head("items", "hyp_public")
+            fixture.apply(db, [edit("replace", "items", prerequisite.id, dict(prerequisite.body,
+                statement={"form": "verbatim", "text": "A changed prerequisite statement"}), prerequisite.version)],
+                "items:itm_supplier", "items:itm_consumer")
+            after, changed = derive_full(db, audit_id="aud_public")
+            historical, old = derive_full(db, revision=revision, audit_id="aud_public")
+            self.assertNotEqual(after._obligation_supported(application, "application"), "supported")
+            self.assertNotEqual(changed["support"]["items:itm_consumer"], "available")
+            self.assertEqual(historical._obligation_supported(application, "application"), "supported")
+            self.assertEqual(old["support"]["items:itm_consumer"], "available")
+
     def test_create_unit_siblings_share_named_definition_hypotheses(self):
         fixture = self.fixture().anchors()
         with fixture.open() as db:

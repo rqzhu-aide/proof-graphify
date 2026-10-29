@@ -1,4 +1,4 @@
-// Shared display components. Scientific records, evidence and graph layouts stay in adapters.
+// Shared display components. Scientific records, evidence and graph construction stay in adapters.
 import { readFileSync } from 'node:fs';
 import { applyTemplate, esc } from './assets/archify/utils.mjs';
 import { scanHtml } from './html_scan.mjs';
@@ -11,6 +11,17 @@ export const KINDS = {
 };
 export const BOX = { w: 170, h: 64, column: 275, row: 108, margin: 36 };
 export const SCIENTIFIC_READER_CSS = readFileSync(new URL('./scientific_reader.css', import.meta.url), 'utf8');
+
+// Keep source prerequisites next to their earliest consumer without moving
+// consuming results, isolated nodes, or nodes inside a cycle.
+export function alignSourcePrerequisites(nodes, incoming, outgoing) {
+  for (const node of nodes.values()) {
+    const uses = outgoing.get(node.id);
+    if (incoming.get(node.id).length || !uses.length) continue;
+    const rank = uses.reduce((nearest, use) => Math.min(nearest, nodes.get(use.to).rank - 1), Infinity);
+    node.rank = Math.max(node.rank, rank);
+  }
+}
 
 function replaceOnce(template, original, replacement) {
   if (template.split(original).length !== 2) throw new Error(`Scientific reader adaptation point changed: ${original}`);
@@ -155,14 +166,59 @@ export function mathDisplayNotes(summary, bodyHtml = '') {
   return `<aside class="proof-render-warnings" role="note" data-reader-math-notes><strong>Math display notes</strong><ul>${messages.slice(0, 8).map(message => `<li>${esc(message)}</li>`).join('')}</ul>${bodyHtml ? sourceDisclosure({title:'Affected formulas and source text',bodyHtml}) : ''}${messages.length > 8 || summary.messages_truncated || summary.groups_truncated ? '<p>The displayed notes are truncated. The saved build contains the complete diagnostics.</p>' : ''}<p>These notes concern mathematical display and do not change the scientific assessment.</p></aside>`;
 }
 function safeJson(value) { return JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026'); }
-export function readerSearchData(entries) {
-  return `<script id="proof-reader-search" type="application/json">${safeJson(entries)}</script>`;
-}
-export function readerRuntime({ targets, graphAvailable = true }) {
-  return `(${initializeScientificReader.toString()})(${safeJson({ targets, graphAvailable })});`;
+export function readerSearchData(entries, { excerptCandidates = [] } = {}) {
+  const ordinary = safeJson(entries);
+  const candidates = [...new Set(excerptCandidates.filter(value => typeof value === 'string' && value.length))]
+    .sort((a, b) => b.length - a.length);
+  if (!candidates.length) return `<script id="proof-reader-search" type="application/json">${ordinary}</script>`;
+  const strings = [], references = new Map();
+  const pooled = entries.map(entry => {
+    let segments = [entry.text];
+    for (const excerpt of candidates) {
+      segments = segments.flatMap(segment => {
+        if (typeof segment !== 'string' || !segment.includes(excerpt)) return [segment];
+        if (!references.has(excerpt)) { references.set(excerpt, strings.length); strings.push(excerpt); }
+        const parts = segment.split(excerpt), result = [];
+        parts.forEach((part, index) => {
+          if (index) result.push(references.get(excerpt));
+          if (part) result.push(part);
+        });
+        return result;
+      });
+    }
+    return segments.length === 1 && typeof segments[0] === 'string' ? entry : { ...entry, text: segments };
+  });
+  const compact = safeJson({ format: 'source-pool-v1', strings, entries: pooled });
+  const serialized = Buffer.byteLength(compact, 'utf8') < Buffer.byteLength(ordinary, 'utf8') ? compact : ordinary;
+  return `<script id="proof-reader-search" type="application/json">${serialized}</script>`;
 }
 
-function initializeScientificReader(data) {
+// Shared by the standalone reader and its existing release-content comparison.
+export function decodeReaderSearchData(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || value.format !== 'source-pool-v1' || !Array.isArray(value.strings)
+      || !value.strings.every(text => typeof text === 'string') || !Array.isArray(value.entries)) {
+    throw new TypeError('Invalid scientific search payload');
+  }
+  return value.entries.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new TypeError('Invalid scientific search entry');
+    if (typeof entry.text === 'string') return entry;
+    if (!Array.isArray(entry.text)) throw new TypeError('Invalid scientific search text');
+    const text = entry.text.map(segment => {
+      if (typeof segment === 'string') return segment;
+      if (!Number.isInteger(segment) || segment < 0 || segment >= value.strings.length) {
+        throw new TypeError('Invalid scientific search reference');
+      }
+      return value.strings[segment];
+    }).join('');
+    return { ...entry, text };
+  });
+}
+export function readerRuntime({ targets, graphAvailable = true }) {
+  return `(${initializeScientificReader.toString()})(${safeJson({ targets, graphAvailable })}, ${decodeReaderSearchData.toString()});`;
+}
+
+function initializeScientificReader(data, decodeSearchData) {
   'use strict';
   var doc = document, root = doc.documentElement, viewer = window.Archify;
   var svg = data.graphAvailable ? doc.querySelector('.diagram-container svg') : null;
@@ -429,7 +485,7 @@ function initializeScientificReader(data) {
     var match = normalized(value).match(title ? declarationTitle : declarationQuery);
     return match ? match[1] + ':' + match[2] : null;
   }
-  var entries = JSON.parse(doc.getElementById('proof-reader-search').textContent).map(function (entry) { return { ...entry, lower: entry.text.toLowerCase(), lookup: (entry.text + ' ' + (entry.aliases || []).join(' ')).toLowerCase(), exact: [entry.label].concat(entry.aliases || []).map(normalized), declaration: declaration(entry.label, true), direct: entry.isDirectResult === true || entry.key === entry.detail }; });
+  var entries = decodeSearchData(JSON.parse(doc.getElementById('proof-reader-search').textContent)).map(function (entry) { return { ...entry, lower: entry.text.toLowerCase(), lookup: (entry.text + ' ' + (entry.aliases || []).join(' ')).toLowerCase(), exact: [entry.label].concat(entry.aliases || []).map(normalized), declaration: declaration(entry.label, true), direct: entry.isDirectResult === true || entry.key === entry.detail }; });
   function element(tag, className, text) { var node = doc.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
   function runSearch() {
     if (!search || !results || !searchStatus) return;

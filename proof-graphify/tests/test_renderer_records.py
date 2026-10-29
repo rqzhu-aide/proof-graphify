@@ -122,6 +122,16 @@ class RendererRecordsTests(unittest.TestCase):
     def expected_uses(self):
         return sorted((use["id"], use["from"], use["to"]) for use in self.data["uses"])
 
+    def decode_search(self, payload):
+        decoder = RENDERER.parent / "paper_core" / "renderer" / "scientific_reader.mjs"
+        script = (f"import {{decodeReaderSearchData}} from {json.dumps(decoder.as_uri())};"
+                  "import {readFileSync} from 'node:fs';"
+                  "console.log(JSON.stringify(decodeReaderSearchData(JSON.parse(readFileSync(0,'utf8')))));")
+        result = subprocess.run([NODE, "--input-type=module", "-e", script], input=payload,
+                                capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
     def test_parallel_uses_retain_separate_svg_paths_and_exact_records(self):
         original = deepcopy(self.data)
         receipt, _, rendered = self.render()
@@ -393,7 +403,7 @@ class RendererRecordsTests(unittest.TestCase):
              r'LaTeX (not rendered): \unknownMacro{x}'),
         )
         markup = ''.join(f'<div>BEGIN_{name}:{body}:END_{name}</div>' for name, body, _ in cases)
-        excerpt = r'SOURCE <math><mi>SOURCE_LITERAL</mi></math> </script> &amp; \unknownMacro{x}'
+        excerpt = (r'SOURCE <math><mi>SOURCE_LITERAL</mi></math> </script> &amp; \unknownMacro{x} ' * 20).strip()
         self.data['items'][0]['statement_html'] = markup
         self.data['items'][0]['source_passages'][0]['source_excerpt'] = excerpt
         self.data['details'] = [{'id': 'search-detail', 'owner': 'bound', 'kind': 'claim',
@@ -431,8 +441,9 @@ class RendererRecordsTests(unittest.TestCase):
                 self.data['graph_mode'] = mode
                 snapshot = deepcopy(self.data)
                 receipt, html, rendered = self.render()
-                entries = json.loads(re.search(r'<script id="proof-reader-search"[^>]*>([\s\S]*?)</script>',
-                                              html).group(1))
+                payload = re.search(r'<script id="proof-reader-search"[^>]*>([\s\S]*?)</script>', html).group(1)
+                self.assertEqual(json.loads(payload)['format'], 'source-pool-v1')
+                entries = self.decode_search(payload)
                 self.assertEqual([{key: value for key, value in entry.items() if key != 'text'}
                                   for entry in entries], expected_metadata)
                 for field in ('items', 'uses', 'details', 'detail_uses', 'build_context'):

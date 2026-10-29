@@ -287,7 +287,7 @@ runpy.run_path(entry, run_name='__main__')
             item['caption'] = 'A clearer result caption'
             changed = database.apply_edits(db_path, {'expected_snapshot': packet['expected_snapshot'],
                 'edits': [{'collection': 'items', 'op': 'upsert', 'id': 'item-1', 'record': item}]})
-            database.compare_records(db_path, {'expected_snapshot': changed['snapshot_id'],
+            database.compare_records(db_path, {"basis": "extracted_text", 'expected_snapshot': changed['snapshot_id'],
                 'targets': [{'collection': 'items', 'id': 'item-1'}], 'reviewer': 'test',
                 'result': 'needs_attention', 'note': 'The damaged glyphs need inspection in the original PDF.'})
             self.assertEqual(database.get_packet(db_path, 'item-1')['target_fidelity'], 'needs_attention')

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -281,7 +282,7 @@ class PaperDatabaseTests(unittest.TestCase):
         for collection, identifier, reviewer, note, result in target_notes:
             database.compare_records(self.db, {"expected_snapshot": data["snapshot_id"],
                                                "targets": [{"collection": collection, "id": identifier}],
-                                               "reviewer": reviewer, "note": note, "result": result})
+                                               "basis": "tex", "reviewer": reviewer, "note": note, "result": result})
         packet = database.get_packet(self.db, "variance")
         self.assertEqual(len(packet["comparison_notes"]), 2)
         original = records.applicable_observations(database.export_snapshot(self.db))
@@ -297,7 +298,7 @@ class PaperDatabaseTests(unittest.TestCase):
         for number in range(1, 4):
             database.compare_records(self.db, {"expected_snapshot": self.initial["snapshot_id"],
                                               "targets": [{"collection": "items", "id": "variance"}],
-                                              "reviewer": "test reviewer", "note": f"Comparison {number}."})
+                                              "basis": "tex", "reviewer": "test reviewer", "note": f"Comparison {number}."})
         packet = database.get_packet(self.db, "variance")
         self.assertEqual(len(packet["observations"]), 1)
         self.assertEqual(self.packet_observations(packet)[0]["note"], "Comparison 3.")
@@ -312,10 +313,10 @@ class PaperDatabaseTests(unittest.TestCase):
         original = self.initial["snapshot_id"]
         target = [{"collection": "items", "id": "variance"}]
         database.compare_records(self.db, {"expected_snapshot": original, "targets": target,
-                                          "reviewer": "test reviewer", "note": "Compared the original statement."})
+                                          "basis": "tex", "reviewer": "test reviewer", "note": "Compared the original statement."})
         updated = database.apply_edits(self.db, self.update_caption())["snapshot_id"]
         database.compare_records(self.db, {"expected_snapshot": updated, "targets": target,
-                                          "reviewer": "test reviewer", "note": "Compared the revised record."})
+                                          "basis": "tex", "reviewer": "test reviewer", "note": "Compared the revised record."})
         historical = database.get_packet(self.db, "variance", original)
         current = database.get_packet(self.db, "variance")
         self.assertEqual(self.packet_observations(historical)[0]["note"], "Compared the original statement.")
@@ -366,7 +367,7 @@ class PaperDatabaseTests(unittest.TestCase):
 
     def test_comparison_history_does_not_change_semantic_snapshot(self):
         before = database.export_snapshot(self.db)
-        response = database.compare_records(self.db, {"expected_snapshot": before["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "reviewer": "test reviewer", "result": "matched", "note": "Compared the statement with its source."})
+        response = database.compare_records(self.db, {"expected_snapshot": before["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "basis": "tex", "reviewer": "test reviewer", "result": "matched", "note": "Compared the statement with its source."})
         after = database.export_snapshot(self.db)
         self.assertEqual(response["recorded"], 1)
         self.assertEqual(after["snapshot_id"], before["snapshot_id"])
@@ -376,7 +377,7 @@ class PaperDatabaseTests(unittest.TestCase):
 
     def test_prior_comparison_is_preserved_after_target_changes(self):
         data = database.export_snapshot(self.db)
-        database.compare_records(self.db, {"expected_snapshot": data["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "reviewer": "test reviewer"})
+        database.compare_records(self.db, {"expected_snapshot": data["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "basis": "tex", "reviewer": "test reviewer"})
         old = database.export_snapshot(self.db)["observations"][0]
         database.apply_edits(self.db, self.update_caption())
         current = database.export_snapshot(self.db)
@@ -392,7 +393,7 @@ class PaperDatabaseTests(unittest.TestCase):
         original = self.initial["snapshot_id"]
         database.apply_edits(self.db, self.update_caption())
         with self.assertRaisesRegex(database.DatabaseError, "Stale comparison"):
-            database.compare_records(self.db, {"expected_snapshot": original, "targets": [{"collection": "items", "id": "variance"}], "reviewer": "test reviewer"})
+            database.compare_records(self.db, {"expected_snapshot": original, "targets": [{"collection": "items", "id": "variance"}], "basis": "tex", "reviewer": "test reviewer"})
         self.assertEqual(self.counts()["observations"], 0)
 
     def test_refresh_preserves_historical_source_bytes(self):
@@ -463,7 +464,7 @@ class PaperDatabaseTests(unittest.TestCase):
 
     def test_removing_a_reviewed_item_preserves_history_and_updates_inventory(self):
         data = database.export_snapshot(self.db)
-        database.compare_records(self.db, {"expected_snapshot": data["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "reviewer": "test reviewer"})
+        database.compare_records(self.db, {"expected_snapshot": data["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "basis": "tex", "reviewer": "test reviewer"})
         batch = {"expected_snapshot": data["snapshot_id"], "edits": [
             {"collection": "uses", "op": "remove", "id": data["uses"][0]["id"]},
             {"collection": "items", "op": "remove", "id": "variance"},
@@ -475,7 +476,7 @@ class PaperDatabaseTests(unittest.TestCase):
         self.assertEqual(len(database.export_snapshot(self.db, data["snapshot_id"])["items"]), 2)
 
     def test_malformed_comparison_inputs_are_actionable(self):
-        base = {"expected_snapshot": self.initial["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "reviewer": "test reviewer"}
+        base = {"expected_snapshot": self.initial["snapshot_id"], "targets": [{"collection": "items", "id": "variance"}], "basis": "tex", "reviewer": "test reviewer"}
         for field, value in (("targets", None), ("targets", []), ("reviewer", []), ("note", []), ("result", [])):
             with self.subTest(field=field, value=value):
                 bad = deepcopy(base)
@@ -516,7 +517,7 @@ class PaperDatabaseTests(unittest.TestCase):
     def test_comparison_checks_input_once_and_still_rejects_stale_work(self):
         batch = {"expected_snapshot": self.initial["snapshot_id"],
                  "targets": [{"collection": "items", "id": "variance"}],
-                 "reviewer": "reader", "note": "Compared the variance identity and its independence premise."}
+                 "basis": "tex", "reviewer": "reader", "note": "Compared the variance identity and its independence premise."}
         with patch.object(records, "validate_records", wraps=records.validate_records) as check:
             result = database.compare_records(self.db, batch)
         self.assertEqual(check.call_count, 1)
@@ -877,7 +878,11 @@ class PaperDatabaseTests(unittest.TestCase):
     def test_render_stores_build_without_changing_semantic_snapshot(self):
         before = database.export_snapshot(self.db)
         output = self.base / "paper-proof-overview.html"
-        database.render_database(self.db, output)
+        receipt = database.render_database(self.db, output)
+        self.assertEqual(receipt['database'], str(self.db.resolve()))
+        with closing(sqlite3.connect(self.db)) as connection:
+            saved = json.loads(connection.execute('SELECT payload FROM builds').fetchone()[0])
+        self.assertEqual(saved['database'], receipt['database'])
         self.assertTrue(output.is_file())
         self.assertEqual(database.export_snapshot(self.db)["snapshot_id"], before["snapshot_id"])
         self.assertEqual(self.counts()["builds"], 1)
@@ -887,8 +892,119 @@ class PaperDatabaseTests(unittest.TestCase):
         targets = [{"collection": group, "id": row["id"]}
                    for group in ("items", "uses") for row in data[group]]
         database.compare_records(self.db, {"expected_snapshot": data["snapshot_id"], "targets": targets,
-                                           "reviewer": "Synthetic source reviewer", "note": note})
+                                           "basis": "tex", "reviewer": "Synthetic source reviewer", "note": note})
         return data
+
+    def test_comparison_basis_defaults_overrides_and_atomic_errors(self):
+        data = database.export_snapshot(self.db)
+        targets = [{'collection': 'items', 'id': row['id']} for row in data['items']]
+        batch = {'expected_snapshot': data['snapshot_id'], 'targets': targets,
+                 'reviewer': 'Evidence reviewer', 'basis': 'source_text'}
+        before = self.counts()
+        with self.assertRaises(database.DatabaseError) as caught:
+            database.compare_records(self.db, batch)
+        self.assertIn('items/sampling', str(caught.exception))
+        self.assertIn('items/variance', str(caught.exception))
+        self.assertEqual(before, self.counts())
+        targets[1]['basis'] = 'typeset'
+        result = database.compare_records(self.db, {**batch, 'basis': 'tex'})
+        self.assertEqual([row['basis'] for row in result['observations']], ['tex', 'typeset'])
+        self.assertTrue(all(set(row['target']) == {'collection', 'id'} for row in result['observations']))
+        self.assertEqual(data['snapshot_id'], database.export_snapshot(self.db)['snapshot_id'])
+        for invalid in ({key: value for key, value in batch.items() if key != 'basis'},
+                        {**batch, 'result': 'needs_attention', 'note': '  '}):
+            with self.assertRaises(database.DatabaseError):
+                database.compare_records(self.db, invalid)
+
+    def test_extracted_math_gate_uses_whole_identifier_spans(self):
+        allowed = ['P', r'\mathcal F', r'\mathcal{F}', 'L_1', 'L_{1}', 'X_i',
+                   r'\alpha_n', 'A_{1n}', r'\mathcal F_\varepsilon']
+        restricted = [r'\sigma^2', r'\beta^{-1/2}', r'\frac{a+b}{1-c}', r'q\ge3',
+                      r'H_n(\varepsilon)', 'P(fg)', r'\|M\|_q', 'X_{i+1}',
+                      r'\tilde Z', r'\CustomClass', r'\alphabad', r'\mathcalF',
+                      'P Q', 'X_{a b}', 'X_1_2', 'X\n_i']
+        data = database.export_snapshot(self.db)
+        targets = [{'collection': 'items', 'id': 'variance'}]
+        for expression in allowed + restricted:
+            with self.subTest(expression=expression):
+                candidate = deepcopy(data)
+                candidate['items'][1]['statement']['text'] = '$' + expression + '$ is a named object.'
+                errors = database._comparison_evidence_errors(candidate, targets, {('items', 'variance'): 'extracted_text'}, 'matched')
+                self.assertEqual(bool(errors), expression in restricted)
+        candidate = deepcopy(data)
+        candidate['items'][1]['proof_idea'] = '$P$ names an object, but $P(fg)$ is a compound expression.'
+        candidate['items'][0]['statement']['text'] = '$x^2$'
+        errors = database._comparison_evidence_errors(candidate, targets, {('items', 'variance'): 'extracted_text'}, 'matched')
+        self.assertIn('proof_idea', errors[0])
+        self.assertIn('$P(fg)$', errors[0])
+        candidate['items'][1]['proof_idea'] = '$P'
+        self.assertTrue(database._comparison_evidence_errors(candidate, targets, {('items', 'variance'): 'extracted_text'}, 'matched'))
+        self.assertFalse(database._comparison_evidence_errors(candidate, targets, {('items', 'variance'): 'extracted_text'}, 'needs_attention'))
+
+    def test_source_association_uses_own_anchors_and_keeps_context(self):
+        data = database.export_snapshot(self.db)
+        targets = [{'collection': 'items', 'id': 'variance'}]
+        key = ('items', 'variance')
+        source = data['source_revision']['files'][0]
+        source['path'] = 'proof.md'
+        self.assertFalse(database._comparison_evidence_errors(data, targets, {key: 'source_text'}, 'matched'))
+        unrelated = deepcopy(source)
+        unrelated.update(id='unrelated-tex', path='unrelated.tex')
+        data['source_revision']['files'].append(unrelated)
+        self.assertTrue(database._comparison_evidence_errors(data, targets, {key: 'tex'}, 'matched'))
+        source['path'] = 'paper.TeX'
+        duplicate = deepcopy(data['anchors'][0])
+        duplicate.update(id='pdf-context', file_id='retained-pdf')
+        data['anchors'].append(duplicate)
+        data['source_revision']['files'].append({'id': 'retained-pdf', 'path': 'paper.pdf', 'media_type': 'application/pdf'})
+        data['items'][1]['passages'].append({'role': 'context', 'anchor_id': duplicate['id']})
+        self.assertFalse(database._comparison_evidence_errors(data, targets, {key: 'tex'}, 'matched'))
+
+    def test_reuse_inherits_mixed_known_and_absent_basis(self):
+        before = database.export_snapshot(self.db)
+        targets = [{'collection': 'items', 'id': row['id']} for row in before['items']]
+        historical = records.make_observations(before, targets, 'Earlier reviewer')
+        historical[0]['basis'] = 'tex'
+        with closing(database._connect(self.db, write=True)) as connection, connection:
+            database._store_observations(connection, before['snapshot_id'], historical)
+        self.source.write_text(self.source.read_text(encoding='utf-8') + '% unrelated source comment\n', encoding='utf-8')
+        after = database.refresh_database(self.db, before['snapshot_id'])
+        batch = {'expected_snapshot': after['snapshot_id'], 'reuse_from': before['snapshot_id'],
+                 'changes_reviewed': True, 'targets': targets, 'reviewer': 'Revision reviewer',
+                 'note': 'Reviewed the added unrelated source comment; target evidence is unchanged.'}
+        result = database.compare_records(self.db, batch)
+        self.assertEqual(result['observations'][0]['basis'], 'tex')
+        self.assertNotIn('basis', result['observations'][1])
+        for bad in ({**batch, 'basis': 'typeset'},
+                    {**batch, 'targets': [{**targets[0], 'basis': 'typeset'}]}):
+            counts = self.counts()
+            with self.assertRaisesRegex(database.DatabaseError, 'inherits'):
+                database.compare_records(self.db, bad)
+            self.assertEqual(self.counts(), counts)
+
+    def test_compound_math_batch_rejects_all_targets_then_accepts_an_honest_limit(self):
+        data = database.export_snapshot(self.db)
+        edited = deepcopy(data['items'])
+        for row in edited:
+            row['statement']['text'] += ' The bound is $x^2$.'
+        database.apply_edits(self.db, {'expected_snapshot': data['snapshot_id'], 'edits': [
+            {'collection': 'items', 'op': 'upsert', 'id': row['id'], 'record': row} for row in edited]})
+        data = database.export_snapshot(self.db)
+        batch = {'expected_snapshot': data['snapshot_id'], 'targets': [
+            {'collection': 'items', 'id': row['id']} for row in edited],
+            'reviewer': 'Extraction reviewer', 'basis': 'extracted_text'}
+        counts = self.counts()
+        with self.assertRaises(database.DatabaseError) as caught:
+            database.compare_records(self.db, batch)
+        for row in edited:
+            self.assertIn('items/' + row['id'], str(caught.exception))
+        self.assertEqual(self.counts(), counts)
+        result = database.compare_records(self.db, {**batch, 'result': 'needs_attention',
+            'note': 'The extracted power cannot be confirmed against inspected original mathematics.'})
+        self.assertEqual(result['recorded'], 2)
+        after = database.export_snapshot(self.db)
+        self.assertEqual(after['items'], data['items'])
+        self.assertEqual(after['snapshot_id'], data['snapshot_id'])
 
     def edit_prerequisite_caption(self, data):
         item = next(row for row in data["items"] if row["id"] == "sampling")
@@ -915,7 +1031,7 @@ class PaperDatabaseTests(unittest.TestCase):
         database.compare_records(self.db, {"expected_snapshot": current["snapshot_id"],
                                            "targets": [{"collection": "items", "id": "variance"},
                                                        {"collection": "uses", "id": current["uses"][0]["id"]}],
-                                           "reviewer": "Synthetic source reviewer", "note": "Recompared after the caption edit."})
+                                           "basis": "tex", "reviewer": "Synthetic source reviewer", "note": "Recompared after the caption edit."})
         result = database.validate_database(self.db)
         self.assertEqual(result["stale_targets"], [{"collection": "items", "id": "sampling"}])
         self.assertEqual(result["source_comparison"]["stale"], 1)
@@ -927,7 +1043,7 @@ class PaperDatabaseTests(unittest.TestCase):
         database.compare_records(self.db, {"expected_snapshot": current["snapshot_id"],
                                            "targets": [{"collection": "items", "id": "variance"},
                                                        {"collection": "uses", "id": current["uses"][0]["id"]}],
-                                           "reviewer": "Synthetic source reviewer", "note": "Recompared after the caption edit."})
+                                           "basis": "tex", "reviewer": "Synthetic source reviewer", "note": "Recompared after the caption edit."})
         packet = database.get_packet(self.db, "variance")
         self.assertEqual(packet["target_fidelity"], "matched")
         self.assertEqual(packet["comparison_status"]["stale"], 1)
@@ -944,7 +1060,7 @@ class PaperDatabaseTests(unittest.TestCase):
         # Appending a comparison keeps the semantic snapshot but must move the receipt.
         database.compare_records(self.db, {"expected_snapshot": self.initial["snapshot_id"],
                                            "targets": [{"collection": "items", "id": "variance"}],
-                                           "reviewer": "Synthetic source reviewer", "note": "A second look."})
+                                           "basis": "tex", "reviewer": "Synthetic source reviewer", "note": "A second look."})
         second = database.export_database(self.db, self.base / "export-2.json")
         self.assertEqual(second["snapshot_id"], first["snapshot_id"])
         self.assertEqual(second["observations"], 4)

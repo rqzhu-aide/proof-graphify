@@ -136,6 +136,52 @@ class CoherentEngineTests(TempCase):
         self.assertTrue(result["progress"]["process_complete"])
         self.assertEqual(result["support"]["items:itm_thm"], "unavailable")
 
+    def test_auxiliary_finding_citation_preserves_unaffected_conclusion_and_consumer(self):
+        for affected_use in (False, True):
+            with self.subTest(affected_use=affected_use):
+                f = Fixture(self.path(f"auxiliary_{affected_use}"))
+                f.audit(independent_required=False)
+                with f.open() as db:
+                    auxiliary = f.item_edit("itm_aux", "intermediate_result", "Unused auxiliary bound",
+                                            "anc_lem_proof", "anc_lem_proof")
+                    auxiliary["body"]["owner_id"] = "itm_lem"
+                    f.apply(db, [auxiliary, f.group_edit("grp_aux", "arg_lem", "itm_aux", "anc_lem_proof")],
+                            *f.ITEMS, mode="primary")
+                    f.apply(db, [edit("create", "target_specs", "tgt_aux", {
+                        "target": R("items", "itm_aux"), "statement_ref": f.pin(db, "items", "itm_aux"),
+                        "statement": None, "scope_id": None, "evidence_refs": ["anc_lem_proof"],
+                        "state": "registered", "fidelity_ref": None})], *f.ITEMS, mode="primary")
+                    packet = f.packet(db, *f.ITEMS, mode="primary")
+                    review.compare(db, batch=f.batch([edit("create", "observations", "obs_aux", {
+                        "target": R("target_specs", "tgt_aux"), "result": "matched", "reviewer": "primary",
+                        "note": "The exact auxiliary assertion matches the captured source.",
+                        "evidence_refs": ["anc_lem_proof"], "context_kind": "exact_target"})], packet["packet_id"]))
+                self.primary_units(f)
+                with f.open() as db:
+                    citation = f.pin(db, "checks", "chk_comp_lem")
+                    f.apply(db, [edit("create", "findings", "fnd_aux", {
+                        "audit_id": "aud_1", "target": R("items", "itm_aux"),
+                        "category": "proof_gap", "lifecycle": "open",
+                        "description": "The unused auxiliary bound has a gap.",
+                        "evidence_refs": ["anc_lem_proof"], "check_refs": [citation],
+                        "affected_uses": ["use_lem_thm"] if affected_use else [],
+                        "impact_reason": "The auxiliary assertion fails; its use is affected only when declared.",
+                        "resolution": None})], *f.ITEMS, mode="primary")
+                    derivation, result = assessment.derive_full(db, audit_id="aud_1")
+                    self.assertEqual(derivation.local_basis.local_finding(R("items", "itm_aux")), "defect")
+                    self.assertEqual(derivation.support(R("items", "itm_aux")), "unavailable")
+                    self.assertIsNone(derivation.local_basis.local_finding(R("arguments", "arg_lem")))
+                    self.assertEqual(derivation.local_basis.resolve(R("arguments", "arg_lem"), "composition"),
+                                     "supported")
+                    self.assertEqual(result["support"]["items:itm_lem"], "available")
+                    self.assertEqual(derivation.local_basis.local_finding(R("uses", "use_lem_thm")),
+                                     "defect" if affected_use else None)
+                    self.assertEqual(result["support"]["items:itm_thm"],
+                                     "unavailable" if affected_use else "available")
+                    finding = db.head("findings", "fnd_aux")
+                    self.assertEqual(finding.body["check_refs"], [citation])
+                    self.assertEqual(finding.body["lifecycle"], "open")
+
     def test_conflicting_current_primary_summaries_give_no_blanket_basis(self):
         f = self.fixture()
         self.primary_units(f)

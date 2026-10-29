@@ -1,8 +1,8 @@
 """Math display adaptation and diagnostics.
 
-Synthetic fixtures only: independence notation, negative spacing, sized named
-bar delimiters, unbraced binomial arguments, and private macros are the
-demonstrated converter failure classes.
+Fixtures cover independence notation, negative spacing, sized named bar
+delimiters, unbraced binomial arguments, private macros, and the two saved DSH
+terminal-tag failures.
 The tests assert converter-input adaptation and located diagnostics, never
 mathematical content.
 """
@@ -60,11 +60,49 @@ class FaithfulEquationDisplayTests(unittest.TestCase):
                 self.assertEqual(root.findall(".//m:mtext", namespace), [])
                 self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
 
-    def test_every_explicit_tag_keeps_the_whole_expression_as_escaped_literal(self):
+    def test_simple_terminal_block_tags_keep_body_structure_and_original_tex(self):
+        namespace = {"m": common_math.MATHML_NS}
+        # Exact saved DSH expressions, including their whitespace and tags.
+        cases = [
+            ("\n" + r"\sum_i\operatorname{ord}_{z=z_i}F_l(z,z'_i)\le N(d_l+d'_l)+2d_ld'_l. "
+             + r"\tag{3.6}" + "\n", "3.6"),
+            ("\n" + r"\sum_{p\le X,\ \chi(p)=-1}\log p\sum_{r,s}\min(\lfloor r/p\rfloor,S-1-s)"
+             + "\n" + r"\le \tfrac12 RS(R+S)\log(2N\sqrt q)+O(X^3). \tag{6.1}" + "\n", "6.1"),
+            (r"x^2\tag{A.1}", "A.1"),
+            (" " + r"\frac{a}{b}\tag {B12.3}" + "\t\n", "B12.3"),
+            (r"\begin{aligned}x&=1\\y&=2\end{aligned}\tag{A.1}", "A.1"),
+            (r"\begin{matrix}x\end{matrix}+\begin{matrix}y\end{matrix}\tag{2}", "2"),
+        ]
+        for tex, label in cases:
+            with self.subTest(tex=tex):
+                diagnostics = []
+                markup = common_math.render_text(r"\[" + tex + r"\]", diagnostics)
+                self.assertEqual(diagnostics, [])
+                root = ET.fromstring(markup)
+                self.assertEqual(root.get("display"), "block")
+                self.assertEqual(root.get("aria-label"), "LaTeX: " + tex)
+                self.assertEqual(root.find("m:semantics/m:annotation", namespace).text, tex)
+                row = root.find("m:semantics/m:mrow", namespace)
+                self.assertEqual(row[-2].tag, "{" + common_math.MATHML_NS + "}mspace")
+                self.assertEqual(row[-2].attrib, {"width": "1em"})
+                self.assertEqual(row[-1].tag, "{" + common_math.MATHML_NS + "}mtext")
+                self.assertEqual(row[-1].text, "(" + label + ")")
+                body = tex[:tex.rfind(r"\tag")]
+                plain, reason = common_math._convert(body, "block")
+                self.assertIsNotNone(plain, reason)
+                del row[-2:]
+                self.assertEqual(ET.tostring(row), ET.tostring(
+                    ET.fromstring(plain).find("m:semantics/m:mrow", namespace)))
+
+    def test_unsupported_tags_keep_the_whole_expression_as_escaped_literal(self):
         import html
-        cases = [r"a=b\tag{1}", r"a=b\tag*{A}", r"a=b\tag{{1}a}",
+        cases = [r"a=b\tag*{A}", r"a=b\tag{{1}a}",
                  r"a=b\tag{1}\tag{2}", r"a<b\tag{<script>&}",
-                 r"\begin{align}a&=b\tag{3}\\c&=d\end{align}"]
+                 r"\begin{align}a&=b\tag{3}\\c&=d\end{align}",
+                 r"{x\tag{1}}", r"x\tag{\alpha}", r"x\tag{1}+y", r"\tag{1}",
+                 r"x\tag{A-1}", r"x\tag{1.}", r"x\tag{}", r"x\tag{1", r"x\tag1",
+                 "x% comment\n" + r"\tag{1}", r"x\tag{1}% trailing comment",
+                 r"x{\tag{1}", r"\begin{matrix}x\end{cases}\tag{1}"]
         for tex in cases:
             for opening, closing in (("$", "$"), (r"\[", r"\]")):
                 with self.subTest(tex=tex, opening=opening):
@@ -75,9 +113,40 @@ class FaithfulEquationDisplayTests(unittest.TestCase):
                     self.assertIn('class="math-fallback"', markup)
                     self.assertIn("LaTeX (not rendered):", markup)
                     self.assertIn("<code>" + html.escape(literal, quote=True) + "</code>", markup)
+                    self.assertEqual(len(diagnostics), 1)
                     self.assertEqual(diagnostics[0]["kind"], "unsupported_expression")
                     self.assertIn("tags", diagnostics[0]["reason"])
                     self.assertEqual(diagnostics[0]["excerpt"], literal)
+                    self.assertEqual(diagnostics[0]["expression_index"], 0)
+        literal = r"$x\tag{3.6}$"
+        diagnostics = []
+        markup = common_math.render_text(literal, diagnostics)
+        self.assertNotIn("<math", markup)
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0]["excerpt"], literal)
+
+    def test_terminal_tag_does_not_bypass_existing_body_checks_or_size_limit(self):
+        import html
+        cases = [
+            (r"\newcommand{\a}{x}\a\tag{1}", "unsupported_expression"),
+            (r"\privateUnknown{x}\tag{1}", "unsupported_expression"),
+            (r"\\mathbf{x}\tag{1}", "damaged_escape"),
+            ("x+\theta" + r"\tag{1}", "damaged_escape"),
+            (r"\begin{unknown}x\end{unknown}\tag{1}", "unsupported_expression"),
+            ("x" * common_math.CONFIGURATION["maximum_formula_characters"] + r"\tag{1}",
+             "unsupported_expression"),
+        ]
+        for tex, classification in cases:
+            with self.subTest(tex=tex[:100]):
+                literal = r"\[" + tex + r"\]"
+                diagnostics = []
+                markup = common_math.render_text("Before " + literal + " after.", diagnostics)
+                self.assertNotIn("<math", markup)
+                self.assertIn("<code>" + html.escape(literal, quote=True) + "</code>", markup)
+                self.assertEqual(len(diagnostics), 1)
+                self.assertEqual(diagnostics[0]["kind"], classification)
+                self.assertEqual(diagnostics[0]["excerpt"], literal[:200])
+                self.assertEqual(diagnostics[0]["expression_index"], 0)
 
     def test_tag_detection_respects_command_boundaries_and_escaping(self):
         common_math._check_tex(r"\tagged{A}")
@@ -127,6 +196,9 @@ class ConverterAdaptationTests(unittest.TestCase):
     def test_standalone_aligned_preserves_columns_and_original_tex(self):
         namespace = {"m": common_math.MATHML_NS}
         for tex in (r"\begin{aligned}a&=b\\c&=d\end{aligned}",
+                    r"\begin{aligned}a&=b\\\gamma&=d\end{aligned}",
+                    r"\begin{aligned}a&=b\\\leq&d\end{aligned}",
+                    r"\begin{aligned}&\mathbb E\!\left[X\right]\\&=y\end{aligned}",
                     r"\begin{aligned}&{\mathbb E\!\left[X\right]}\\ &=\Big\langle U^{\!\top},v\Big\rangle\end{aligned}"):
             with self.subTest(tex=tex):
                 markup, reason = common_math._convert(tex, "block")
@@ -147,7 +219,6 @@ class ConverterAdaptationTests(unittest.TestCase):
             (r"x+\begin{aligned}a&=b\end{aligned}", "block"),
             (r"\begin{aligned}[t]a&=b\end{aligned}", "block"),
             (r"\begin{aligned}a&=b\\[2pt]c&=d\end{aligned}", "block"),
-            (r"\begin{aligned}a&=b\\\gamma&=d\end{aligned}", "block"),
             (r"\begin{aligned}a&=b\tag{1}\end{aligned}", "block"),
             (r"\begin{aligned}\begin{matrix}a\end{matrix}\end{aligned}", "block"),
             ("\\begin{aligned}a&=b% comment\n\\end{aligned}", "block"),
@@ -156,6 +227,18 @@ class ConverterAdaptationTests(unittest.TestCase):
         ):
             with self.subTest(tex=tex, display=display):
                 markup, reason = common_math._convert(tex, display)
+                self.assertIsNone(markup)
+                self.assertTrue(reason)
+
+        for body in (r"x\\*y", r"x\\ [2pt]y", r"x\\\*y", r"x\\\[2pt]y",
+                     r"x\\\ foo", r"x\\\{y}", r"x\\\%", r"x\\\,y",
+                     "x" + "\\" * 3, r"x\\\α", r"x\\\\alpha", r"x\\\\\alpha",
+                     r"x\\\unknownCommand", r"x\\\frac{a}", r"x\\\tag{1}",
+                     r"x\\\label{a}", r"x\\\notag", r"x\\\nonumber", r"x\\\cr",
+                     r"x\\\hline", r"x\\\intertext{y}"):
+            tex = r"\begin{aligned}" + body + r"\end{aligned}"
+            with self.subTest(body=body):
+                markup, reason = common_math._convert(tex, "block")
                 self.assertIsNone(markup)
                 self.assertTrue(reason)
 
@@ -177,10 +260,48 @@ class ConverterAdaptationTests(unittest.TestCase):
             self.assertEqual(scripted[0].tag, "{" + common_math.MATHML_NS + "}mrow")
             self.assertEqual(scripted[0][0].text, "⟩")
 
+    def test_sized_floors_preserve_operator_attributes_and_original_tex(self):
+        from latex2mathml.converter import convert
+        namespace = {"m": common_math.MATHML_NS}
+        for size in ("big", "Big", "bigg", "Bigg"):
+            tex = "\\" + size + r"l\lfloor\frac rp" + "\\" + size + r"r\rfloor"
+            with self.subTest(size=size):
+                raw = ET.fromstring(convert(tex, display="block"))
+                diagnostics = []
+                root = ET.fromstring(math_display.render_text(r"\[" + tex + r"\]", diagnostics))
+                self.assertEqual(diagnostics, [])
+                before = [n for n in raw.findall(".//m:mo", namespace) if n.get("minsize")]
+                after = [n for n in root.findall(".//m:mo", namespace) if n.get("minsize")]
+                self.assertEqual([n.text for n in after], ["⌊", "⌋"])
+                self.assertEqual([n.attrib for n in after], [n.attrib for n in before])
+                self.assertEqual(root.find(".//m:annotation", namespace).text, tex)
+                self.assertEqual(root.get("aria-label"), "LaTeX: " + tex)
+                self.assertIsNotNone(root.find(".//m:mfrac", namespace))
+        for token in (r'<mo>\lfloor</mo>',
+                      r'<mi minsize="1.2em" maxsize="1.2em">\lfloor</mi>',
+                      r'<mo minsize="1.2em" maxsize="1.623em">\rfloor</mo>',
+                      r'<mo minsize="1.2em" maxsize="1.2em">\lfloor<mi>x</mi></mo>',
+                      r'<mo minsize="1.2em" maxsize="1.2em">\lceil</mo>'):
+            with self.subTest(token=token), self.assertRaises(ValueError):
+                common_math._safe_mathml("<math>" + token + "</math>", "original", "inline")
+
     def test_bounded_spacing_preserves_nonspacing_tree_and_evidence(self):
         namespace = {"m": common_math.MATHML_NS}
         for tex in (r"\mathbb E\!\left[X\right]", r"f\!\left(x\right)",
-                    r"U^{\!\top}", r"\int\!\!\int f(x,y)\,dx\,dy"):
+                    r"U^{\!\top}", r"\int\!\!\int f(x,y)\,dx\,dy",
+                    r"\int\!\int f", r"\int\!\int C_k\lesssim(\prod h_l)^{-1}",
+                    r"\int\!\int C_k\lesssim(\prod_l h_l)^{-2+1/(dH)}",
+                    r"k\in[\![1,\lfloor T\rfloor]\!]", r"k\in[\![1,T]\!]",
+                    r"\operatorname{Var}(T^{-1}\!\int_0^T F(X_s)ds)\asymp T^{2H-2},",
+                    r"[\!{[x]}\!]", r"k\in[\!\left[1,T\right]\!]",
+                    r"x\!\int f", r"2\!\int f", r"x_i^2\!\int_A^B f",
+                    r"\|\!|x|\!\|", r"\|\!|x|\!\|_A", r"\|\!|x|\!\|^2",
+                    r"\|\!|x|\!\|_A^2", r"\left\|\!|x|\!\right\|",
+                    r"\left\|\!|x|\!\right\|_A", r"\left\|\!|x|\!\right\|^2",
+                    r"\left\|\!|x|\!\right\|_A^2",
+                    r"p_t(\ell;y)\le t^{-dH}\exp\{C(1+t^\eta\|\!|\ell|\!\|_{\mathbb C^\gamma}^2)-c|y-\ell(t)|^2/t^{2H}\}",
+                    r"\begin{aligned}&\mathbb E\!\left[X\right]\end{aligned}",
+                    r"\begin{aligned}&a\!\cdot\! b\\&\int\!\!\int f\end{aligned}"):
             with self.subTest(tex=tex):
                 markup, reason = common_math._convert(tex, "block")
                 plain, plain_reason = common_math._convert(tex.replace(r"\!", ""), "block")
@@ -195,11 +316,41 @@ class ConverterAdaptationTests(unittest.TestCase):
                     root.find(".//m:annotation", namespace).text = "source"
                 self.assertEqual(ET.tostring(actual), ET.tostring(expected))
 
+    def test_archived_multiline_formulas_preserve_nonspacing_tree_and_source(self):
+        namespace = {"m": common_math.MATHML_NS}
+        cases = (
+            (r"\begin{aligned}\mathbb P\!\left\{|Z-\widetilde Z|>\frac{bK_n}{\gamma^{1/2}n^{1/2-1/q}}+\frac{(b\sigma)^{1/2}K_n^{3/4}}{\gamma^{1/2}n^{1/4}}+\frac{(b\sigma^2K_n^2)^{1/3}}{\gamma^{1/3}n^{1/6}}\right\}\\\leq C\left(\gamma+\frac{\log n}{n}\right).\end{aligned}", 2),
+            (r"\begin{aligned}\mathbb E[B_n(x,g)B_n(x',g')]={}&h_n^{-d}c_n(x,g)c_n(x',g')\\&\times\operatorname{Cov}\!\left(g(Y_1)k(h_n^{-1}(X_1-x)),\,g'(Y_1)k(h_n^{-1}(X_1-x'))\right).\end{aligned}", 4),
+            (r"\begin{aligned}|W_n-\widetilde W_n|=O_P\!\big(&n^{-1/6}\xi_n^{1/3}\log n+n^{-1/4}\xi_n^{1/2}(\log n)^{5/4}\\&+n^{-1/2+\theta}\xi_n(\log n)^{3/2}\big),\end{aligned}", 4),
+        )
+        for tex, cells in cases:
+            with self.subTest(tex=tex):
+                diagnostics = []
+                actual = ET.fromstring(common_math.render_text(r"\[" + tex + r"\]", diagnostics))
+                self.assertEqual(diagnostics, [])
+                self.assertEqual(len(actual.findall(".//m:mtr", namespace)), 2)
+                self.assertEqual(len(actual.findall(".//m:mtd", namespace)), cells)
+                self.assertEqual(actual.find(".//m:annotation", namespace).text, tex)
+                self.assertEqual(actual.get("aria-label"), "LaTeX: " + tex)
+                ordinary = tex.replace(r"\!", "").replace(r"\\\leq", r"\\ \leq")
+                markup, reason = common_math._convert(ordinary, "block")
+                self.assertIsNotNone(markup, reason)
+                expected = ET.fromstring(common_math._alphabet_mathml(markup))
+                for root in (actual, expected):
+                    root.attrib.pop("aria-label")
+                    root.find(".//m:annotation", namespace).text = "source"
+                self.assertEqual(ET.tostring(actual), ET.tostring(expected))
+
     def test_other_spacing_forms_remain_unsupported(self):
         for tex in (r"E\!\!\left[X\right]", r"U^{\!\!\top}", r"U^{\!\top+1}",
-                    r"U_{\!\top}", r"U^{\!T}", r"\int\!\int f", r"\int\!\!\!\int f",
+                    r"U_{\!\top}", r"U^{\!T}", r"\int\!\!\!\int f",
                     r"\int_A\!\!\int_B f", r"\sum\!\!\int f", r"\frac\!\left[x\right]",
-                    r"\begin{aligned}&\mathbb E\!\left[X\right]\end{aligned}"):
+                    r"x\!y", r"x\!\!\int f", r"[\!\![x]\!]", r"[\![x]\!\!]",
+                    r"\int_A\!\int_B f", r"x\hspace{-0.2em}\int f",
+                    r"\|\!\!|x|\!\|", r"\|\!|x|\!\!\|", r"|\!|x|\!|",
+                    r"\|\!\|x\|\!\|", r"\|\hspace{-0.2em}|x|\!\|",
+                    r"\begin{aligned}&E\!\!\left[X\right]\end{aligned}",
+                    r"\begin{aligned}&a\!\times b\\&\int\!\int f\end{aligned}"):
             with self.subTest(tex=tex):
                 markup, reason = common_math._convert(tex, "block")
                 self.assertIsNone(markup)
@@ -207,11 +358,29 @@ class ConverterAdaptationTests(unittest.TestCase):
 
     def test_spacing_normalization_never_discards_markup_or_text(self):
         shapes = (
+            '<mrow><mo>∫</mo><mspace width="negativethinmathspace"/><mo>∫</mo></mrow>',
+            '<mtd><mo>∫</mo><mspace width="negativethinmathspace"/><mo>∫</mo></mtd>',
+            '<mrow><mo>‖</mo><mspace width="negativethinmathspace"/><mo>|</mo></mrow>',
+            '<mrow><mo>|</mo><mspace width="negativethinmathspace"/><msubsup><mo>‖</mo><mi>A</mi><mn>2</mn></msubsup></mrow>',
             '<mrow><mi>E</mi><mspace width="negativethinmathspace"/><mo fence="true" form="prefix">[</mo></mrow>',
             '<msup><mi>U</mi><mrow><mspace width="negativethinmathspace"/><mo>⊤</mo></mrow></msup>',
             '<mrow><mo>∫</mo><mspace width="negativethinmathspace"/><mspace width="negativethinmathspace"/><mo>∫</mo></mrow>',
+            '<mtd><mi>E</mi><mspace width="negativethinmathspace"/><mo fence="true" form="prefix">[</mo></mtd>',
+            '<mtd><mi>a</mi><mspace width="negativethinmathspace"/><mo>·</mo><mspace width="negativethinmathspace"/><mi>b</mi></mtd>',
+            '<mtd><mo>∫</mo><mspace width="negativethinmathspace"/><mspace width="negativethinmathspace"/><mo>∫</mo></mtd>',
+            '<mrow><mo stretchy="false">[</mo><mspace width="negativethinmathspace"/><mrow><mo>[</mo><mi>x</mi><mo>]</mo></mrow><mspace width="negativethinmathspace"/><mo>]</mo></mrow>',
+            '<mtd><msup><mi>T</mi><mn>2</mn></msup><mspace width="negativethinmathspace"/><msubsup><mo>∫</mo><mn>0</mn><mi>T</mi></msubsup></mtd>',
         )
         for shape in shapes:
+            for namespace in ("", ' xmlns="' + common_math.MATHML_NS + '"'):
+                raw = '<math' + namespace + '>' + shape + '</math>'
+                ordinary = raw.replace('<mspace width="negativethinmathspace"/>', '')
+                with self.subTest(shape=shape, namespace=namespace):
+                    actual = common_math._safe_mathml(raw, "original", "block")
+                    expected = common_math._safe_mathml(ordinary, "original", "block")
+                    self.assertEqual(ET.tostring(ET.fromstring(actual)), ET.tostring(ET.fromstring(expected)))
+                    self.assertEqual(ET.fromstring(actual).find(
+                        ".//{" + common_math.MATHML_NS + "}annotation").text, "original")
             for bad_space in (
                 '<mspace width="negativethinmathspace" height="1em"/>',
                 '<mspace width="negativethinmathspace">x</mspace>',
@@ -223,7 +392,9 @@ class ConverterAdaptationTests(unittest.TestCase):
                     '<mspace width="negativethinmathspace"/>', bad_space, 1) + '</math>'
                 with self.subTest(value=value), self.assertRaises(ValueError):
                     common_math._safe_mathml(value, "original", "block")
-            for tag in ("mrow", "mo"):
+            for tag in ("mrow", "mtd", "mo", "mi", "msup", "msubsup"):
+                if '<' + tag not in shape:
+                    continue
                 foreign = shape.replace('<' + tag, '<f:' + tag).replace('</' + tag + '>', '</f:' + tag + '>')
                 with self.subTest(foreign=foreign), self.assertRaises(ValueError):
                     common_math._safe_mathml('<math xmlns:f="urn:foreign">' + foreign + '</math>', "original", "block")
@@ -231,6 +402,51 @@ class ConverterAdaptationTests(unittest.TestCase):
                     '<mspace width="negativethinmathspace"/><mo>⊤</mo>tail'):
             with self.assertRaises(ValueError):
                 common_math._safe_mathml('<math><msup><mi>U</mi><mrow>' + row + '</mrow></msup></math>', "original", "block")
+
+    def test_norm_bar_spacing_has_bounded_neighbors(self):
+        space = '<mspace width="negativethinmathspace"/>'
+        cases = (
+            ('<mo>‖</mo>', '<mrow><mo>|</mo></mrow>'),
+            ('<mrow><mo>|</mo></mrow>', '<mo>‖</mo>'),
+            ('<mo>|</mo>', '<msup><mrow><mo>‖</mo></mrow><mn>2</mn></msup>'),
+            ('<mo>|</mo>', '<msubsup><mo>‖</mo><mi>A</mi></msubsup>'),
+            ('<mo>|</mo>', '<msup>text<mo>‖</mo><mn>2</mn></msup>'),
+            ('<mo>|</mo>', '<msup><mo>‖</mo><mn>2</mn></msup>tail'),
+            ('<mo>|</mo>', '<msup><mo>‖</mo><mfrac><mi>x</mi></mfrac></msup>'),
+            ('<mo>|</mo>', '<f:msup><mo>‖</mo><mn>2</mn></f:msup>'),
+            ('<mo>‖</mo>', '<mo bad="1">|</mo>'),
+            ('<mo>‖</mo>tail', '<mo>|</mo>'),
+            ('<mo>‖</mo>', '<mo><mi>x</mi></mo>'),
+        )
+        for left, right in cases:
+            raw = '<math xmlns:f="urn:foreign"><mrow>' + left + space + right + '</mrow></math>'
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                common_math._safe_mathml(raw, "original", "block")
+
+    def test_bracket_and_integral_spacing_has_bounded_neighbors(self):
+        space = '<mspace width="negativethinmathspace"/>'
+        cases = (
+            ('<mo>[</mo>', '<mrow><mrow><mo>[</mo></mrow></mrow>'),
+            ('<mrow><mrow><mo>]</mo></mrow></mrow>', '<mo>]</mo>'),
+            ('<mo>[</mo>', '<mrow>text<mo>[</mo></mrow>'),
+            ('<mo>[</mo>', '<mrow><mo>[</mo></mrow>tail'),
+            ('<mo>[</mo>', '<mo>[</mo>tail'),
+            ('<mi>x</mi>tail', '<mo>∫</mo>'),
+            ('<mi> </mi>', '<mo>∫</mo>'),
+            ('<mi><mi>x</mi></mi>', '<mo>∫</mo>'),
+            ('<msup><mo>∫</mo><mi>A</mi></msup>', '<mo>∫</mo>'),
+            ('<msup><mi>x</mi></msup>', '<mo>∫</mo>'),
+            ('<msup>text<mi>x</mi><mn>2</mn></msup>', '<mo>∫</mo>'),
+            ('<msup><mi>x</mi><mn>2</mn></msup>tail', '<mo>∫</mo>'),
+            ('<msup><msub><mi>x</mi><mi>i</mi></msub><mn>2</mn></msup>', '<mo>∫</mo>'),
+            ('<mi>x</mi>', '<msubsup><mo>∫</mo><mn>0</mn></msubsup>'),
+            ('<mi>x</mi>', '<msup><mo>∫</mo><mn>2</mn></msup>tail'),
+        )
+        for left, right in cases:
+            for parent in ("mrow", "mtd"):
+                with self.subTest(left=left, right=right, parent=parent), self.assertRaises(ValueError):
+                    common_math._safe_mathml('<math><' + parent + '>' + left + space + right
+                                             + '</' + parent + '></math>', "original", "block")
 
     def test_decoded_beta_is_diagnosed_without_guessing_a_replacement(self):
         literal = '$' + '\b' + r'eta_{smp}(\lambda)$'

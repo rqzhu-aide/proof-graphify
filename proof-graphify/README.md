@@ -1,6 +1,6 @@
 # Proof Graphify
 
-[![Version v3.3.5](https://img.shields.io/badge/version-v3.3.5-6366f1)](SKILL.md)
+[![Version v3.4.10](https://img.shields.io/badge/version-v3.4.10-6366f1)](SKILL.md)
 
 **Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
 
@@ -31,6 +31,32 @@ proof-graphify-<paper-name>/
 ```
 
 **Share the HTML alone. Keep the database for future revisions.** See the [database guide](references/database.md) for focused initialization, editing, and export, and [SKILL.md](SKILL.md) for the current skill version.
+
+Version 3.4.10 bundles paper core 3.3.15 and keeps final delivery to saved scope, counts, labels and limitations. Scientific explanations remain in the HTML; no source comparison or review pass is added.
+
+Version 3.4.9 retains paper core 3.3.14 and clarifies formula structure and inherited setup with concrete examples in the existing source comparison. No comparison or review pass is added.
+
+Version 3.4.8 bundles paper core 3.3.14 with shared math-display improvements and clearer JSON file-writing guidance. It adds no source comparison or review pass.
+
+Version 3.4.7 bundles paper core 3.3.13 and fixes integral-spacing and explicitly sized floor-bracket display while preserving the original mathematical expressions. It adds no source comparison or review pass.
+
+Version 3.4.6 bundles paper core 3.3.12 and renders bounded triple-bar norm spacing while preserving the original mathematical expression. It adds no source comparison or review pass.
+
+Version 3.4.5 bundles paper core 3.3.11, places source prerequisites immediately before their earliest consumers, and fixes bounded mathematical-spacing display. The selected source-comparison workflow is unchanged; no reading or review pass is added.
+
+Version 3.4.4 bundles paper core 3.3.10 and includes existing source-comparison and browser-inspection status in the delivery brief. The shared recovery and summary fixes add no source-reading or review pass.
+
+Version 3.4.3 bundles paper core 3.3.9, including the shared recovery and audit-summary fixes. Graphify retains its selected source overview workflow without additional comparison or review work.
+
+Version 3.4.2 records the evidence basis for source comparisons, distinguishes completed comparisons with unresolved limits, and supplies delivery facts from saved data. It bundles paper core 3.3.8 and retains the selected scope without adding a review pass.
+
+Version 3.4.1 bundles paper core 3.3.7 with targeted Proof Check support fixes. Graphify retains its selective source-comparison workflow and presentation behavior; no comparison or review pass is added.
+
+Version 3.4.0 aligns the skill release with Proof Check while retaining paper core 3.3.6 and the existing selective source-comparison workflow. No source-comparison or review pass is added.
+
+Version 3.3.7 bundles paper core 3.3.6, including the shared review-handoff guidance update. Graphify retains its existing selected scope and source-comparison workflow. No source-comparison or review pass is added.
+
+Version 3.3.6 bundles paper core 3.3.5, fixes bounded multiline math conversion, and reduces repeated source excerpts in the HTML search payload while preserving search results and navigation. It clarifies handling of appendices and supplements already inside the supplied PDF within the existing selected scope. No source-comparison or review pass is added.
 
 Version 3.3.5 bundles paper core 3.3.4, including the shared reader layout correction. The source-comparison scope is unchanged.
 

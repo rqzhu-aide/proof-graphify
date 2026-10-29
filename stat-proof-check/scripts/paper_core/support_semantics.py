@@ -119,6 +119,38 @@ class SupportClosure:
                 {"collection": "items", "id": record.body["item_id"]}, scope_id),)))
         return rules or [("conditional", ())]
 
+    def _public_application_supplier_key(self, use, supplier, active_scope, local_status):
+        """Reuse checked instantiation without exporting a private proof context."""
+        if self.d.local_basis is None or local_status != "available" \
+                or use.body.get("type") != "dependency" or supplier is None \
+                or supplier.collection != "items" or supplier.body.get("origin") != "source" \
+                or supplier.body.get("owner_id") is not None \
+                or supplier.body.get("kind") not in ("theorem", "lemma", "proposition", "corollary"):
+            return None
+        source_scope = self.snap.exact_scope(use.body["from"])
+        if self.admissible(source_scope, active_scope) \
+                or f"items:{supplier.id}" in self.snap.scope_assumptions(active_scope):
+            return None
+        current, seen = source_scope, set()
+        while current is not None:
+            if current in seen:
+                return None
+            seen.add(current)
+            scope = self.snap.live("scopes", current)
+            if scope is None or any(scope.body.get(field) for field in ("argument_id", "binders", "conditions")):
+                return None
+            for ref in scope.body["assumptions"]:
+                premise = self.snap.get(ref)
+                if premise is None or premise.collection != "items" \
+                        or premise.body.get("kind") != "assumption" or premise.body.get("origin") != "source" \
+                        or premise.body.get("owner_id") is not None or premise.body.get("scope_id") is not None \
+                        or self.snap.exact_scope(ref) is not None:
+                    return None
+            current = scope.body["parent_id"]
+        # The ordinary statement rule still requires the supplier's exact source
+        # and founded proof; the application judgment supplies neither of them.
+        return self.statement_key(use.body["from"], source_scope)
+
     def _rules_for(self, key):
         kind = key[0]
         if kind == "statement":
@@ -162,10 +194,13 @@ class SupportClosure:
             return [("unavailable", ())]
         supplier_key = self.statement_key(body["from"], active_scope)
         supplier = self.snap.get(body["from"])
+        local_status = self._local(_ref(record), ["application"])
         if body.get("type") == "definition" and supplier is not None \
                 and supplier.collection == "items" and supplier.body.get("kind") == "definition":
             supplier_key += ("definition_context",)
-        return [(self._local(_ref(record), ["application"]), (supplier_key,))]
+        else:
+            supplier_key = self._public_application_supplier_key(record, supplier, active_scope, local_status) or supplier_key
+        return [(local_status, (supplier_key,))]
 
     def solve(self, roots):
         """Materialize only recorded contexts, then propagate founded support."""

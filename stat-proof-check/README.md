@@ -1,6 +1,8 @@
 # Stat Proof Check
 
-Version `3.3.5` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
+[![Version v3.4.10](https://img.shields.io/badge/version-v3.4.10-0ea5e9)](SKILL.md)
+
+Version `3.4.10` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
 
 ## Use
 
@@ -32,7 +34,39 @@ Keep the database and frozen artifacts for continuation. Report what was examine
 
 ## Runtime and compatibility
 
-This package bundles `paper_core` version `3.3.4` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+This package bundles `paper_core` version `3.3.15` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+
+Version 3.4.10 bundles paper core 3.3.15, typesets saved resolution equations and places Source evidence at the end of the report. Final delivery stays within saved facts. Accepted corrections carry into already known affected current assessments using existing saved examinations, without a new review pass or final sweep.
+
+Version 3.4.9 retains paper core 3.3.14 and clarifies formula serialization, inherited setup, application coverage, external premises, rate comparisons and normalization severity. Existing finding updates and delivery reuse saved reasoning and qualifications. No review pass, required retrieval or repair search is added.
+
+Version 3.4.8 bundles paper core 3.3.14, renders math in explanatory fields and simple terminal equation tags, and exposes saved source-capture notes and links to source-review evidence. The delivery brief preserves those notes. Surgical writing and integration clarifications add no review pass or repeated scientific check.
+
+Version 3.4.7 bundles paper core 3.3.13, fixes integral-spacing and sized-floor display, and clarifies mathematical delimiters and independent response fields. Delivery preserves saved finding statuses and aggregate counts without guessing omitted entries. No review pass, source comparison or retrieval task is added.
+
+Version 3.4.6 bundles paper core 3.3.12, renders bounded triple-bar norm spacing, and clarifies saving already-established findings during normal integration. Delivery preserves frozen outcomes, severity and reviewer qualifications without adding judgments, review passes or retrieval.
+
+Version 3.4.5 bundles paper core 3.3.11, corrects linked finding badges and mathematical-spacing display, improves prerequisite placement, and includes saved external-source qualifications in delivery. Clarifications distinguish neutral metadata from opinion exposure, preserve returned claim identities and bundled scope, and identify glyph extraction as extraction. They add no review pass or forced splitting.
+
+Version 3.4.4 bundles paper core 3.3.10, corrects immutable-source recovery guidance, clarifies Full-audit scope, and separates local finding counts from examination outcomes. Delivery reuses saved scope notes, and the source-response reminder preserves the existing inspection standard without adding review work.
+
+Version 3.4.3 bundles paper core 3.3.9, corrects completed-examination recovery guidance, and reports current reconciled outcomes with compact saved reviewer context. Source and delivery clarifications preserve unresolved limitations without adding a review pass or backfill work.
+
+Version 3.4.2 bundles paper core 3.3.8, supplies a frozen delivery brief, and clarifies source declarations when consequential PDF mathematics has not received the required inspection. Final messages reuse saved facts and qualifications; no review stage, source pass or proof check is added.
+
+Version 3.4.1 bundles paper core 3.3.7, keeps local findings from blocking unaffected conclusions, and recognizes already-checked public theorem applications across named setup differences. It clarifies finding targets and application mappings while preserving private scopes, genuine defects and existing review work.
+
+Version 3.4.0 adds concrete mathematical-scope examples to the existing reconciliation guidance, distinguishes source transcription errors from established source defects, and reuses adequate evidence and unaffected completed work. It retains paper core 3.3.6 and adds no review stage or checklist.
+
+Version 3.3.10 bundles paper core 3.3.6 and clarifies correcting already-known source-record errors before dependent work, reusing applicable reasoning after local corrections, and continuing source-only review without treating it as a new independent vote. It preserves current-record binding, reviewer exposure and coverage requirements without adding review stages or repeated checks.
+
+Version 3.3.9 clarifies supplier roles at authoring, complete mathematical statement selection, and how a contradicted premise affects a claimed application. It consolidates existing guidance without adding examinations, review stages or repair searches. The shared core remains 3.3.5.
+
+Version 3.3.8 narrows application guidance to assessing the supplied inference, preserving explicit assumptions as premises, and assessing available justification for separately asserted properties. It retains same-claim/context reuse and required independent review without adding a review stage or proof-construction duty. The shared core remains 3.3.5.
+
+Version 3.3.7 clarifies formula grouping during existing source reading, the mathematical consequence of hypothesis corrections, and coverage of substantive applications while reusing examinations that already address the same claim and context. It adds no examination or review stage and retains paper core 3.3.5.
+
+Version 3.3.6 bundles paper core 3.3.5, fixes bounded multiline math conversion, and reduces repeated source excerpts in the HTML search payload while preserving search results and navigation. It clarifies where adopted source corrections belong and how to treat supplements already inside the supplied PDF. No examination or review stage is added.
 
 Version 3.3.5 bundles paper core 3.3.4. It corrects support propagation for definitions used as notation context without granting their mathematical properties proof credit, fixes narrow-screen review-card layout, and consolidates repeated examiner instructions. Scientific standards and assigned work are unchanged.
 

@@ -891,6 +891,34 @@ class _Derivation(_AuditScope):
                 refs.append(pinned_of(f))
         return refs
 
+    def _composition_display_findings(self, obligation: dict) -> list:
+        """Keep linked findings about this argument's exact represented claim."""
+        if obligation["kind"] != "composition" or obligation["target"]["collection"] != "arguments":
+            return []
+        argument = self.snap.get(obligation["target"])
+        if argument is None or argument.body["target"]["collection"] not in ("items", "parts"):
+            return []
+        target = argument.body["target"]
+        pins = set()
+        for ref in obligation["check_refs"]:
+            if ref["collection"] != "checks":
+                continue
+            check = self.snap.version("checks", ref["id"], ref["version"])
+            if check is None:
+                continue
+            info = self.judgment_info(check)
+            if info["state"] == "complete" and info["freshness"] == "current" and not info["superseded"] \
+                    and (info["role"] != "independent" or self.independent_usable(info)):
+                pins.add((ref["collection"], ref["id"], ref["version"]))
+        found = []
+        for ref in obligation["assessment"].get("finding_refs", ()):
+            ident = ref if isinstance(ref, str) else ref["id"]
+            finding = self.review_display.findings.get(ident)
+            if finding is not None and finding.body["target"] == target and pins.intersection(
+                    (pin["collection"], pin["id"], pin["version"]) for pin in finding.body["check_refs"]):
+                found.append(ident)
+        return found
+
     # -- obligations -------------------------------------------------------
     def add_obligation(self, target: dict, kind: str, role: str, *, required: bool) -> str:
         oid = obligation_id(self.audit_id, target, kind, role)
@@ -2110,7 +2138,8 @@ def derive_full(db: Database, *, revision: int | None = None, audit_id: str | No
         if audit is not None and audit.body["mode"] == "triage":
             obligation["assessment"] = _triage_assessment(obligation["assessment"])
         derivation.review_display.attach(obligation["assessment"], targets=[obligation["target"]],
-            use_ids=[obligation["target"]["id"]] if obligation["target"]["collection"] == "uses" else [])
+            use_ids=[obligation["target"]["id"]] if obligation["target"]["collection"] == "uses" else [],
+            finding_ids=derivation._composition_display_findings(obligation))
     judgments = derivation.judgments
     for check in derivation.all_checks:
         derivation.judgment_info(check)

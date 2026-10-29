@@ -318,7 +318,7 @@ class NativeSeedDatabaseTests(unittest.TestCase):
     def test_export_round_trip_preserves_observations_without_creating_reviews(self):
         database.init_database(self.db, self.dataset)
         before = database.export_snapshot(self.db)
-        database.compare_records(self.db, {"expected_snapshot": before["snapshot_id"],
+        database.compare_records(self.db, {"basis": "tex", "expected_snapshot": before["snapshot_id"],
                                            "targets": [{"collection": "items", "id": "variance"}],
                                            "reviewer": "source reader", "note": "Compared the captured statement."})
         reviewed = database.export_snapshot(self.db)
@@ -412,7 +412,7 @@ class NativeSeedDatabaseTests(unittest.TestCase):
         with_claim = database.export_snapshot(self.db)
         targets = [{"collection": group, "id": row["id"]}
                    for group in ("items", "uses") for row in with_claim[group]]
-        database.compare_records(self.db, {"expected_snapshot": with_claim["snapshot_id"], "targets": targets,
+        database.compare_records(self.db, {"basis": "typeset", "expected_snapshot": with_claim["snapshot_id"], "targets": targets,
                                            "reviewer": "test reviewer", "note": "Compared every synthetic row."})
         baseline = database.export_snapshot(self.db)
         claim = next(row for row in baseline["items"] if row["id"] == "claim-key-step")

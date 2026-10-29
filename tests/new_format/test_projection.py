@@ -824,7 +824,9 @@ class ScopeExplanationTests(ProjectionCase):
                 self.assertEqual(factual["independent_review"]["state"], "pending" if empty else "not_required")
                 self.assertFalse(any(o["role"] == "independent" for o in view["obligations"]))
                 self.assertEqual(factual["scope"]["explanation"],
-                    "Full audit of the declared scope after the recorded exclusions.")
+                    "Full audit includes all registered major items and their required supporting "
+                    "material, subject to recorded exclusions. The explicit target list need not "
+                    "enumerate the full audit scope.")
                 self.assertEqual({e["label"] for e in factual["scope"]["exclusions"]}, {"Lemma 1", "Theorem 1"})
 
     def test_included_theorem_without_route_still_needs_review(self):

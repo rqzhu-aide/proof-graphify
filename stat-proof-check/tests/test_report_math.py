@@ -93,9 +93,16 @@ class MathRenderingTests(unittest.TestCase):
             (space * 2, fence, False),
         ]
         tex = r"original \!\{x & y\}"
-        for spacing, opening, accepted in cases:
-            raw = "<math><mrow><mi>E</mi>" + spacing + opening + "<mi>x</mi></mrow></math>"
-            with self.subTest(spacing=spacing, opening=opening):
+        cases += [(space.replace("negativethinmathspace", width), fence, False)
+                  for width in ("-1em", "negativemediummathspace")]
+        variants = [(spacing, opening, accepted, parent, namespace)
+                    for spacing, opening, accepted in cases
+                    for parent in ("mrow", "mtd")
+                    for namespace in ("", ' xmlns="' + math.MATHML_NS + '"')]
+        for spacing, opening, accepted, parent, namespace in variants:
+            raw = ("<math" + namespace + "><" + parent + "><mi>E</mi>" + spacing
+                   + opening + "<mi>x</mi></" + parent + "></math>")
+            with self.subTest(spacing=spacing, opening=opening, parent=parent, namespace=namespace):
                 if not accepted:
                     with self.assertRaisesRegex(ValueError, "unsupported negative spacing"):
                         math._safe_mathml(raw, tex, "inline")
@@ -103,6 +110,82 @@ class MathRenderingTests(unittest.TestCase):
                 node = ET.fromstring(math._safe_mathml(raw, tex, "inline"))
                 self.assertEqual(tex, node.find(".//{" + math.MATHML_NS + "}annotation").text)
                 self.assertEqual("LaTeX: " + tex, node.get("aria-label"))
+
+    def test_bounded_bracket_norm_and_operand_integral_spacing_preserves_source_and_tree(self):
+        ns = "{" + math.MATHML_NS + "}"
+        for tex in (r"k\in[\![1,\lfloor T\rfloor]\!]", r"k\in[\![1,T]\!]",
+                    r"\int\!\int C_k\lesssim(\prod h_l)^{-1}",
+                    r"\int\!\int C_k\lesssim(\prod_l h_l)^{-2+1/(dH)}",
+                    r"\operatorname{Var}(T^{-1}\!\int_0^T F(X_s)ds)\asymp T^{2H-2},",
+                    r"[\!{[x]}\!]", r"k\in[\!\left[1,T\right]\!]",
+                    r"x\!\int f", r"2\!\int f", r"x_i^2\!\int_A^B f",
+                    r"\|\!|x|\!\|", r"\|\!|x|\!\|_A", r"\|\!|x|\!\|^2",
+                    r"\|\!|x|\!\|_A^2", r"\left\|\!|x|\!\right\|_A^2",
+                    r"p_t(\ell;y)\le t^{-dH}\exp\{C(1+t^\eta\|\!|\ell|\!\|_{\mathbb C^\gamma}^2)-c|y-\ell(t)|^2/t^{2H}\}"):
+            with self.subTest(tex=tex):
+                diagnostics = []
+                actual = ET.fromstring(math.render_text(r"\[" + tex + r"\]", diagnostics))
+                expected = ET.fromstring(math.render_text(r"\[" + tex.replace(r"\!", "") + r"\]"))
+                self.assertEqual(diagnostics, [])
+                self.assertEqual(actual.find(".//" + ns + "annotation").text, tex)
+                self.assertEqual(actual.get("aria-label"), "LaTeX: " + tex)
+                for root in (actual, expected):
+                    root.attrib.pop("aria-label")
+                    root.find(".//" + ns + "annotation").text = "source"
+                self.assertEqual(ET.tostring(actual), ET.tostring(expected))
+        for tex in (r"x\!y", r"x\!\!\int f", r"[\!\![x]\!]", r"[\![x]\!\!]",
+                    r"\int_A\!\int_B f", r"x\hspace{-0.2em}\int f",
+                    r"\|\!\!|x|\!\|", r"\|\!|x|\!\!\|", r"|\!|x|\!|",
+                    r"\|\!\|x\|\!\|", r"\|\hspace{-0.2em}|x|\!\|"):
+            with self.subTest(tex=tex):
+                self.assertIn("math-fallback", math.render_text("$" + tex + "$"))
+
+    def test_archived_sized_floors_preserve_the_equation_and_source(self):
+        expressions = (
+            r"S\sum_{p}\log p\sum_{r<R}\Bigl\lfloor\frac rp\Bigr\rfloor\ge S\sum_p\log p\Bigl(\frac{R(R-1)}{2p}-R\Bigr)=\frac12SR^{2}\sum_p\frac{\log p}{p}-O(X^{3}),",
+            r"\sum_{\substack{p\le X\\ \chi(p)=-1}}\log p\sum_{r,s}\min\Bigl(\Bigl\lfloor\frac rp\Bigr\rfloor,S-1-s\Bigr)\le \frac12\log\det G\le \frac12RS(R+S)\log(2N\sqrt q)+O(X^{3}),",
+            r"\sum_{r,s}h_{r,s}\ge S\sum_{r<R}\Bigl\lfloor\frac rp\Bigr\rfloor-\sum_{r<R}\Bigl(\frac rp\Bigr)^{2}\ge S\sum_{r<R}\Bigl\lfloor\frac rp\Bigr\rfloor-\frac{R^{3}}{3p^{2}}.",
+            r"e_p\ \ge\ 2\sum_{0\le r<R}\sum_{0\le s<S}\min\Bigl(\Bigl\lfloor\frac{r}{p}\Bigr\rfloor,\,S-1-s\Bigr).",
+        )
+        ns = "{" + math.MATHML_NS + "}"
+        for tex in expressions:
+            with self.subTest(tex=tex):
+                diagnostics = []
+                actual = ET.fromstring(math.render_text("$$" + tex + "$$", diagnostics))
+                equivalent = tex.replace(r"\lfloor", "⌊").replace(r"\rfloor", "⌋")
+                expected = ET.fromstring(math.render_text("$$" + equivalent + "$$"))
+                self.assertEqual(diagnostics, [])
+                self.assertEqual(actual.find(".//" + ns + "annotation").text, tex)
+                self.assertEqual(actual.get("aria-label"), "LaTeX: " + tex)
+                for root in (actual, expected):
+                    root.attrib.pop("aria-label")
+                    root.find(".//" + ns + "annotation").text = "source"
+                self.assertEqual(ET.tostring(actual), ET.tostring(expected))
+
+    def test_bracket_norm_and_integral_spacing_keeps_strict_space_and_neighbor_boundaries(self):
+        space = '<mspace width="negativethinmathspace"/>'
+        shapes = (('<mo>‖</mo>', '<mo>|</mo>'),
+                  ('<mo>|</mo>', '<msubsup><mo>‖</mo><mi>A</mi><mn>2</mn></msubsup>'),
+                  ('<mo stretchy="false">[</mo>', '<mo stretchy="false">[</mo>'),
+                  ('<mrow><mo>]</mo></mrow>', '<mo>]</mo>'),
+                  ('<msup><mi>T</mi><mn>2</mn></msup>',
+                   '<msubsup><mo>∫</mo><mn>0</mn><mi>T</mi></msubsup>'))
+        bad_spaces = (space.replace('/>', ' height="1em"/>'), space.replace('/>', '>x</mspace>'),
+                      space + 'tail', space.replace('/>', '><mi>x</mi></mspace>'),
+                      space.replace('mspace', 'f:mspace'), space * 2,
+                      space.replace('negativethinmathspace', '-1em'),
+                      space.replace('negativethinmathspace', 'negativemediummathspace'))
+        for left, right in shapes:
+            for parent in ("mrow", "mtd"):
+                for namespace in ("", ' xmlns="' + math.MATHML_NS + '"'):
+                    raw = ('<math' + namespace + ' xmlns:f="urn:foreign"><' + parent + '>'
+                           + left + space + right + '</' + parent + '></math>')
+                    with self.subTest(raw=raw):
+                        self.assertEqual(math._safe_mathml(raw, "original", "inline"),
+                                         math._safe_mathml(raw.replace(space, ''), "original", "inline"))
+                    for bad in bad_spaces:
+                        with self.subTest(raw=raw, bad=bad), self.assertRaises(ValueError):
+                            math._safe_mathml(raw.replace(space, bad), "original", "inline")
 
     def test_powered_binomial_and_exact_c001_keep_grouped_base_and_original_tex(self):
         # Exact probes from the frozen paper's five-probe rendering diagnosis.
@@ -231,11 +314,16 @@ class MathRenderingTests(unittest.TestCase):
     def test_supported_multiline_cases_and_alignment_are_real_math(self):
         for tex in (r"\begin{cases}1 & x>0\\0 & x\le0\end{cases}",
                     r"\begin{align*}a&=b+c\\d&=e\end{align*}",
-                    r"\begin{aligned}a&=b\\c&=d\end{aligned}"):
+                    r"\begin{aligned}a&=b\\c&=d\end{aligned}",
+                    r"\begin{aligned}a&=b\\\gamma&=d\end{aligned}",
+                    r"\begin{aligned}x&=y\\\leq&z\end{aligned}",
+                    r"\begin{aligned}&E\!\left[X\right]\\&E\!\big(x\big)\end{aligned}",
+                    r"\begin{aligned}&a\!\cdot\!b\\&\int\!\!\int f\end{aligned}"):
             with self.subTest(tex=tex):
                 document = self.document("\\[" + tex + "\\]")
                 self.assertTrue(list(document.iter("{" + math.MATHML_NS + "}mtable")))
                 self.assertEqual(2, len(list(document.iter("{" + math.MATHML_NS + "}mtr"))))
+                self.assertEqual(4, len(list(document.iter("{" + math.MATHML_NS + "}mtd"))))
                 self.assertEqual(tex, next(document.iter("{" + math.MATHML_NS + "}annotation")).text)
 
     def test_unsupported_environment_is_not_silently_dropped(self):

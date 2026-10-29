@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { esc, textUnits } from './paper_core/renderer/assets/archify/utils.mjs';
-import { KINDS as kinds, BOX as box, archifyPage, resultsNavigation, viewControls, scientificSearchPanel, readerRuntime, readerSearchData, readingSection, sourceDisclosure, mathDisplayNotes } from './paper_core/renderer/scientific_reader.mjs';
+import { KINDS as kinds, BOX as box, alignSourcePrerequisites, archifyPage, resultsNavigation, viewControls, scientificSearchPanel, readerRuntime, readerSearchData, readingSection, sourceDisclosure, mathDisplayNotes } from './paper_core/renderer/scientific_reader.mjs';
 import { scanHtml, textOf, decodeEntities } from './paper_core/renderer/html_scan.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -162,7 +162,7 @@ function stronglyConnected(nodes, incoming, outgoing) {
   return groups;
 }
 
-// DAGs retain their existing longest-path layers and stable barycentres.
+// Longest paths place consumers; source prerequisites sit next to their first use.
 // Cyclic groups expand into stable columns with exterior lanes for return uses.
 function layoutGraph(data) {
   const nodes = new Map(data.items.map((item, order) => [item.id, { ...item, order, rank: 0 }]));
@@ -185,6 +185,7 @@ function layoutGraph(data) {
       if (!target.incoming) queue.push(target);
     }
   }
+  alignSourcePrerequisites(nodes, incoming, outgoing);
   const cycles = groups.filter((group) => group.members.length > 1 || outgoing.get(group.members[0]).some((use) => use.to === group.members[0])).map((group) => {
     const members = new Set(group.members);
     return { item_ids: group.members, item_labels: group.members.map((id) => nodes.get(id).label),
@@ -529,6 +530,15 @@ function sourceHtml(record) {
   return `<p class="proof-source">${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label)}</p>`;
 }
 
+function searchExcerptCandidates(data) {
+  return ['items', 'uses', 'details', 'detail_uses'].flatMap(key => data[key] || []).flatMap(record => {
+    const passages = Array.isArray(record.source_passages) && record.source_passages.length
+      ? record.source_passages : [record];
+    return passages.filter(passage => typeof passage.source_excerpt === 'string')
+      .flatMap(passage => [passage.source_excerpt, passage.source_excerpt.replace(/\s+/gu, ' ').trim()]);
+  });
+}
+
 function passagesHtml(record) {
   const passages = Array.isArray(record.source_passages) && record.source_passages.length
     ? record.source_passages
@@ -548,19 +558,32 @@ function passagesHtml(record) {
 
 // Fidelity badges report source-comparison bookkeeping, never mathematical
 // correctness: one neutral muted style, no sentiment colors.
-function fidelityBadgeHtml(fidelity) {
-  const state = fidelity || 'unreviewed';
+const comparisonBasisLabels = {
+  typeset: 'typeset source', tex: 'TeX source', source_text: 'original source text', extracted_text: 'extracted text',
+};
+
+function fidelityBadgeHtml(row) {
+  const state = row.fidelity || 'unreviewed';
   const labels = {
     unreviewed: 'Not yet compared with the source',
     matched: 'Compared with the source',
     needs_attention: 'Reviewed; source question unresolved',
     stale: 'Changed since the last comparison',
   };
-  return `<span class="proof-fidelity" data-proof-fidelity="${esc(state)}">${esc(labels[state] || state)}</span>`;
+  const basis = ['matched', 'needs_attention'].includes(state) && row.comparison_evidence === 'current'
+    ? comparisonBasisLabels[row.comparison_basis] : '';
+  return `<span class="proof-fidelity" data-proof-fidelity="${esc(state)}">${esc(labels[state] || state)}${basis ? ` · ${esc(basis)}` : ''}</span>`;
 }
 
 function reviewLineHtml(row) {
-  return `<p class="proof-review">${fidelityBadgeHtml(row.fidelity)}</p>${comparisonNoteHtml(row, false)}`;
+  return `<p class="proof-review">${fidelityBadgeHtml(row)}</p>${comparisonNoteHtml(row, false)}`;
+}
+
+function comparisonBasisHtml(row) {
+  if (!['matched', 'needs_attention', 'stale'].includes(row.fidelity)) return '';
+  const earlier = row.fidelity === 'stale' || row.comparison_evidence === 'earlier';
+  const basis = comparisonBasisLabels[row.comparison_basis];
+  return `<p class="proof-hint proof-comparison-basis"><strong>${earlier ? 'Earlier comparison evidence' : 'Source evidence'}</strong>: ${basis ? esc(basis) : 'Evidence basis not recorded'}.</p>`;
 }
 
 function comparisonNoteHtml(row, evidence = false) {
@@ -580,7 +603,7 @@ function issueHtml(row) {
 function relationHtml(use, graph, incoming) {
   const other = graph.nodes.get(incoming ? use.from : use.to);
   const setup = incoming && (other.kind === 'assumption' ? 'Assumed' : other.kind === 'definition' || use.type === 'definition' ? 'Declared setup' : '');
-  return `<li class="proof-prerequisite-row" data-proof-relation-use="${esc(use.id)}"><button type="button" data-proof-focus="${esc(other.id)}">${esc(other.label)}</button>${setup ? ` <span class="proof-use-type">${setup}</span>` : ''} ${qualificationHtml(use, graph)}<div class="proof-contribution">${formulaHtml(use.reason_html || esc(use.reason))}</div>${issueHtml(use)}${fidelityBadgeHtml(use.fidelity)}${comparisonNoteHtml(use)} <button type="button" data-reader-open="use:${esc(use.id)}">Exact connection</button></li>`;
+  return `<li class="proof-prerequisite-row" data-proof-relation-use="${esc(use.id)}"><button type="button" data-proof-focus="${esc(other.id)}">${esc(other.label)}</button>${setup ? ` <span class="proof-use-type">${setup}</span>` : ''} ${qualificationHtml(use, graph)}<div class="proof-contribution">${formulaHtml(use.reason_html || esc(use.reason))}</div>${issueHtml(use)}${fidelityBadgeHtml(use)}${comparisonNoteHtml(use)} <button type="button" data-reader-open="use:${esc(use.id)}">Exact connection</button></li>`;
 }
 
 function prerequisitesHtml(incoming, graph) {
@@ -603,7 +626,7 @@ function connectionEvidenceHtml(use, graph) {
   return sourceDisclosure({
     title: `${label} (${useTypes[use.type]})`,
     attrs: {'data-proof-evidence-use': use.id},
-    bodyHtml: `${regimeHtml}${comparisonNoteHtml(use, true)}${sourceHtml(use)}${passagesHtml(use)}`,
+    bodyHtml: `${regimeHtml}${comparisonNoteHtml(use, true)}${comparisonBasisHtml(use)}${sourceHtml(use)}${passagesHtml(use)}`,
   });
 }
 
@@ -625,12 +648,12 @@ function detailAnchor(use, graph) {
 
 function detailUseHtml(use, graph) {
   const label = (id) => (graph.nodes.get(id) || graph.details.get(id) || {}).label || id;
-  return `<div class="proof-detail-use" data-proof-detail-use="${esc(use.id)}" data-proof-from="${esc(use.from)}" data-proof-to="${esc(use.to)}">${qualificationHtml(use, graph)} ${esc(label(use.from))} → ${esc(label(use.to))}<div>${formulaHtml(use.reason_html || esc(use.reason))}</div>${issueHtml(use)}${reviewLineHtml(use)}${comparisonNoteHtml(use, true)}${use.source_display ? `<small>${esc(use.source_display)}</small>` : ''}${passagesHtml(use)}<p class="proof-hint">This use refines the recorded argument at an intermediate step; it is not part of the overview graph.</p></div>`;
+  return `<div class="proof-detail-use" data-proof-detail-use="${esc(use.id)}" data-proof-from="${esc(use.from)}" data-proof-to="${esc(use.to)}">${qualificationHtml(use, graph)} ${esc(label(use.from))} → ${esc(label(use.to))}<div>${formulaHtml(use.reason_html || esc(use.reason))}</div>${issueHtml(use)}${reviewLineHtml(use)}${comparisonBasisHtml(use)}${comparisonNoteHtml(use, true)}${use.source_display ? `<small>${esc(use.source_display)}</small>` : ''}${passagesHtml(use)}<p class="proof-hint">This use refines the recorded argument at an intermediate step; it is not part of the overview graph.</p></div>`;
 }
 
 function detailSectionHtml(detail, graph) {
   const annotations = graph.detailUses.filter((use) => detailAnchor(use, graph) === detail.id);
-  return `<section class="proof-detail" data-proof-detail="${esc(detail.id)}" data-reader-search-key="detail:${esc(detail.id)}"><h5><span class="proof-detail-kind">${esc(detailKinds[detail.kind])}</span> ${esc(detail.label)}${detail.caption ? `: ${esc(detail.caption)}` : ''}</h5><div class="proof-statement">${formulaHtml(detail.statement_html)}</div>${detail.proof_idea ? readingSection({role:'logic',title:'Proof idea',bodyHtml:proofIdeaHtml(detail)}) : ''}${issueHtml(detail)}${reviewLineHtml(detail)}${comparisonNoteHtml(detail, true)}${passagesHtml(detail)}${annotations.map((use) => detailUseHtml(use, graph)).join('')}</section>`;
+  return `<section class="proof-detail" data-proof-detail="${esc(detail.id)}" data-reader-search-key="detail:${esc(detail.id)}"><h5><span class="proof-detail-kind">${esc(detailKinds[detail.kind])}</span> ${esc(detail.label)}${detail.caption ? `: ${esc(detail.caption)}` : ''}</h5><div class="proof-statement">${formulaHtml(detail.statement_html)}</div>${detail.proof_idea ? readingSection({role:'logic',title:'Proof idea',bodyHtml:proofIdeaHtml(detail)}) : ''}${issueHtml(detail)}${reviewLineHtml(detail)}${comparisonBasisHtml(detail)}${comparisonNoteHtml(detail, true)}${passagesHtml(detail)}${annotations.map((use) => detailUseHtml(use, graph)).join('')}</section>`;
 }
 
 function fullItemHtml(node, graph, { hover = false } = {}) {
@@ -644,13 +667,13 @@ function fullItemHtml(node, graph, { hover = false } = {}) {
       <div data-reader-search-key="item:${esc(node.id)}:logic">${node.proof_idea ? readingSection({role:'logic',title:'Proof idea',bodyHtml:`${proofIdeaHtml(node)}<p class="proof-hint">This explanation supplies no additional proof support.</p>`}) : ''}
       ${readingSection({role:'prerequisites',title:`Prerequisites (${incoming.length})`,bodyHtml:prerequisitesHtml(incoming, graph)})}</div>
       ${sourceDisclosure({title:`Used by (${outgoing.length})`,attrs:{'data-reader-search-key':`item:${node.id}:outgoing`},bodyHtml:outgoing.length ? `<ul class="proof-prerequisite-list">${outgoing.map((use) => relationHtml(use, graph, false)).join('')}</ul>` : '<p>No downstream use is recorded in this overview.</p>'})}
-      ${sourceDisclosure({attrs:{'data-reader-search-key':`item:${node.id}:sources`},bodyHtml:`${comparisonNoteHtml(node, true)}${sourceHtml(node)}${Array.isArray(node.aliases) && node.aliases.length ? `<p class="proof-hint">Also identified as: ${node.aliases.map((alias) => esc(alias)).join(', ')}</p>` : ''}${passagesHtml(node)}${connections.length ? `<h5>Connection evidence</h5>${connections.map((use) => connectionEvidenceHtml(use, graph)).join('')}` : ''}`})}
+      ${sourceDisclosure({attrs:{'data-reader-search-key':`item:${node.id}:sources`},bodyHtml:`${comparisonBasisHtml(node)}${comparisonNoteHtml(node, true)}${sourceHtml(node)}${Array.isArray(node.aliases) && node.aliases.length ? `<p class="proof-hint">Also identified as: ${node.aliases.map((alias) => esc(alias)).join(', ')}</p>` : ''}${passagesHtml(node)}${connections.length ? `<h5>Connection evidence</h5>${connections.map((use) => connectionEvidenceHtml(use, graph)).join('')}` : ''}`})}
       ${details.length ? `<div class="proof-details"><h4>Intermediate steps (${details.length})</h4>${details.map((detail) => detailSectionHtml(detail, graph)).join('')}</div>` : ''}
       `.trim();
 }
 
 function fullUseHtml(use, graph) {
-  return `<h4>${esc(graph.nodes.get(use.from).label)} → ${esc(graph.nodes.get(use.to).label)}</h4>${qualificationHtml(use, graph)}${readingSection({role:'logic',title:'How this input contributes',attrs:{'data-reader-search-key':`use:${use.id}:logic`},bodyHtml:`<div class="proof-idea">${formulaHtml(use.reason_html || esc(use.reason))}</div>`})}${issueHtml(use)}${reviewLineHtml(use)}${sourceDisclosure({attrs:{'data-reader-search-key':`use:${use.id}:sources`},bodyHtml:`${comparisonNoteHtml(use, true)}${sourceHtml(use)}${passagesHtml(use)}`})}`;
+  return `<h4>${esc(graph.nodes.get(use.from).label)} → ${esc(graph.nodes.get(use.to).label)}</h4>${qualificationHtml(use, graph)}${readingSection({role:'logic',title:'How this input contributes',attrs:{'data-reader-search-key':`use:${use.id}:logic`},bodyHtml:`<div class="proof-idea">${formulaHtml(use.reason_html || esc(use.reason))}</div>`})}${issueHtml(use)}${reviewLineHtml(use)}${sourceDisclosure({attrs:{'data-reader-search-key':`use:${use.id}:sources`},bodyHtml:`${comparisonBasisHtml(use)}${comparisonNoteHtml(use, true)}${sourceHtml(use)}${passagesHtml(use)}`})}`;
 }
 
 function fullIndexHtml(data, graph, open = false) {
@@ -678,8 +701,11 @@ function buildContextHtml(data) {
   if (state?.unreviewed) limits.push('Some selected statements or connections have not yet been compared with the source.');
   if (state?.stale) limits.push('Some source comparisons need updating after changes to the source or argument context.');
   if (state?.needs_attention) limits.push('Some source questions remain unresolved; affected statements or connections are marked.');
-  const comparison = limits.join(' ') || {
+  const reviewedWithLimits = comparisonStatus === 'complete_with_limits' && Number.isInteger(state?.total) && Number.isInteger(state?.needs_attention)
+    ? `All ${state.total} records reviewed; ${state.needs_attention} have unresolved source questions.` : '';
+  const comparison = reviewedWithLimits || limits.join(' ') || {
     complete: 'The selected statements and connections have been compared with the source.',
+    complete_with_limits: 'Some source questions remain unresolved; affected statements or connections are marked.',
     incomplete: 'Source comparison remains incomplete; read the affected statements and connections for its limits.',
   }[comparisonStatus] || '';
   const rows = [...(data.items || []), ...(data.details || []), ...(data.uses || []), ...(data.detail_uses || [])];
@@ -748,7 +774,7 @@ function renderIndex(data) {
   const warnings = readerWarnings(data).map((warning) => `<li>${esc(warning)}</li>`).join('');
   const mainItems = data.main_items || data.items.map(node => node.id);
   const beforeGraph = `<div class="proof-reader"><p class="proof-kicker">Source overview</p><p class="proof-caption">${data.items.length} selected statements · ${data.uses.length} connections</p><p><strong>Index view.</strong> All selected statements and connections are displayed below. This overview explains the written argument; it does not verify the proofs. Cyclic mappings alone do not establish a circular proof.</p>${emptyConnectionsHtml(data)}${scopeHtml(data.scope, data.scope_display)}${buildContextHtml(data)}${warnings ? `<div class="proof-render-warnings"><ul>${warnings}</ul></div>` : ''}${mathDiagnosticsHtml(data)}</div>`;
-  const html = archifyPage({templatePath:path.join(root,'scripts/paper_core/renderer/assets/archify/template.html'),title:data.title,index:true,svg:'<svg class="proof-index-placeholder" viewBox="0 0 100 100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"></svg>',beforeGraph,afterGraph:`<div class="proof-reader">${scientificSearchPanel()}${fullIndexHtml(data,graph,true)}</div>`,css:graphCss(data),data:recordsHtml(data,'index')+overviewData(data,graph,mainItems)+readerSearchData(searchEntries(data,graph)),runtime:readerRuntime({targets:readerTargets(data,true),graphAvailable:false})});
+  const html = archifyPage({templatePath:path.join(root,'scripts/paper_core/renderer/assets/archify/template.html'),title:data.title,index:true,svg:'<svg class="proof-index-placeholder" viewBox="0 0 100 100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"></svg>',beforeGraph,afterGraph:`<div class="proof-reader">${scientificSearchPanel()}${fullIndexHtml(data,graph,true)}</div>`,css:graphCss(data),data:recordsHtml(data,'index')+overviewData(data,graph,mainItems)+readerSearchData(searchEntries(data,graph),{excerptCandidates:searchExcerptCandidates(data)}),runtime:readerRuntime({targets:readerTargets(data,true),graphAvailable:false})});
   const graph_preservation = representationReceipt(data, html, 'index');
   if (graph_preservation.status !== 'pass') throw new Error('Rendered index does not preserve the supplied item and use identities.');
   return { html, items: data.items.length, uses: data.uses.length, viewBox: null, graph_mode: 'index', graph_preservation, geometry: { status: 'not_applicable', checks: [], diagnostics: [], reason: 'The complete records are shown as an index; no dependency geometry is drawn.' } };
@@ -877,7 +903,7 @@ function render(input) {
   const fragments = data.items.map((node) => `<template id="proof-detail-${esc(node.id)}">${fullItemHtml(node, graph)}</template><template id="proof-hover-${esc(node.id)}">${fullItemHtml(node, graph, { hover: true })}</template>`).join('');
   const useFragments = data.uses.map((use) => `<template id="proof-use-${esc(use.id)}">${fullUseHtml(use, graph)}</template>`).join('');
   const index = `<div class="proof-reader">${scientificSearchPanel()}${fullIndexHtml(data, graph, true)}</div><p class="proof-attribution">Viewer adapted from Archify 3.0.1 by tt-a1i and Cocoon AI, MIT licensed. Proof-specific dataset and rendering by proof-graphify.</p>`;
-  const html = archifyPage({templatePath,title:data.title,svg,beforeGraph,resultsHtml,afterGraph:cards+index,css:graphCss(data),data:fragments+useFragments+recordsHtml(data,graphMode)+overviewData(data,graph,mainItems)+readerSearchData(searchEntries(data,graph)),runtime:readerRuntime({targets:readerTargets(data),graphAvailable:true})});
+  const html = archifyPage({templatePath,title:data.title,svg,beforeGraph,resultsHtml,afterGraph:cards+index,css:graphCss(data),data:fragments+useFragments+recordsHtml(data,graphMode)+overviewData(data,graph,mainItems)+readerSearchData(searchEntries(data,graph),{excerptCandidates:searchExcerptCandidates(data)}),runtime:readerRuntime({targets:readerTargets(data),graphAvailable:true})});
   const graph_preservation = representationReceipt(data, html, graphMode);
   if (graph_preservation.status !== 'pass') throw new Error('Rendered SVG does not preserve the supplied item and use identities.');
   return { html, items: data.items.length, uses: data.uses.length, viewBox: [graph.width, graph.height], graph_mode: graphMode, graph_preservation, geometry };

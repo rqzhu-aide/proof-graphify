@@ -2,11 +2,44 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderProjection, representationReceipt } from './render_projection.mjs';
+import { decodeReaderSearchData } from './scientific_reader.mjs';
 import { scanHtml, textOf, descendants } from './html_scan.mjs';
 import { readerFixture } from './selftest.mjs';
 
 const key = ref => `${ref.collection}:${ref.id}:${ref.version}`;
 const render = input => renderProjection(Buffer.from(JSON.stringify(input)));
+
+test('primary composition preserves the saved claim severity badge and exact finding link', () => {
+  for (const severity of ['minor','moderate','severe']) {
+    const input = readerFixture(), projection = input.projection;
+    const obligation = projection.obligations.find(row => row.role === 'primary');
+    const finding = projection.records.find(row => row.ref.id === 'fnd_reader');
+    obligation.kind = 'composition';
+    obligation.target = {collection:'arguments',id:'arg_reader'};
+    finding.body.target = {collection:'items',id:projection.nodes.find(row => row.kind === 'theorem').item_ref.id};
+    finding.body.category = 'statement_refutation';
+    finding.body.severity = severity;
+    finding.body.check_refs = structuredClone(obligation.check_refs);
+    obligation.assessment.finding_refs = [finding.ref.id];
+    obligation.assessment.review_display = {status:severity,finding_refs:[finding.ref.id],unrated_count:0,
+      explanation:`Current applicable ${severity} issue.`};
+    const before = JSON.stringify(projection), rendered = render(input), scan = scanHtml(rendered.html);
+    const wrappers = scan.elements.filter(row => row.attrs['data-obligation-id'] === obligation.id);
+    assert(wrappers.length,severity);
+    for (const wrapper of wrappers) {
+      const children = [...descendants(wrapper)];
+      assert(children.some(row => row.attrs['data-review-status'] === severity),severity);
+      assert(textOf(scan,wrapper).includes(severity[0].toUpperCase() + severity.slice(1)),severity);
+      const link = children.find(row => row.tag === 'a' && row.attrs['data-jump-record'] === key(finding.ref));
+      assert(link,severity + ': same finding version');
+      const location = projection.record_locations.find(row => key(row.ref) === key(finding.ref));
+      assert.equal(link.attrs['data-jump-detail'],location.detail_key);
+      assert.equal(link.attrs['data-jump-section'],location.section_key);
+    }
+    assert.equal(JSON.stringify(projection),before,severity + ': immutable scientific payload');
+    assert.equal(rendered.receipt.representation.status,'pass',severity);
+  }
+});
 
 test('nonprimary completion follows one exact saved task while scientific judgments remain frozen', () => {
   const cases = [
@@ -103,7 +136,7 @@ test('applications resolve independent version pins to the exact consuming occur
   for (const mode of ['dag','index']) for (const [name,change] of changes) {
     const f = applicationFixture(); f.projection.layout.mode = mode; change(f);
     const before = JSON.stringify(f.projection), rendered = render(f.input), scan = scanHtml(rendered.html);
-    const entries = JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text);
+    const entries = decodeReaderSearchData(JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text));
     for (const ref of f.refs) {
       const saved = f.projection.record_locations.find(row => key(row.ref) === key(ref));
       const entry = entries.find(row => row.key === key(ref));

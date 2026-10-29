@@ -21,6 +21,7 @@ MAJOR_KINDS = ("assumption", "definition", "lemma", "proposition", "theorem", "c
 INTERMEDIATE_KINDS = ("equation", "claim", "derivation")
 KINDS = frozenset(MAJOR_KINDS + INTERMEDIATE_KINDS)  # Record validation only; inventories and displays use MAJOR_KINDS.
 USE_TYPES = {"dependency", "definition", "proof_argument"}
+COMPARISON_BASES = ('typeset', 'tex', 'source_text', 'extracted_text')
 
 # Heading words normalize to a major kind in declaration order; a
 # condition-style declaration is an assumption. This restates the audit
@@ -1247,7 +1248,7 @@ def _validate_records(data, sources):
     observation_ids = set()
     observation_map = {}
     for obs in _rows(result['observations'], 'Observations'):
-        _fields(obs, ('id', 'target', 'input_snapshot', 'result', 'note', 'reviewer', 'created_at'), ('carried_from',), 'Observation')
+        _fields(obs, ('id', 'target', 'input_snapshot', 'result', 'note', 'reviewer', 'created_at'), ('carried_from', 'basis'), 'Observation')
         _id(obs['id'], 'Observation.id')
         if obs['id'] in observation_ids:
             raise RecordError('Duplicate observation identity.')
@@ -1263,6 +1264,10 @@ def _validate_records(data, sources):
         _text(obs['result'], 'Observation.result')
         if obs['result'] not in {'matched', 'needs_attention'}:
             raise RecordError('Observation result must be matched or needs_attention; neither is a proof verdict.')
+        if 'basis' in obs:
+            _text(obs['basis'], 'Observation.basis')
+            if obs['basis'] not in COMPARISON_BASES:
+                raise RecordError('Observation.basis must be typeset, tex, source_text or extracted_text.')
         if 'carried_from' in obs:
             _id(obs['carried_from'], 'Observation carried_from')
             prior = observation_map.get(obs['carried_from'])
@@ -1458,7 +1463,7 @@ def make_observations(data, requests, reviewer, note='', result='matched'):
     return _make_observations_validated(validate_records(data), requests, reviewer, note, result)
 
 
-def _make_observations_validated(data, requests, reviewer, note='', result='matched'):
+def _make_observations_validated(data, requests, reviewer, note='', result='matched', *, basis_by_target=None):
     """Create observations from a snapshot checked at the public operation boundary."""
     _text(reviewer, 'Reviewer')
     _text(note, 'Comparison note', empty=True)
@@ -1468,9 +1473,18 @@ def _make_observations_validated(data, requests, reviewer, note='', result='matc
     observations = []
     for request in _rows(requests, 'Comparison targets'):
         _fields(request, ('collection', 'id'), (), 'Comparison target')
-        observations.append({'id': 'comparison-' + uuid.uuid4().hex, 'target': copy.deepcopy(request),
+        observation = {'id': 'comparison-' + uuid.uuid4().hex,
+                             'target': {key: request[key] for key in ('collection', 'id')},
                              'input_snapshot': target_digest(data, request['collection'], request['id']),
-                             'result': result, 'note': note, 'reviewer': reviewer, 'created_at': _now()})
+                             'result': result, 'note': note, 'reviewer': reviewer, 'created_at': _now()}
+        key = request['collection'], request['id']
+        if basis_by_target is not None and key in basis_by_target:
+            basis = basis_by_target[key]
+            _text(basis, 'Comparison basis')
+            if basis not in COMPARISON_BASES:
+                raise RecordError('Comparison basis must be typeset, tex, source_text or extracted_text.')
+            observation['basis'] = basis
+        observations.append(observation)
     return observations
 
 
@@ -1567,18 +1581,26 @@ def validate_focused_authoring(data, *, check_text_evidence=True):
                                   'Locate the supporting passage or record needs_attention; imported observations are not changed.')
 
 
-def comparison_status(data, fidelity=None):
-    fidelity = fidelity if fidelity is not None else fidelity_by_row(data)
+def comparison_status(data, fidelity=None, observations=None):
+    if fidelity is None or observations is None:
+        selected, derived_fidelity, _ = _comparison_state(data)
+        fidelity = fidelity if fidelity is not None else derived_fidelity
+        observations = observations if observations is not None else selected
     counts = {'matched': 0, 'needs_attention': 0, 'unreviewed': 0, 'stale': 0,
               'total': len(data['items']) + len(data['uses'])}
     for status in fidelity.values():
         counts[status] += 1
+    basis_counts = dict.fromkeys((*COMPARISON_BASES, 'not_recorded'), 0)
+    for observation in observations:
+        key = observation['target']['collection'], observation['target']['id']
+        if fidelity.get(key) in {'matched', 'needs_attention'}:
+            basis_counts[observation.get('basis', 'not_recorded')] += 1
     if not counts['total']:
         summary = 'No records are available for source comparison.'
     elif not counts['unreviewed'] and not counts['stale']:
-        summary = f"All {counts['total']} records reviewed for this version"
-        summary += (f"; {counts['needs_attention']} records have unresolved source questions."
-                    if counts['needs_attention'] else '; no source-comparison questions remain unresolved.')
+        summary = (f"All {counts['total']} records reviewed; {counts['needs_attention']} have unresolved source questions."
+                   if counts['needs_attention'] else
+                   f"All {counts['total']} records reviewed for this version; no source-comparison questions remain unresolved.")
     else:
         summary = f"{counts['matched'] + counts['needs_attention']} of {counts['total']} records reviewed for this version"
         if counts['unreviewed']:
@@ -1588,8 +1610,9 @@ def comparison_status(data, fidelity=None):
         if counts['needs_attention']:
             summary += f"; {counts['needs_attention']} reviewed records have unresolved source questions"
         summary += '.'
-    return {'status': 'complete' if counts['matched'] == counts['total'] else 'incomplete', **counts,
-            'summary': summary}
+    aggregate = ('incomplete' if not counts['total'] or counts['unreviewed'] or counts['stale'] else
+                 'complete_with_limits' if counts['needs_attention'] else 'complete')
+    return {'status': aggregate, **counts, 'basis_counts': basis_counts, 'summary': summary}
 
 
 def source_status(data, base_dir):
@@ -1672,7 +1695,7 @@ def pdf_extraction_diagnostics(data):
             for anchor in damaged.values()]
 
 
-def record_report(data, base_dir, fidelity=None):
+def record_report(data, base_dir, fidelity=None, observations=None, freshness=None):
     """Structural/source diagnostics for validated records, without math rendering."""
     report = {'warnings': [], 'reader_warning_overrides': {}}
 
@@ -1705,12 +1728,12 @@ def record_report(data, base_dir, fidelity=None):
     report['graph_mode'] = 'cyclic' if report['graph_cycles'] else 'dag'
     if report['graph_cycles']:
         report['warnings'].append('The recorded dependency map contains a cycle. The graph retains all items and arrows in their recorded directions. Inspect the identified connections and source passages; a cycle alone does not establish a circular proof.')
-    freshness = source_status(data, base_dir)
+    freshness = freshness if freshness is not None else source_status(data, base_dir)
     if freshness != 'current':
         warning({'historical_changed': 'The live manuscript differs from this captured source version. This overview displays historical records; refresh and compare them before calling it current.',
                                      'historical_unavailable': 'Some live source files are unavailable. This overview uses its captured historical source version.',
                                      'unregistered': 'No source files are registered. Entered locators and completeness need source comparison.'}[freshness], '')
-    status = comparison_status(data, fidelity)
+    status = comparison_status(data, fidelity, observations)
     if status['status'] != 'complete':
         warning(status['summary'] + ' These are overview comparisons, not proof verdicts.', '')
     damaged_pages = sorted({(row['file'], row['locator']['page'])
@@ -1773,6 +1796,43 @@ def record_report(data, base_dir, fidelity=None):
     return report
 
 
+def _delivery_brief(data, comparisons, fidelity):
+    """Project saved delivery facts using the already selected comparison state."""
+    items = {row['id']: row for row in data['items']}
+    kinds, limits, by_text = {}, [], {}
+    for row in data['items']:
+        kinds[row['kind']] = kinds.get(row['kind'], 0) + 1
+
+    def add_limit(text, collection, identity, field):
+        if not text or not text.strip():
+            return
+        if text not in by_text:
+            by_text[text] = {'text': text, 'targets': []}
+            limits.append(by_text[text])
+        target = {'collection': collection, 'id': identity, 'field': field}
+        if target not in by_text[text]['targets']:
+            by_text[text]['targets'].append(target)
+
+    pending = {'unreviewed': [], 'stale': []}
+    for collection in ('items', 'uses'):
+        for row in data[collection]:
+            identity = row['id']
+            add_limit(row.get('issue'), collection, identity, 'issue')
+            key = collection, identity
+            state = fidelity[key]
+            if state in pending:
+                pending[state].append({'collection': collection, 'id': identity})
+            if state == 'needs_attention':
+                observation = comparisons.get(key)
+                if observation:
+                    add_limit(observation['note'], collection, identity, 'comparison_note')
+    return {'title': data['title'], 'scope': data['scope'],
+            'counts': {'items': len(data['items']), 'uses': len(data['uses']), 'items_by_kind': kinds},
+            'main_results': [{'id': identity, 'label': items[identity]['label'], 'caption': items[identity]['caption']}
+                             for identity in data.get('main_items', [])],
+            'limits': limits, 'pending': pending}
+
+
 def prepare_records(data, base_dir):
     """The single database-to-display projection.
 
@@ -1791,11 +1851,15 @@ def _prepare_records_validated(data, base_dir):
     prepared = {'schema_version': 3, 'title': data['title'], 'scope': data['scope'],
                 'source': {'title': data['source_revision']['title']},
                 'items': [], 'details': [], 'uses': [], 'detail_uses': [], 'warnings': []}
-    comparisons, fidelity, _ = _comparison_state(data)
-    comparisons = {(row['target']['collection'], row['target']['id']): row for row in comparisons}
+    observations, fidelity, _ = _comparison_state(data)
+    comparisons = {(row['target']['collection'], row['target']['id']): row for row in observations}
+    prepared['delivery_brief'] = _delivery_brief(data, comparisons, fidelity)
 
     def comparison_note(row, collection):
         observation = comparisons.get((collection, row['id']))
+        if observation:
+            row['comparison_basis'] = observation.get('basis', 'not_recorded')
+            row['comparison_evidence'] = 'earlier' if row['fidelity'] == 'stale' else 'current'
         if observation and observation['note']:
             row['comparison_note'] = observation['note']
             row['comparison_note_diagnostics'] = []
@@ -1862,7 +1926,7 @@ def _prepare_records_validated(data, base_dir):
         prepared[target].append(row)
     if 'main_items' in data:
         prepared['main_items'] = data['main_items'][:]
-    prepared.update(record_report(data, base_dir, fidelity))
+    prepared.update(record_report(data, base_dir, fidelity, observations))
     diagnostics = []
     for row in prepared['items'] + prepared['details'] + prepared['uses'] + prepared['detail_uses']:
         for field in ('statement', 'proof_idea', 'reason', 'regime', 'issue', 'comparison_note'):

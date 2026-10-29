@@ -4,12 +4,43 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import { adaptScientificReaderTemplate, archifyPage, resultsNavigation, mathDisplayNotes,
-  readerRuntime, readerSearchData, SCIENTIFIC_READER_CSS, sourceDisclosure, nearestProofRelationship } from './scientific_reader.mjs';
-import { renderProjection, validateInput } from './render_projection.mjs';
+  readerRuntime, readerSearchData, decodeReaderSearchData, SCIENTIFIC_READER_CSS, sourceDisclosure, nearestProofRelationship } from './scientific_reader.mjs';
+import { layoutGraph, renderProjection, validateInput } from './render_projection.mjs';
 import { scanHtml } from './html_scan.mjs';
 import { readerFixture } from './selftest.mjs';
 
 const pinnedKey = ref => `${ref.collection}:${ref.id}:${ref.version}`;
+
+test('source prerequisites sit beside the earliest consumer including hypothesis connections', () => {
+  const edges = pairs => pairs.map(([from, to], i) => ({id:`edge_${i}`, from, to}));
+  const model = {nodeList:['a','b','c','t','late','setup','shared','isolated'].map(id => ({id})),
+    connectionList:edges([['a','b'],['b','c'],['c','t'],['late','t'],['late','t'],['shared','t']]),
+    layout:{mode:'dag'}};
+  model.graphConnectionList = [...model.connectionList,
+    {id:'setup_use',from:'setup',to:'c',kind:'setup'},
+    {id:'shared_hypothesis',from:'shared',to:'b',kind:'hypothesis'}];
+  const saved = JSON.stringify(model), graph = layoutGraph(model);
+  assert.deepEqual(Object.fromEntries([...graph.nodes].map(([id,node]) => [id,node.rank])),
+    {a:0,b:1,c:2,t:3,late:2,setup:1,shared:0,isolated:0});
+  for (const edge of model.graphConnectionList)
+    assert(graph.nodes.get(edge.from).rank < graph.nodes.get(edge.to).rank);
+  assert.deepEqual([...graph.nodes.values()].filter(node => node.component === graph.nodes.get('a').component && node.rank === 0)
+    .map(node => node.id), ['a','shared'], 'Late prerequisites should no longer occupy the first column.');
+  assert.equal(JSON.stringify(model), saved, 'Layout must not change recorded nodes or connections.');
+  assert.deepEqual([...layoutGraph(model).nodes.values()], [...graph.nodes.values()]);
+});
+
+test('cycle members and isolated nodes retain their ranks while a true source moves beside its use', () => {
+  const model = {nodeList:['q','x','y','z','isolated'].map(id => ({id})),
+    connectionList:[['q','x'],['x','y'],['y','q'],['z','y']]
+      .map(([from,to],i) => ({id:`cycle_${i}`,from,to})), layout:{mode:'cyclic'}};
+  const graph = layoutGraph(model);
+  assert.deepEqual(Object.fromEntries([...graph.nodes].map(([id,node]) => [id,node.rank])),
+    {q:0,x:1,y:2,z:1,isolated:0});
+  assert.deepEqual([...graph.feedback], ['cycle_2']);
+  assert.equal(graph.outgoing.get('y')[0].to, 'q', 'The return arrow is preserved.');
+});
+
 function relocatedEvidenceFixture() {
   const input = readerFixture(), projection = input.projection;
   const major = projection.nodes.find(node => node.kind === 'theorem');
@@ -67,7 +98,7 @@ test('result links select the exact major card while historical and hidden recor
       const before = JSON.stringify(projection);
       const {html} = renderProjection(Buffer.from(JSON.stringify(input)));
       const scan = scanHtml(html);
-      const entries = JSON.parse(scan.elements.find(element => element.attrs.id === 'proof-reader-search').text);
+      const entries = decodeReaderSearchData(JSON.parse(scan.elements.find(element => element.attrs.id === 'proof-reader-search').text));
       for (const searched of [major.item_ref, old, hidden]) {
         const entry = entries.find(row => row.key === pin(searched));
         const recorded = projection.record_locations.find(row => pin(row.ref) === pin(searched));
@@ -105,7 +136,7 @@ test('result links select the exact major card while historical and hidden recor
     assert.equal(named.parent.attrs['data-jump-detail'],major.detail_key);
     const links = scan.elements.filter(row => row.tag === 'a' && row.attrs['data-jump-record'] === pin(major.item_ref));
     assert(links.length && links.every(row => row.attrs['data-jump-detail'] === major.detail_key));
-    const entries = JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text);
+    const entries = decodeReaderSearchData(JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text));
     assert(!entries.some(row => row.key === pin(major.item_ref)), 'Navigation must not expand a legacy search inventory.');
   }
 });
@@ -119,7 +150,7 @@ test('owned proof evidence shares exact destinations across search, record and n
       const before = JSON.stringify(projection);
       const {html,receipt} = renderProjection(Buffer.from(JSON.stringify(input)));
       assert.equal(receipt.representation.status,'pass');
-      const scan = scanHtml(html), entries = JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text);
+      const scan = scanHtml(html), entries = decodeReaderSearchData(JSON.parse(scan.elements.find(row => row.attrs.id === 'proof-reader-search').text));
       for (const evidence of owned) {
         const key = pinnedKey(evidence), entry = entries.find(row => row.key === key);
         const section = own.sections.find(row => row.record_refs.some(value => pinnedKey(value) === key)).key;
@@ -167,7 +198,7 @@ test('ambiguous or missing ownership retains saved evidence navigation', () => {
     const fixture = relocatedEvidenceFixture(); change(fixture);
     const before = JSON.stringify(fixture.projection);
     const {html} = renderProjection(Buffer.from(JSON.stringify(fixture.input)));
-    const entries = JSON.parse(scanHtml(html).elements.find(row => row.attrs.id === 'proof-reader-search').text);
+    const entries = decodeReaderSearchData(JSON.parse(scanHtml(html).elements.find(row => row.attrs.id === 'proof-reader-search').text));
     const refs = [fixture.owned.find(ref => ref.collection === collection), ...fixture.projection.records.filter(row => ['anchors','uses','application_details'].includes(row.ref.collection)).map(row => row.ref)];
     for (const ref of refs) {
       const saved = fixture.projection.record_locations.find(row => pinnedKey(row.ref) === pinnedKey(ref));
@@ -258,7 +289,7 @@ test('reader payload keeps scientific text literal and aliases out of navigation
   assert.equal(searchScripts[0].attrs.id,'proof-reader-search');
   assert.equal(searchScripts[0].attrs.type,'application/json');
   assert(!/[<>&]/.test(searchScripts[0].text),'Saved text must not terminate the JSON script.');
-  assert.deepEqual(JSON.parse(searchScripts[0].text),searchEntries);
+  assert.deepEqual(decodeReaderSearchData(JSON.parse(searchScripts[0].text)),searchEntries);
   const runtime = readerRuntime({targets:[{key:'item:opaque-id',articleId:'article-1',nodeId:'opaque-id'}],graphAvailable:false});
   new vm.Script(runtime);
   assert(!runtime.includes('source:1'),'The runtime must not serialize the search entries again.');
@@ -270,6 +301,58 @@ test('reader payload keeps scientific text literal and aliases out of navigation
   assert(!navigation.slice(link.openEnd,link.closeStart).includes('opaque-id'));
   assert(!navigation.includes('proof-full-structure'));
   assert.equal(resultsNavigation({entries,mainIds:['opaque-id'],graphAvailable:false}),'','Index mode must not duplicate the complete index with a Results rail.');
+});
+
+test('source pooling restores complete entries, literal source bytes and property order', () => {
+  const excerpt = ('e\u0301 α 🧪 </script><script>literal_source()</script> & <source>\r\n\t').repeat(12);
+  const normalized = excerpt.replace(/\s+/gu,' ').trim();
+  const short = excerpt.slice(0,-3);
+  const entries = Array.from({length:8}, (_,index) => ({
+    key:`source:${index}`,aliases:['opaque-id'],label:'Theorem 1',detail:'item:1',
+    section:'sources',owner:'Main result',text:` before ${excerpt}${excerpt}${short} after ${normalized} `,
+    isDirectResult:false,
+  }));
+  entries.push({...entries[0],key:'empty',text:''});
+  const before = JSON.stringify(entries);
+  const payload = readerSearchData(entries,{excerptCandidates:['',short,excerpt,excerpt,normalized,'unused candidate']});
+  const scripts = scanHtml(payload).elements.filter(row => row.tag === 'script');
+  assert.equal(scripts.length,1);
+  assert(!/[<>&]/.test(scripts[0].text));
+  const encoded = JSON.parse(scripts[0].text);
+  assert.equal(encoded.format,'source-pool-v1');
+  assert(encoded.strings.includes(excerpt));
+  assert(encoded.strings.includes(normalized));
+  assert(!encoded.strings.includes('unused candidate'));
+  assert(encoded.entries[0].text.some(segment => Number.isInteger(segment)));
+  assert.deepEqual(decodeReaderSearchData(encoded),entries);
+  assert.equal(JSON.stringify(decodeReaderSearchData(encoded)),before);
+  assert.equal(JSON.stringify(entries),before);
+  const ordinary = scanHtml(readerSearchData(entries)).elements.find(row => row.tag === 'script').text;
+  assert(Buffer.byteLength(scripts[0].text,'utf8') < Buffer.byteLength(ordinary,'utf8'));
+});
+
+test('search pooling preserves arrays and chooses the ordinary payload when it cannot save bytes', () => {
+  for (const entries of [[],[{text:''}],[{key:'small',text:'α 🧪'}]]) {
+    assert.equal(decodeReaderSearchData(entries),entries);
+    const ordinary = scanHtml(readerSearchData(entries)).elements.find(row => row.tag === 'script').text;
+    for (const excerptCandidates of [[],['absent'],['α 🧪']]) {
+      const payload = scanHtml(readerSearchData(entries,{excerptCandidates})).elements.find(row => row.tag === 'script').text;
+      assert.equal(payload,ordinary);
+      assert.deepEqual(decodeReaderSearchData(JSON.parse(payload)),entries);
+    }
+  }
+});
+
+test('search decoding rejects malformed pools and invalid references', () => {
+  const envelope = text => ({format:'source-pool-v1',strings:['source'],entries:[{key:'source:1',text}]});
+  assert.deepEqual(decodeReaderSearchData(envelope('literal')),[{key:'source:1',text:'literal'}]);
+  assert.deepEqual(decodeReaderSearchData(envelope(['before ',0,0,' after'])),[{key:'source:1',text:'before sourcesource after'}]);
+  for (const segment of [-1,1,0.5,null,{},['nested']]) assert.throws(() => decodeReaderSearchData(envelope([segment])));
+  for (const value of [
+    {...envelope([0]),strings:[7]}, {...envelope([0]),strings:null},
+    {...envelope([0]),entries:null}, {...envelope([0]),format:'unknown-pool'},
+    envelope(true),
+  ]) assert.throws(() => decodeReaderSearchData(value));
 });
 
 test('located diagnostics survive validation and rendering without entering scientific records', () => {

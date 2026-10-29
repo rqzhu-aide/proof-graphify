@@ -131,7 +131,8 @@ def _finish(db, index, directory, deliveries, *, index_bytes=None, reused=False)
                 "and fill each response-scaffold.json using worker-guidance.json. Save it at its listed "
                 "response_path. Keep the generated fields and question_id. Put concerns about the assigned "
                 "conclusion in judgment reasoning and outcome, and other concerns in coverage_note. "
-                "Do not read coordinator files, primary opinions or other reviewers' responses. "
+                "Do not read coordinator files or primary opinions. Do not read other reviewers' responses "
+                "outside your explicitly assigned source-only continuation lineage. "
                 "The coordinator submits the responses; do not write the database.",
                 "role_reference_files": [str(refs / "independent-checker.md"), str(refs / "mathematical-checking.md")],
                 "packets": deliveries}

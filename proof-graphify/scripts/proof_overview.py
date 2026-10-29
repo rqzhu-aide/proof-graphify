@@ -234,6 +234,10 @@ def _render_validated_dataset(canonical, base_dir, output_path, protected_paths=
         raise OverviewError(f"Could not write the overview at {output_path}: {exc}. "
                             "Repair the output path or choose a writable .html destination, then retry; "
                             "the existing output was preserved.") from exc
+    browser_review = 'not_performed'
+    delivery_brief = dict(prepared['delivery_brief'],
+                          source_comparison=prepared['build_context']['source_comparison'],
+                          browser_review=browser_review)
     return {"output": str(output_path), "items": len(canonical["items"]), "uses": len(canonical["uses"]),
             "bytes": len(html), "seconds": round(time.perf_counter() - started, 3),
             "sha256": hashlib.sha256(html).hexdigest(), "warnings": prepared["warnings"] + cleanup_warnings,
@@ -242,7 +246,8 @@ def _render_validated_dataset(canonical, base_dir, output_path, protected_paths=
             **prepared['build_context'], 'graph_preservation': preservation,
             'geometry': renderer_receipt['geometry'], 'graph_mode': prepared['graph_mode'],
             'graph_cycles': prepared['graph_cycles'],
-            'browser_review': 'not_performed', 'visual_review': 'not_performed'}
+            'delivery_brief': delivery_brief,
+            'browser_review': browser_review, 'visual_review': 'not_performed'}
 
 
 def render_file(input_path: Path, output_path: Path) -> dict:

@@ -17,15 +17,18 @@ Judge mathematical effect, not the size of a typographical change. Uncertainty a
 
 ## Mathematical text and JSON
 
-Use `$...$`/`\(...\)` inline or `$$...$$`/`\[...\]` display.
-Undelimited math stays plain; preserve source excerpts. JSON requires doubled backslashes,
-including dollar-delimited commands: `"$\\theta$"`. Prefer a JSON serializer with Python raw strings.
+In authored statements, reasoning and issue cards, enclose each mathematical expression in `$...$`/`\(...\)` inline or `$$...$$`/`\[...\]` for display; bare LaTeX commands remain plain text. Select complete mathematical statements and needed forms,
+retaining their conditions; do not cut a formula at a line or character limit.
+Preserve captured source excerpts literally. Write JSON files without shell interpolation. In authored decoded text, commands have one backslash and retain their math delimiters, e.g. `$\theta$`; a JSON serializer writes this as `"$\\theta$"`. Pass a Python serializer `r"$\theta$"`, not `r"$\\theta$"`; serialization performs the escaping once. Direct JSON file editing uses the encoded form. Do not double command backslashes in decoded text; an intentional TeX row separator remains `\\`.
 
 ## Establish the source and exact target
 
 Read the complete statement, applicable setup, definitions, proof, continuations,
 supplement, and relevant macros. For PDF material, verify consequential symbols,
-subscripts, powers, signs, inverses, and domains visually. An available PyMuPDF
+subscripts, powers, signs, inverses, domains, and grouping visually, including
+fraction boundaries and the scope of radicals and operators. If grouping is unclear,
+enlarge the relevant typeset formula during this source reading before interpreting
+it or reporting a discrepancy; reuse any adequate view already inspected. An available PyMuPDF
 `page.get_pixmap()` can render a page for inspection. For inaccessible or ambiguous
 material, retain supported content and identify the unresolved expression or passage
 and its source. Do not reconstruct uncertain symbols from mathematical plausibility
@@ -34,9 +37,9 @@ or claim source fidelity or complete coverage beyond the accessible evidence.
 Normalize the assertion without strengthening or weakening it. Preserve:
 
 - Objects, types, domains, ordered quantifiers, and which quantities are fixed or random.
-- Explicit and inherited hypotheses, including numerical caps and conjunctions.
-- Probability space, sampling law, conditioning, dependence, and equality notion.
-- Exact conclusion parts, normalization, regime, and convergence mode.
+- Explicit and inherited hypotheses, including unnumbered "throughout" or "for a fixed" setup: compact domains, density or moment bounds, numerical caps and conjunctions.
+- Probability space, sampling law, conditioning, dependence, equality notion, and fixed versus data-chosen objects.
+- Exact conclusion parts, normalization, regime and convergence mode. Powers and matrix operations are not interchangeable in general: \(\|u-v\|\) versus \(\|u-v\|^2\), or \(A^{-1}H(A^{-1})^\top\) versus \(A^{-1}HA^{-1}\). A factor \(1/h\) cannot be absorbed into a fixed constant when \(h\to0\).
 - Pointwise or uniform scope and each permitted dependency of hidden constants.
 
 For example, \(\mathbb E|X|^q\le M\) is stronger than finite \(q\)-th moment
@@ -55,9 +58,7 @@ For
 \Gamma,A_1,\ldots,A_m\Longrightarrow C,
 \]
 examine the decisive written transition using actual inputs, substitutions, scope,
-operation, rule, side conditions, and source location. At that transition, resolve
-consequential symbols to their defined objects, including coordinate order, centering
-and aggregation, without changing the assertion or its dependent definitions.
+operation, rule, side conditions, and source location. At that transition, resolve consequential symbols to their defined objects, including coordinate order, centering and conditioning. Retain aggregation: a component \(Z_j\), the finite average \(m^{-1}\sum_j Z_j\), and its conditional expectation have different definitions. A component equal to one contributes \(1/m\) to the average; a bound on the conditional expectation need not hold for the realized finite average. Keep any needed qualification on the affected claim.
 Explain the basis for the judgment, with a calculation or logical derivation where useful.
 Retain decisive conditioning, identities or quantitative slack already available in the setup;
 failure of a weaker estimate introduced by the examiner does not by itself establish a defect.
@@ -147,11 +148,7 @@ without an independent foundation supplies no proof.
 
 ## Constants, rates, probability, and limits
 
-Check consequential algebra and asymptotic comparisons under the exact regime. Identify
-constants depending on dimension, distribution, confidence, or tuning parameters.
-If a theorem lets \(p=p_n\) grow, a fixed-\(p\) bound does not automatically remain
-valid. Divide by a vanishing normalization only with a corresponding bound on
-the numerator and an admissible nonzero denominator.
+For a consequential rate comparison, retain which quantities vary together and what the hidden constant may depend on. To use \(C(h_n)a_n\) as an \(O(a_n)\) bound, the coefficient must stay bounded along the stated regime; a fixed-dimension constant likewise needs control when dimension grows. Opposing changes in two terms do not establish a bound on their sum. Describe a correction as "the same rate up to constants" only when available reasoning supplies that domination; otherwise retain uncertainty without constructing a repair. Divide by a vanishing normalization only with corresponding numerator control and a nonzero denominator.
 
 Distinguish exact, almost-sure, distributional, and asymptotic equality.
 In particular, \(O_p(1)\) does not mean \(o_p(1)\), and pointwise convergence

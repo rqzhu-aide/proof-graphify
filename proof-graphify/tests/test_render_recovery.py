@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -19,6 +20,7 @@ sys.path.insert(0, str(SKILL / "scripts"))
 import paper_database as database
 import proof_overview as overview
 import overview_staging
+import paper_records as records
 
 
 @unittest.skipUnless(shutil.which("node"), "HTML rendering requires shared Node.js.")
@@ -65,7 +67,7 @@ class RenderRecoveryTests(unittest.TestCase):
         db = self.base / "paper.sqlite"
         database.init_database(db, self.seed, focused=True)
         snapshot = database.export_snapshot(db)
-        database.compare_records(db, {"expected_snapshot": snapshot["snapshot_id"],
+        database.compare_records(db, {"basis": "tex", "expected_snapshot": snapshot["snapshot_id"],
             "targets": [{"collection": "items", "id": "constant"}],
             "reviewer": "Synthetic source reader",
             "note": "Compared the bounded theorem passage with the displayed synopsis."})
@@ -86,6 +88,54 @@ class RenderRecoveryTests(unittest.TestCase):
             receipt = overview.render_file(self.seed, self.output)
         self.assert_published(receipt)
         self.assertIn("cleanup", " ".join(receipt["warnings"]))
+
+    def test_delivery_brief_reuses_source_comparison_without_changing_prepared_data(self):
+        canonical = records.normalize(overview.load_data(self.seed), self.base)
+        prepare = records._prepare_records_validated
+        accept = overview._accept_artifact
+        for result, status in ((None, "incomplete"), ("matched", "complete"),
+                               ("needs_attention", "complete_with_limits")):
+            with self.subTest(result=result):
+                data = deepcopy(canonical)
+                if result:
+                    data["observations"].extend(records.make_observations(
+                        data, [{"collection": "items", "id": "constant"}],
+                        reviewer="Synthetic source reader", result=result,
+                        note="Saved source comparison."))
+                captured = {}
+
+                def capture(*args):
+                    prepared = prepare(*args)
+                    captured["prepared"] = prepared
+                    captured["brief"] = deepcopy(prepared["delivery_brief"])
+                    return prepared
+
+                def capture_accepted(prepared, *args):
+                    captured["accepted"] = deepcopy(prepared)
+                    return accept(prepared, *args)
+
+                with patch.object(records, "_prepare_records_validated", side_effect=capture), patch.object(
+                        records, "comparison_status", wraps=records.comparison_status) as comparison, patch.object(
+                        overview, "_accept_artifact", side_effect=capture_accepted):
+                    receipt = overview._render_validated_dataset(data, self.base, self.output)
+                comparison.assert_called_once()
+                prepared = captured["prepared"]
+                brief = receipt["delivery_brief"]
+                self.assertIsNot(brief, prepared["delivery_brief"])
+                self.assertEqual(prepared["delivery_brief"], captured["brief"])
+                self.assertEqual(prepared, captured["accepted"])
+                self.assertIs(brief["source_comparison"], prepared["build_context"]["source_comparison"])
+                self.assertEqual(brief["source_comparison"], receipt["source_comparison"])
+                self.assertEqual(brief["source_comparison"]["status"], status)
+                self.assertEqual(brief["browser_review"], receipt["browser_review"])
+                self.assertEqual(brief["browser_review"], "not_performed")
+                parser = overview._ArtifactReader()
+                html = self.output.read_text(encoding="utf-8")
+                parser.feed(html)
+                self.assertEqual(json.loads("".join(parser.metadata))["build_context"], prepared["build_context"])
+                self.assertIn(f'data-proof-fidelity="{result or "unreviewed"}"', html)
+                if result == "needs_attention":
+                    self.assertTrue("All 1 records reviewed; 1 have unresolved source questions." in html)
 
     def test_render_failure_and_cleanup_failure_preserve_first_error_and_previous_html(self):
         failed = subprocess.CompletedProcess([], 1, "", "injected renderer failure")

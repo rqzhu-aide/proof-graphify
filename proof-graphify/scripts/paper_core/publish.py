@@ -27,7 +27,7 @@ from .storage import Database, now_iso, paper_record
 RENDERER = Path(__file__).resolve().parent / "renderer" / "render_projection.mjs"
 RENDER_TIMEOUT = 120
 FRAGMENT_FIELDS = ("label", "statement", "reason", "needed_form", "rationale", "conditions", "reasoning", "description",
-                   "proof_idea", "regime", "uncertainty", "impact_reason")
+                   "proof_idea", "regime", "uncertainty", "impact_reason", "resolution", "note", "coverage_note", "next_action", "caption")
 
 
 def _review_color(assessment):
@@ -106,11 +106,41 @@ def summarize_math_diagnostics(entries) -> dict:
             "messages": messages, "messages_truncated": len(groups) > 5}
 
 
+def _source_capture_notes(projection: dict) -> list:
+    """Project existing capture notes from selected, version-pinned source anchors."""
+    def pin(ref):
+        return ref["collection"], ref["id"], ref["version"]
+
+    records = {pin(row["ref"]): row for row in projection.get("records", [])}
+    anchors = {pin(ref) for detail in projection.get("details", {}).values()
+               for section in detail.get("sections", []) if section.get("kind") == "sources"
+               for ref in section.get("record_refs", []) if ref["collection"] == "anchors"}
+    notes = {}
+    for anchor_pin in sorted(anchors):
+        anchor = records.get(anchor_pin)
+        if anchor is None:
+            continue
+        body = anchor["body"]
+        description = body.get("limitation")
+        if not isinstance(description, str) or not description.strip():
+            continue
+        source_ref = {"collection": "sources", "id": body["source_id"], "version": body["source_version"]}
+        source = records.get(pin(source_ref))
+        locator_json = json.dumps(body["locator"], sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        key = (pin(source_ref), locator_json, description)
+        note = notes.setdefault(key, {"source_ref": source_ref,
+            "source_path": source["body"].get("path") if source is not None else None,
+            "locator": json.loads(locator_json), "description": description, "anchor_refs": []})
+        note["anchor_refs"].append(dict(anchor["ref"]))
+    return list(notes.values())
+
+
 def _display_metadata(projection: dict) -> dict:
     diagnostics = []
     fragments = display_fragments(projection, diagnostics)
     return {"refs": fragments, "math_diagnostics": diagnostics,
-            "math_diagnostic_summary": summarize_math_diagnostics(diagnostics)}
+            "math_diagnostic_summary": summarize_math_diagnostics(diagnostics),
+            "source_capture_notes": _source_capture_notes(projection)}
 
 
 def render_input(db: Database, projection: dict, *, release: bool, source_identity: str) -> dict:
@@ -540,6 +570,15 @@ def _visible_failures(scan, projection, *, build=None):
     applications = {app["use_id"]: app for edge in projection["connections"] for app in edge.get("applications", ())}
     for element in scan.elements:
         attrs = element["attrs"]
+        if "data-proof-finding-status" in attrs:
+            status = attrs["data-proof-finding-status"]
+            count = projection["summary"]["findings"].get("current_by_review_status", {}).get(status, 0)
+            color = display_colors.get(status, "gray")
+            badge = field(element, "proof-state-badge")
+            if count <= 0 or badge is None or f"s-{color}" not in classes(badge) \
+                    or text(badge) != f"{glyphs[color]}{count} {status}" \
+                    or not visible(element, allow_disclosure=True):
+                failures.append("current finding count has altered status, color or visibility")
         if "data-proof-finding" in attrs:
             identity = attrs["data-proof-finding"]
             cards = [child for child in descendants(element)
@@ -661,7 +700,8 @@ def _visible_failures(scan, projection, *, build=None):
     expected_labels = [records.get((r["collection"], r["id"]), {}).get("body", {}).get("label")
                        or r["collection"].replace("_", " ").removesuffix("s") for r in scope["target_refs"]]
     expected_targets = ", ".join(expected_labels) or (
-        "Recorded items; no audit selected" if projection["audit_id"] is None else "No explicit audit targets recorded")
+        "Recorded items; no audit selected" if projection["audit_id"] is None else
+        "No explicit targets recorded" if scope["mode"] == "full" else "No explicit audit targets recorded")
     target_rows = [e for e in descendants(targets[0]) if "data-proof-scope-target" in e["attrs"]] if len(targets) == 1 else []
     target_ids = [e["attrs"]["data-proof-scope-target"] for e in target_rows]
     expected_ids = [f"{r['collection']}:{r['id']}" for r in scope["target_refs"]]
@@ -671,12 +711,17 @@ def _visible_failures(scan, projection, *, build=None):
     factual = projection["summary"].get("factual")
     if factual is not None:
         support, review = factual["statement_support"], factual["independent_review"]
-        outcomes = [outcome for outcome in ("supported", "gap", "refuted", "inconclusive")
-                    if factual["work"]["current_primary_outcomes"][outcome]]
+        effective_outcomes = factual["work"].get("current_effective_outcomes")
+        outcome_counts = effective_outcomes if effective_outcomes is not None else factual["work"]["current_primary_outcomes"]
+        outcomes = [f"{outcome_counts[outcome]} {outcome}" if effective_outcomes is not None else outcome
+                    for outcome in ("supported", "gap", "refuted", "inconclusive") if outcome_counts[outcome]]
+        outcome_label = "Current examination outcomes" if effective_outcomes is not None else "Current initial assessment outcomes"
+        outcome_empty = ("No completed current mathematical outcome is recorded." if effective_outcomes is not None else
+                         "No completed current initial mathematical outcome is recorded.")
         expected = {
-            "primary_outcomes": ("Current initial assessment outcomes: " + ", ".join(outcomes) + "." if outcomes else
-                                 "No completed current initial mathematical outcome is recorded.") +
-                                " Completion of the examination does not establish that every statement is supported.",
+            "primary_outcomes": (outcome_label + ": " + ", ".join(outcomes) + "." if outcomes else outcome_empty) +
+                                " Completion of the examination does not establish that every statement is supported." +
+                                (" Pending, stale or disputed integrations retain initial opinions." if effective_outcomes is not None else ""),
             "statement_support": "Read each result and application for its exact support conditions.",
             "independent_review": review.get("explanation", "Independent review: " + review["state"].replace("_", " ") + "."),
             **({"scope_explanation": factual["scope"]["explanation"]} if factual["scope"].get("explanation") else {}),
@@ -691,11 +736,47 @@ def _visible_failures(scan, projection, *, build=None):
             **{f"exclusion.{index}": f"{row['label']}: {row['reason']} Consequence: {row['consequence']}"
                for index, row in enumerate(factual["scope"]["exclusions"])},
         }
+        finding_counts = projection["summary"]["findings"].get("current_by_review_status")
+        if finding_counts is not None:
+            counts = [f"{glyphs[display_colors.get(status, 'gray')]}{finding_counts[status]} {status}"
+                      for status in ("severe", "moderate", "minor", "unresolved", "unrated") if finding_counts[status]]
+            expected["current_findings"] = "Current findings: " + ", ".join(counts) + "." if counts else \
+                "No current local findings recorded."
+            expected["finding_count_basis"] = "Examination outcomes count complete required mathematical examinations. " \
+                "Current findings describe separately recorded local concerns and may have different totals."
         shown = [(e["attrs"]["data-proof-fact"], text(e)) for e in scan.elements if "data-proof-fact" in e["attrs"]]
         if sorted(shown) != sorted(expected.items()):
             failures.append("visible scientific summary differs from the assessed snapshot facts")
     reports = [e for e in scan.elements if "data-reader-report-state" in e["attrs"]]
     report = reports[0] if len(reports) == 1 else None
+    captures = [e for e in scan.elements if "data-source-capture-note" in e["attrs"]]
+    expected_captures = _source_capture_notes(projection)
+    capture_mismatch = len(captures) != len(expected_captures)
+    for index, (element, expected) in enumerate(zip(captures, expected_captures)):
+        ancestry, parent = [], element["parent"]
+        while parent is not None:
+            ancestry.append(parent)
+            parent = parent["parent"]
+        descriptions = [e for e in descendants(element) if "data-source-capture-description" in e["attrs"]]
+        locators = [e for e in descendants(element) if "data-source-capture-locator" in e["attrs"]]
+        capture_mismatch |= element["attrs"].get("data-source-capture-note") != str(index) \
+            or not any("data-source-evidence" in parent["attrs"] for parent in ancestry) \
+            or not visible(element, allow_disclosure=True) \
+            or len(descriptions) != 1 or (len(descriptions) == 1 and (
+                "".join(descriptions[0]["text"]) != expected["description"]
+                or not visible_text(descriptions[0], expected["description"].strip(), allow_disclosure=True))) \
+            or len(locators) != 1 or (len(locators) == 1 and (
+                not text(locators[0]) or not visible_text(locators[0], text(locators[0]), allow_disclosure=True)))
+        for key, attribute in (("source_ref", "data-source-ref"), ("source_path", "data-source-path"),
+                               ("locator", "data-source-locator"), ("anchor_refs", "data-source-anchor-refs")):
+            try:
+                shown = json.loads(element["attrs"].get(attribute, ""))
+            except (TypeError, ValueError):
+                capture_mismatch = True
+            else:
+                capture_mismatch |= shown != expected[key]
+    if capture_mismatch:
+        failures.append("saved source-capture notes are missing, changed, hidden or detached from their pinned source")
     completion_text = ("Registered examinations complete." if projection["summary"]["progress"]["process_complete"]
                        else "Registered examinations incomplete.")
     report_paragraphs = [e for e in report["children"] if e["tag"] == "p"] if report is not None else []
@@ -1221,6 +1302,72 @@ def _restore_output(path, backup, existed):
         path.unlink(missing_ok=True)
 
 
+def _delivery_brief(snapshot, frozen, *, source_capture_notes=None):
+    """Select saved delivery facts without reassessing or shortening scientific text."""
+    projection = snapshot.get("projection", {})
+    summary = projection.get("summary", {})
+    factual = summary.get("factual") or {}
+    scope = factual.get("scope") or {}
+    work = factual.get("work") or {}
+    effective_outcomes = work.get("current_effective_outcomes")
+
+    def selected(items, limit=3, total=None):
+        return {"items": None if items is None else items[:limit],
+                "total": total if total is not None else None if items is None else len(items)}
+
+    findings, unknown, historical = [], [], []
+    displays = projection.get("finding_displays") or {}
+    for row in projection.get("records", []):
+        ref, body = row["ref"], row["body"]
+        if ref.get("collection") != "findings":
+            continue
+        item = {"ref": ref, "target_ref": body.get("target"),
+            "description": body.get("description"), "impact_reason": body.get("impact_reason"),
+            "category": body.get("category"), "lifecycle": body.get("lifecycle"),
+            "check_refs": body.get("check_refs"), "evidence_refs": body.get("evidence_refs"),
+            "review_display": displays.get(ref["id"])}
+        status = (item["review_display"] or {}).get("status")
+        if status == "historical":
+            historical.append(item)
+        elif status in ("severe", "moderate", "minor", "unresolved", "unrated"):
+            findings.append(item)
+        else:
+            unknown.append(item)
+    return {"title": (snapshot.get("paper") or {}).get("title"),
+        "kind": snapshot.get("kind"), "process_complete": snapshot.get("process_complete"),
+        "representation_settled": snapshot.get("representation_settled"),
+        "scope": {"mode": scope.get("mode", (snapshot.get("scope") or {}).get("mode")),
+            "requested": selected(scope.get("requested"), 5),
+            "exclusions": selected(scope.get("exclusions")), "explanation": scope.get("explanation")},
+        # Original overview boundaries are provenance, separate from current audit exclusions.
+        **({"overview_scope": {"text": summary["overview_scope"].get("text"),
+                               "exclusions": selected(summary["overview_scope"].get("exclusions"))}}
+           if "overview_scope" in summary else {}),
+        "independent_review": factual.get("independent_review"),
+        "review_display": summary.get("review_display"),
+        "current_primary_outcomes": work.get("current_primary_outcomes"),
+        "current_effective_outcomes": effective_outcomes,
+        "current_effective_outcomes_basis": None if effective_outcomes is None else
+            "One outcome per required primary mathematical obligation with a current complete examination, including external-result checks; counts do not measure full coverage or reviewer agreement.",
+        "current_effective_outcomes_qualification": None if effective_outcomes is None else
+            "Initial opinions remain where integration is pending, stale or disputed; current effective outcomes do not establish reviewer consensus.",
+        "statement_support": None if factual.get("statement_support") is None else {
+            "counts": factual["statement_support"].get("counts"),
+            "unresolved": selected(factual["statement_support"].get("unresolved"))},
+        "source_limits": selected(factual.get("source_limits")),
+        "source_capture_notes": selected(_source_capture_notes(projection)
+                                         if source_capture_notes is None else source_capture_notes),
+        "unresolved_external_sources": selected(factual.get("unresolved_external_sources")),
+        "limitations": selected(summary.get("limitations")),
+        "projection_limitations": selected((frozen.get("validation") or {}).get("projection_problems")),
+        "finalization_blockers": selected(snapshot.get("finalization_blockers"),
+                                           total=snapshot.get("finalization_blocker_count")),
+        "findings": {"current": selected(findings, 5), "unknown": selected(unknown),
+                     "historical_count": len(historical), "total": len(findings) + len(unknown) + len(historical),
+                     **({"current_by_review_status": dict(summary["findings"]["current_by_review_status"])}
+                        if "current_by_review_status" in summary.get("findings", {}) else {})}}
+
+
 def publish_frozen(bundle, *, output, receipt_output=None) -> dict:
     """Build a frozen bundle without reading or writing the live scientific store."""
     from .finalization import (EXPORT_NAME, RECEIPT_NAME, SNAPSHOT_NAME, SUMMARY_NAME,
@@ -1258,7 +1405,9 @@ def publish_frozen(bundle, *, output, receipt_output=None) -> dict:
                        "snapshot_sha256": frozen["snapshot_sha256"], "artifact_sha256": artifact_sha,
                        "started_at": started, "output_path": str(output), "renderer": render_receipt,
                        "math_diagnostics": payload["display"]["math_diagnostics"],
-                       "math_diagnostic_summary": payload["display"]["math_diagnostic_summary"]}
+                       "math_diagnostic_summary": payload["display"]["math_diagnostic_summary"],
+                       "delivery_brief": _delivery_brief(snapshot, frozen,
+                           source_capture_notes=payload["display"]["source_capture_notes"])}
             staged_html = workdir / "staged.html"
             staged_html.write_bytes(html_bytes)
             fd, name = tempfile.mkstemp(dir=receipt_path.parent, prefix=".paper-build-", suffix=".json")

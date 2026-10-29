@@ -91,6 +91,25 @@ class AssistanceTests(TempCase):
         self.assertIn("direct stored coverage uses check_ids", guidance["coverage_note"])
         self.assertIn("same ID in the submission envelope", assistance.worker_guidance("reconcile")["note"])
 
+    def test_primary_direct_response_reuses_existing_source_inspection_standard(self):
+        guidance = assistance.worker_guidance("primary")
+        clause = ("For source_fidelity, compare the exact saved claim and its formulas with the "
+                  "source using result, note and evidence_refs; keep consequential PDF mathematics "
+                  "needs_attention unless verified under the existing source-inspection standard, "
+                  "naming the expression and source in note; ")
+        self.assertEqual(1, guidance["note"].count(clause))
+        self.assertIn(clause + "check uses state, outcome, reasoning and its check fields.", guidance["note"])
+        self.assertEqual(assistance.describe(contract.WORK_PRIMARY_RESPONSE), guidance["response_shape"])
+        for mode in ("independent", "reconcile"):
+            self.assertNotIn(clause, assistance.worker_guidance(mode)["note"])
+        from test_review_display import CurrentFixture
+        fx = CurrentFixture(self.path("source-guidance")).audit(independent_required=False)
+        with fx.open() as db:
+            prepared = controller.prepare_work(db, audit_id=fx.audit_id, mode="primary", focus=R("items", "itm_lem"))
+            source_rows = [row for row in prepared["scaffold"]["results"] if row["type"] == "source_fidelity"]
+            self.assertTrue(source_rows)
+            self.assertTrue(all(row["note"] == "" for row in source_rows))
+
     def test_primary_templates_support_mixed_response_with_adverse_finding(self):
         fx = self.fixture().audit(independent_required=False)
         with fx.open() as db:

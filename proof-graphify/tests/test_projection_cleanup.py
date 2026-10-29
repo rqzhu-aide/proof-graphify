@@ -68,7 +68,7 @@ class ProjectionCleanupTests(unittest.TestCase):
 
     def test_comparison_is_saved_even_when_snapshot_is_unchanged(self):
         with self.cleanup_failure():
-            receipt = database.compare_records(self.db, {
+            receipt = database.compare_records(self.db, {"basis": "tex",
                 "expected_snapshot": self.before["snapshot_id"],
                 "targets": [{"collection": "items", "id": "constant"}],
                 "reviewer": "Synthetic source reader", "result": "matched",

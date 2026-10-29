@@ -92,11 +92,41 @@ def factual_summary(derivation, result):
             checks["historical_complete"] += 1
         else:
             checks["needs_review"] += 1
-    outcomes = Counter()
+    outcomes, effective_outcomes = Counter(), Counter()
+    reviewers = {role: set() for role in ("primary", "independent")}
+
+    def collect_reviewers(obligation, refs, *, successors=False):
+        for ref in refs:
+            if ref["collection"] != "checks":
+                continue
+            check = snap.get(ref)
+            if check is None or check.version != ref["version"]:
+                continue
+            body = check.body
+            role = body["role"]
+            if audit is None or body["audit_id"] != audit.id or role not in reviewers \
+                    or body["target"] != obligation["target"] or body["kind"] != obligation["kind"] \
+                    or (not successors and role != obligation["role"]):
+                continue
+            info = derivation.judgment_info(check)
+            if info["state"] != "complete" or info["freshness"] != "current" or info["superseded"]:
+                continue
+            identity = body.get("reviewer")
+            if not identity:
+                response = derivation.responses.get(body.get("response_id"))
+                if response is not None and response.body["audit_id"] == audit.id \
+                        and response.body["state"] == "accepted":
+                    identity = response.body.get("reviewer")
+            if identity:
+                reviewers[role].add(identity)
+
     groups = {} if audit is not None and result.get("analysis_complete", False) else None
     for obligation in result["obligations"]:
         if not obligation["required"]:
             continue
+        constituent = derivation.constituents[obligation["id"]]
+        if obligation["role"] in reviewers:
+            collect_reviewers(obligation, constituent["check_refs"])
         if groups is not None:
             key = (obligation["role"], obligation["kind"])
             row = groups.setdefault(key, {"role": key[0], "kind": key[1],
@@ -106,6 +136,10 @@ def factual_summary(derivation, result):
         if obligation["role"] == "primary" and obligation["kind"] in PROOF_CHECK_KINDS \
                 and obligation["state"] == "complete" and obligation["freshness"] == "current":
             outcomes[obligation["outcome"]] += 1
+            effective = derivation._effective_constituent(constituent)
+            effective_outcomes[effective["outcome"]] += 1
+            if effective is not constituent:
+                collect_reviewers(obligation, effective["check_refs"], successors=True)
     obligation_groups = None if groups is None else [groups[key] for key in
         sorted(groups, key=lambda key: (ROLES.index(key[0]), key[1]))]
     statements = []
@@ -169,17 +203,24 @@ def factual_summary(derivation, result):
             "process_complete": result["progress"]["process_complete"],
             "scope": {"mode": result["mode"], "requested": [named(ref) for ref in result["scope"]["target_refs"]],
                       "exclusions": exclusions, "closure_statement_count": len(statements),
-                      **({"explanation": "Full audit of the declared scope after the recorded exclusions."}
-                         if result["mode"] == "full" and exclusions else {})},
+                      **({"explanation": "Full audit includes all registered major items and their required supporting "
+                                         "material, subject to recorded exclusions. The explicit target list need not "
+                                         "enumerate the full audit scope."}
+                         if result["mode"] == "full" else {})},
             "work": {**result["progress"], "checks": checks, "obligation_groups": obligation_groups,
                      "current_primary_outcomes": {outcome: outcomes[outcome] for outcome in
-                                                  ("supported", "gap", "refuted", "inconclusive")}},
+                                                  ("supported", "gap", "refuted", "inconclusive")},
+                     "current_effective_outcomes": {outcome: effective_outcomes[outcome] for outcome in
+                                                    ("supported", "gap", "refuted", "inconclusive")}},
             "statement_support": {"counts": {value: sum(row["availability"] == value for row in statements)
                                                 for value in ("available", "conditional", "unavailable")},
                                   "unresolved": [row for row in statements if row["availability"] != "available"]},
             "source_limits": source_limits, "unresolved_external_sources": unresolved_external,
             "independent_review": {"required": required, "state": state, "statement_counts": dict(indicators),
                                    "explanation": review_explanation,
+                                   "reviewer_context": {role: {"items": sorted(identities)[:3],
+                                                               "total": len(identities)}
+                                                        for role, identities in reviewers.items()},
                                    "response_exposures": dict(exposures),
                                    "qualification_limitations": [] if qualification is None else qualification.body["limitations"]}}
 
@@ -1271,6 +1312,9 @@ class _Projector:
             projection["hypothesis_connections"] = hypotheses
             displays = self.d.review_display
             projection["finding_displays"] = {ident: displays.finding(ident) for ident in sorted(displays.findings)}
+            counts = Counter(row["status"] for row in projection["finding_displays"].values())
+            summary["findings"]["current_by_review_status"] = {
+                status: counts[status] for status in ("severe", "moderate", "minor", "unresolved", "unrated")}
             logical = reduce([c for statement in self.d.statements
                               for c in self.d.statement_constituents(statement)])
             if A["mode"] == "triage":

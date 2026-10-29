@@ -189,7 +189,7 @@ class OverviewBridgeSchema3Test(TempCase):
         info, _ = run_overview_cli(OVERVIEW_SCRIPTS, "init", self.db, seed_path)
         self.snap1 = info["snapshot_id"]
         batch = write_json(self.path("legacy3", "compare1.json"),
-                           {"expected_snapshot": self.snap1,
+                           {"basis": "typeset", "expected_snapshot": self.snap1,
                             "targets": [R("items", "thm-main"), R("uses", "use-lem-thm")],
                             "reviewer": "reader-a", "note": "Compared against the TeX and the PDF.",
                             "result": "matched"})
@@ -200,7 +200,7 @@ class OverviewBridgeSchema3Test(TempCase):
         applied, _ = run_overview_cli(OVERVIEW_SCRIPTS, "apply", self.db, batch)
         self.snap2 = applied["snapshot_id"]
         batch = write_json(self.path("legacy3", "compare2.json"),
-                           {"expected_snapshot": self.snap2, "targets": [R("items", "lem-bridge")],
+                           {"basis": "typeset", "expected_snapshot": self.snap2, "targets": [R("items", "lem-bridge")],
                             "reviewer": "reader-b", "result": "needs_attention",
                             "note": "The boundary statement drifts from the source."})
         run_overview_cli(OVERVIEW_SCRIPTS, "compare", self.db, batch)
@@ -532,7 +532,7 @@ class OverviewBridgeReviewApplicabilityTest(TempCase):
         info, _ = run_overview_cli(OVERVIEW_SCRIPTS, "init", self.db, seed_path)
         snap1 = info["snapshot_id"]
         batch = write_json(self.path("review", "compare1.json"),
-                           {"expected_snapshot": snap1, "targets": [R("items", "thm-main")],
+                           {"basis": "typeset", "expected_snapshot": snap1, "targets": [R("items", "thm-main")],
                             "reviewer": "reader-a", "result": "matched", "note": STALE_MATCH_NOTE})
         run_overview_cli(OVERVIEW_SCRIPTS, "compare", self.db, batch)
         changed = dict(theorem, statement={"text": "The main theorem holds for all base maps.",
@@ -544,16 +544,16 @@ class OverviewBridgeReviewApplicabilityTest(TempCase):
         applied, _ = run_overview_cli(OVERVIEW_SCRIPTS, "apply", self.db, batch)
         snap2 = applied["snapshot_id"]
         batch = write_json(self.path("review", "compare2.json"),
-                           {"expected_snapshot": snap2, "targets": [R("items", "lem-base")],
+                           {"basis": "typeset", "expected_snapshot": snap2, "targets": [R("items", "lem-base")],
                             "reviewer": "reader-a", "result": "matched", "note": OLDER_MATCH_NOTE})
         run_overview_cli(OVERVIEW_SCRIPTS, "compare", self.db, batch)
         batch = write_json(self.path("review", "compare3.json"),
-                           {"expected_snapshot": snap2, "targets": [R("items", "lem-base")],
+                           {"basis": "typeset", "expected_snapshot": snap2, "targets": [R("items", "lem-base")],
                             "reviewer": "reader-b", "result": "needs_attention",
                             "note": NEWER_CONCERN_NOTE})
         run_overview_cli(OVERVIEW_SCRIPTS, "compare", self.db, batch)
         batch = write_json(self.path("review", "compare4.json"),
-                           {"expected_snapshot": snap2, "targets": [R("uses", "use-lem-thm")],
+                           {"basis": "typeset", "expected_snapshot": snap2, "targets": [R("uses", "use-lem-thm")],
                             "reviewer": "reader-a", "result": "matched", "note": "Use matches."})
         run_overview_cli(OVERVIEW_SCRIPTS, "compare", self.db, batch)
         export_path = self.path("review", "export.json")

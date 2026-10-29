@@ -1,7 +1,7 @@
 ---
 name: stat-proof-check
 metadata:
-  version: "3.3.5"
+  version: "3.4.10"
 description: Rigorous, non-formal proof audits from manuscript and supplement sources to a graph database, findings and an Archify HTML report. Use only when explicitly invoked as $stat-proof-check.
 ---
 
@@ -15,7 +15,7 @@ Build the evidence-backed graph, examine important connections and their combine
 
 - Triage maps arguments, suspected defects and unavailable evidence. It makes no completed proof-audit claim.
 - Focused examines the selected exact results and necessary prerequisites, with actual independent review.
-- Full accounts for the manuscript and supplied supplements, including substantive application claims and meaningful unnumbered arguments; the numbered-result inventory is a navigation aid rather than the scope boundary. Independently review the in-scope proof examinations, including their important connections to other results. Report any additional cross-proof inspection at its actual review level.
+- Full accounts for the manuscript and supplied supplements, including meaningful unnumbered arguments and substantive application claims, such as satisfying theorem assumptions or nominal interval coverage, even under Example or Discussion headings. The numbered-result inventory does not bound scope. Independently review in-scope proof examinations and important connections. Report additional cross-proof inspection at its actual review level.
 
 Record omissions and source limits. Prioritizing results does not silently narrow Full scope. This is a non-formal examination, not a theorem-certification service.
 
@@ -33,7 +33,7 @@ Use [database-audit.md](references/database-audit.md) to start and [controller-w
 
 Use [coordinator-protocol.md](references/coordinator-protocol.md) for assignment ownership, [reconciler.md](references/reconciler.md) for integration and [reporting-and-release.md](references/reporting-and-release.md) for delivery.
 
-The ordinary examination is a written proof or meaningful subsection. It includes important applications, joint inference, cases, local conditions and composition. Routine graph detail creates no new compulsory examination. Save separate local outcomes only when they matter.
+The ordinary examination is a written proof or meaningful subsection, including its important applications, joint inference, cases, local conditions and composition. For an in-scope substantive application, assess the supplied connection from the cited result to the application claim under its stated and inherited conditions, even if labeled an example or definition. Reuse examination of the same claim and context. Explicit assumptions remain premises; assess available justification for separately asserted properties. Routine graph detail creates no new compulsory examination. Save separate local outcomes only when they matter.
 
 Examination coverage and mathematical outcome are separate. Whole-unit scope reflects the assigned material actually examined; partial examinations name unexamined material. An assessed proof omission, inconclusive conclusion or integrated disagreement can finish an examination without establishing the theorem. Unexamined supplied material remains unfinished. See [evidence-and-verdicts.md](references/evidence-and-verdicts.md) for these decision boundaries.
 
@@ -45,7 +45,7 @@ Show decisive mathematical reasoning, hypotheses and limitations. Preserve AND p
 
 A theorem's hypotheses belong in its statement, including clear references to named assumptions whose passages are supplied as context. Reuse those assumptions; ordinary hypotheses need no duplicate private scope. Private scopes are for genuine local assumptions or cases.
 
-For a non-trivial use of an external result, record an external-result node and check its statement and applicability from supplied passages and reliably known mathematics. External retrieval is not required in the default audit. Distinguish mathematical knowledge from an inspected publication, and state uncertain conditions honestly. Routine facts need no separate lookup or node. See [external-result-verification.md](references/external-result-verification.md).
+Record a substantive external premise, such as an asymptotic distribution, concentration bound or existence result, once as an external-result node and link its actual uses; citation prose alone is insufficient. Assess its statement and applicability from supplied passages or reliably known mathematics, distinguishing that basis from publication inspection and stating uncertain conditions. Routine facts need no lookup or node. Retrieval is not required. See [external-result-verification.md](references/external-result-verification.md).
 
 This is an LLM mathematical assessment. Use short hand-written deductions or an immediately apparent exact witness where useful; do not run simulations, numerical solvers, optimization or counterexample searches, interval validation, computer algebra or proof assistants to establish mathematical truth. Source extraction, PDF inspection, database checks, rendering and software tests are ordinary tooling.
 

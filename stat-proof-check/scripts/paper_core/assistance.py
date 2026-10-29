@@ -122,13 +122,89 @@ def authoring_template(collection, *, packet_id, record_id=None, db=None):
         raise InvalidRequest(f"{collection}:{identifier} is retired; identifiers are not reused",
                              code="ASSISTANCE_RETIRED", records=[current.pinned])
     if current is not None:
+        if collection == "checks" and (current.body["role"] == "independent"
+                                       or current.body["state"] == "complete"):
+            audit_id = current.body["audit_id"]
+            audit = db.head("audits", audit_id)
+            protocol = audit.body["protocol_version"] if audit is not None else current.body["protocol_version"]
+            target = current.body["target"]
+            coherent = protocol == PROTOCOL_VERSION
+            diagnostic = (f"stage2 status DB --audit {audit_id}" if coherent else
+                          f"work list DB --audit {audit_id}")
+            explanation = (
+                f"checks:{current.id} v{current.version} cannot be replaced through a generic template "
+                f"(audit_id={audit_id}, target={target['collection']}:{target['id']}, "
+                f"protocol={protocol}, reviewer={current.body['reviewer']}). "
+                "Existing examinations are preserved; saved reasoning is integrated through the audit workflow. ")
+            if current.body["state"] != "complete":
+                explanation += (
+                    "This independent draft remains unfinished. Continue its assigned review-response and "
+                    "submission workflow; it is not completed integration evidence. ")
+            elif coherent:
+                explanation += (
+                    "Inspect the existing Stage 2 status and assignment. If integration is pending, use ordinary "
+                    "integration preparation and submission. Use --correct only when correcting an already "
+                    "completed current integration, with explicit coordinator task IDs from that status or assignment. "
+                    "The check's completed state does not establish the integration status. "
+                    "Changed or stale scientific inputs follow the existing affected-work path. "
+                    "Reuse adequate saved reasoning for the unchanged question; integration alone does not "
+                    "repair a missing or partial examination. ")
+            else:
+                explanation += (
+                    "Inspect the existing work and use its protocol-compatible work prepare --mode reconcile "
+                    "and work submit route with the returned batch scaffold. Reuse adequate saved reasoning for "
+                    "the unchanged question; reconciliation alone does not repair a missing or partial examination. "
+                    "Changed or stale scientific inputs follow the existing affected-work path. ")
+            raise ConflictError(explanation + f"Inspect with: {diagnostic}.",
+                                code="ASSISTANCE_CHECK_WORKFLOW", records=[current.pinned],
+                                retry={"command": diagnostic, "check_ref": current.pinned,
+                                       "audit_id": audit_id, "target": target,
+                                       "protocol_version": protocol, "reviewer": current.body["reviewer"]})
+        if collection == "observations" or (collection == "source_reviews"
+                                            and current.body["decision"] == "accepted"):
+            target = current.body.get("target")
+            if not isinstance(target, dict) or target.get("collection") not in ("items", "parts"):
+                target = db.heads("papers")[0].ref
+            packet_command = (f"get DB --target {target['collection']}:{target['id']} "
+                              "--mode author --out PACKET.json")
+            template_command = (f"template DB --collection {collection} --packet PACKET_ID "
+                                "--out TEMPLATE.json")
+            submit_command = ("compare DB --batch BATCH.json" if collection == "observations" else
+                              "source review DB --request BATCH.json")
+            if collection == "observations":
+                explanation = (
+                    "This observation is immutable history. For a note-only correction, create a "
+                    "new observation for the same target using the saved judgment and evidence with "
+                    "the corrected note. Omit --id; submit through compare. A fresh packet does not "
+                    "permit replacement. ")
+            else:
+                explanation = (
+                    "This accepted source review is immutable history. Create a new review with "
+                    "corrected rationale, reusing the saved judgment and current source pins, and "
+                    "submit through source review. If a known current proof boundary should use it, "
+                    "refresh that boundary's author packet and update only source_review_ref to the "
+                    "new accepted pin through apply. Use the existing proof_boundaries template for "
+                    "that specific boundary; preserve the previous accepted review. ")
+            explanation += (
+                "For note/rationale-only corrections with unchanged source and judgment, reuse "
+                "adequate saved source inspection. Use an available current author packet; request "
+                "one only when needed. Do not copy unsupported judgments or stale source pins. "
+                "Changed scientific inputs follow the existing affected-work rules. "
+                "Omit --id for the new template. Use its emitted template member as BATCH.json, "
+                "not the enclosing template/body_shape/note wrapper. "
+                f"Guidance: {template_command}; {submit_command}. "
+                f"Only if a current author packet is needed: {packet_command}.")
+            raise ConflictError(explanation, code="ASSISTANCE_SOURCE_WORKFLOW",
+                                records=[current.pinned],
+                                retry={"command": template_command, "targets": [target], "mode": "author",
+                                       "packet_command": packet_command, "submit_command": submit_command})
         from .acceptance import _guard_changes, _read_set_conflicts
         from .packets import source_context_digest
         packet = db.packet(packet_id)
         target = current.ref if collection in ("papers", "items", "parts", "audits") else current.body.get("target")
         if not isinstance(target, dict) or target.get("collection") not in ("items", "parts"):
             target = current.ref if collection in ("papers", "items", "parts", "audits") else db.heads("papers")[0].ref
-        edit_mode = ("primary" if collection == "audits" else
+        edit_mode = ("primary" if collection in ("audits", "checks") else
                      "reconcile" if collection == "findings" else "author")
         retry = {"command": f"get DB --target {target['collection']}:{target['id']} --mode {edit_mode} --out PACKET.json",
                  "targets": [target], "mode": edit_mode}
@@ -225,9 +301,9 @@ def _response_guidance(mode):
     independent branch cannot access task decomposition, draft pins or outcomes.
     """
     if mode == "independent":
-        # The response scaffold already carries the envelope. Only its missing
-        # row and source-target interface belong in this companion file.
+        # Explain the existing exposure field alongside the judgment interface.
         return {"mode": mode, "judgment_shape": describe(c.JUDGMENT),
+                "exposure_report_shape": describe(c.EXPOSURE_REPORT),
                 "source_target_template": skeleton(c.SOURCE_TARGET),
                 "canonical_target_collections": {kind: list(collections)
                                                  for kind, collections in c.CHECK_TARGETS.items()},
@@ -235,26 +311,39 @@ def _response_guidance(mode):
                     "kind": "composition",
                     "target": {"source_anchor_id": "<supplied statement or proof anchor ID>",
                                "description": "The supplied reasoning for the requested conclusion, including any omission."}},
-                "note": "Use the scaffold; required nullable fields stay present. "
+                "note": "Use the scaffold without adding top-level fields; required nullable fields stay present. "
                         "Answer the exact neutral question and preserve its question_id; the enclosing theorem "
                         "supplies context. "
                          "The scaffold's source target is mapped by the script to that exact assignment. "
                          "Delivery may also include matching original source pages, source-only images and role reference files. "
-                         "Source-only excludes primary judgments, not original sources. Reuse readable evidence; "
+                         "Source-only excludes primary judgments, not original sources. "
+                         "In exposure_report, none_known means no known exposure to disallowed mathematical opinions, "
+                         "not verified isolation. Neutral file names, paths, identifiers and administrative status with "
+                         "no mathematical judgment do not by themselves change that status. Use possible_exposure "
+                         "when content actually encountered contains or may contain disallowed opinions, including "
+                         "judgment-bearing names, and explain the specific uncertainty in the existing note. "
+                         "Source-only continuation may reuse the same reviewer's "
+                         "source-only work or its explicitly assigned predecessor's original source-only work, identified "
+                         "by the existing handoff note. For source-only work, primary opinions remain disallowed; "
+                         "other reviewers' judgments are disallowed outside that assigned lineage. A continuation label "
+                         "cannot clear real exposure. A declared supplied route remains permitted without becoming "
+                         "source-only review. Reuse readable evidence; "
                          "if a consequential symbol remains unreadable, identify the local limitation or seek clarification. "
                         "Replace the example's anchor placeholder and author all scientific fields. "
                         "The coordinator maps your unchanged response. Preserve extra prerequisite concerns "
                         "in coverage_note; concerns undermining the assigned conclusion belong in its reasoning "
                         "and outcome. Do not silently add hypotheses. Context extension keeps the same obligation; "
-                        "a new target outside scope is a disclosed finding, not an automatic new assignment. "
+                        "a new target outside scope is a disclosed concern, not an automatic new assignment. "
                         "An unresolved judgment needs a reason, not a newly constructed proof or counterexample."}
     if mode == "primary":
         return {"mode": mode, "response_shape": describe(c.WORK_PRIMARY_RESPONSE),
                 "optional_finding_example": _finding_example(),
                 "finding_card_note": FINDING_CARD_NOTE,
                 "note": "Use assigned task IDs; required nullable fields stay present. "
-                        "For source_fidelity, compare the exact saved claim and its formulas with the source, "
-                        "using result, note and evidence_refs; "
+                        "For source_fidelity, compare the exact saved claim and its formulas with the "
+                        "source using result, note and evidence_refs; keep consequential PDF mathematics "
+                        "needs_attention unless verified under the existing source-inspection standard, "
+                        "naming the expression and source in note; "
                         "check uses state, outcome, reasoning and its check fields. Do not fill source rows as checks. "
                         "Return the rows actually examined; leave missing work pending rather than filling defaults. "
                         "Author the judgments. Finding rows create new issues. After an accepted submission, "
@@ -279,8 +368,10 @@ def _response_guidance(mode):
                          "For adopt aliases, omit successor_checks or leave it empty; scripts select the saved opinions. "
                          "Canonical primary_revised and independent_revised remain accepted for existing responses "
                          "and explicit saved-check selection. "
-                         "Optional top-level findings use the example and related integration task IDs; scripts link current opinions. "
-                         "Omit findings or leave it empty when none is new. A changed disposition of an existing finding "
+                         "Put a newly established material finding in the optional top-level findings using the example "
+                         "and the task IDs of integrations included in this response; scripts link current opinions. "
+                         "Do not duplicate an existing finding for the same concern. Omit findings when none is new; "
+                         "a gap or unresolved decision alone need not create one. A changed disposition of an existing finding "
                          "also needs that identified finding updated through review reconcile; a rationale alone does not update it. "
                         "Stage 2 generates the submission envelope. If response_dispositions are listed, explain "
                         "how the preserved extra rows are handled, retaining material unresolved concerns. "

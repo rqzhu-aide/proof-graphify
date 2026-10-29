@@ -54,6 +54,10 @@ class ReviewGroupTests(TempCase):
         self.assertEqual(first["packet_ids"], again["packet_ids"])
         self.assertEqual(count, self.db.conn.execute("SELECT COUNT(*) FROM packets").fetchone()[0])
         delivery = json.loads(self.path("a", review_groups.DELIVERY_NAME).read_text(encoding="utf-8"))
+        self.assertIn("Do not read coordinator files or primary opinions.", delivery["instructions"])
+        self.assertIn("Do not read other reviewers' responses outside your explicitly assigned source-only "
+                      "continuation lineage.", delivery["instructions"])
+        self.assertIn("re-exporting files does not request a repeated examination", delivery["instructions"])
         worker = delivery["packets"][0]
         self.assertEqual({"labels", "files", "sources", "response_path"}, set(worker))
         self.assertTrue(worker["sources"])

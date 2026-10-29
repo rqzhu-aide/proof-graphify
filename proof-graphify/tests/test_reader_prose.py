@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SKILL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL / 'scripts'))
@@ -56,7 +57,7 @@ class ReviewWordingTests(unittest.TestCase):
             data, [{'collection': 'items', 'id': 'independence'}],
             'Synthetic reviewer', result='needs_attention', note='An unresolved source question.'))
         status = records.comparison_status(data)
-        self.assertEqual(status['status'], 'incomplete')  # Resolution has not been fabricated.
+        self.assertEqual(status['status'], 'complete_with_limits')
         self.assertEqual((status['unreviewed'], status['stale'], status['needs_attention']), (0, 0, 1))
         self.assertIn(f"All {status['total']} records reviewed", status['summary'])
         self.assertIn('unresolved source questions', status['summary'])
@@ -147,8 +148,7 @@ class MathematicalProseTests(unittest.TestCase):
         lead = re.search(r'<p class="proof-scope-lead">([\s\S]*?)</p>', html).group(1)
         self.assertIn('<math', lead)
         self.assertIn('Reviewed; source question unresolved', html)
-        self.assertIn('Some source questions remain unresolved', reader_html(html))
-        self.assertNotIn(records.comparison_status(data)['summary'], reader_html(html))
+        self.assertIn(records.comparison_status(data)['summary'], reader_html(html))
         self.assertNotIn('<script>untrusted()</script>', html)
 
 
@@ -280,8 +280,63 @@ class ScientificReaderContentTests(unittest.TestCase):
         panel = panel_html(html, 'main-result')
         self.assertIn('Reviewed; source question unresolved', panel)
         self.assertNotIn('Source comparison note', panel)
-        self.assertIn('Some source questions remain unresolved', reader_html(html))
+        self.assertIn(records.comparison_status(data)['summary'], reader_html(html))
         self.assertNotIn('read the comparison notes', reader_html(html))
+
+    def test_current_basis_badges_cover_all_row_kinds_with_neutral_markup(self):
+        prepared = records.prepare_records(reviewed(fixture()), FIXTURE.parent)
+        cases = [('items', 'typeset', 'typeset source'), ('uses', 'tex', 'TeX source'),
+                 ('details', 'source_text', 'original source text'),
+                 ('detail_uses', 'extracted_text', 'extracted text')]
+        for collection, basis, _ in cases:
+            prepared[collection][0].update(comparison_basis=basis, comparison_evidence='current')
+        prepared['detail_uses'][0]['fidelity'] = 'needs_attention'
+        html = self.render_prepared(prepared)
+        for collection, _, label in cases:
+            state = prepared[collection][0]['fidelity']
+            leading = 'Reviewed; source question unresolved' if state == 'needs_attention' else 'Compared with the source'
+            self.assertIn(f'<span class="proof-fidelity" data-proof-fidelity="{state}">{leading} · {label}</span>', html)
+
+    def test_legacy_unknown_and_stale_basis_stay_in_source_evidence(self):
+        prepared = records.prepare_records(reviewed(fixture()), FIXTURE.parent)
+        row = next(row for row in prepared['items'] if row['id'] == 'main-result')
+        row.update(fidelity='stale', comparison_basis='typeset', comparison_evidence='earlier')
+        html = self.render_prepared(prepared)
+        panel = panel_html(html, 'main-result')
+        badge = re.search(r'<span class="proof-fidelity"[^>]*>(.*?)</span>', panel).group(1)
+        self.assertEqual(badge, 'Changed since the last comparison')
+        self.assertIn('<strong>Earlier comparison evidence</strong>: typeset source.', panel)
+        self.assertGreater(panel.index('Earlier comparison evidence'), panel.index('<summary>Sources and locators</summary>'))
+        legacy = panel_html(html, 'independence')
+        self.assertIn('<strong>Source evidence</strong>: Evidence basis not recorded.', legacy)
+        self.assertNotIn('not recorded</span>', legacy)
+
+    def test_complete_with_limits_enum_fallback_keeps_unresolved_meaning(self):
+        prepared = records.prepare_records(fixture(), FIXTURE.parent)
+        prepared['build_context']['source_comparison'] = 'complete_with_limits'
+        html = self.render_prepared(prepared)
+        self.assertIn('Some source questions remain unresolved', reader_html(html))
+        self.assertNotIn('Source comparison remains incomplete', reader_html(html))
+
+    def test_successful_receipt_forwards_brief_without_an_extra_html_panel(self):
+        data = reviewed(fixture())
+        prepared = records.prepare_records(data, FIXTURE.parent)
+        expected = dict(prepared['delivery_brief'],
+                        source_comparison=prepared['build_context']['source_comparison'],
+                        browser_review='not_performed')
+        html, receipt = self.render(data)
+        self.assertEqual(receipt['delivery_brief'], expected)
+        self.assertNotIn('delivery_brief', html)
+        self.assertEqual(receipt['browser_review'], 'not_performed')
+        self.assertEqual(receipt['visual_review'], 'not_performed')
+
+    def test_failed_render_does_not_publish_a_receipt_or_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'overview.html'
+            with mock.patch.object(overview, '_accept_artifact', side_effect=overview.OverviewError('Synthetic rejection')):
+                with self.assertRaisesRegex(overview.OverviewError, 'Synthetic rejection'):
+                    overview.render_dataset(reviewed(fixture()), FIXTURE.parent, output)
+            self.assertFalse(output.exists())
 
     def test_missing_sources_and_unreviewed_material_remain_visible(self):
         data = records.normalize(overview.load_data(SKILL / 'examples/representer-theorem/overview.json'), SKILL / 'examples/representer-theorem')

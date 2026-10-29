@@ -121,6 +121,28 @@ class CycleGraphTests(unittest.TestCase):
         payload = json.loads(re.search(r'<script id="proof-overview-data" type="application/json">(.*?)</script>', html).group(1))
         self.assertEqual(payload["items"], [{"id": "a", "x": 121, "y": 68}, {"id": "b", "x": 396, "y": 68}])
 
+    def test_source_prerequisites_move_next_to_consumers_without_moving_consumer_columns(self):
+        pairs = [("a", "b"), ("b", "c"), ("c", "t"), ("late", "t"),
+                 ("late", "t"), ("setup", "c"), ("shared", "b"), ("shared", "t")]
+        _, _, _, drawing = self.render(["a", "b", "c", "t", "late", "setup", "shared", "isolated"], pairs)
+        xs = {name: rect[0] for name, rect in drawing.rectangles.items()}
+        self.assertEqual([xs[name] - xs["a"] for name in ("b", "c", "t")], [275, 550, 825])
+        self.assertEqual(xs["late"], xs["t"] - 275)
+        self.assertEqual(xs["setup"], xs["c"] - 275)
+        self.assertEqual(xs["shared"], xs["b"] - 275)
+        self.assertEqual(sum(xs[name] == xs["a"] for name in ("a", "late", "setup", "shared")), 2)
+        for source, target in pairs:
+            self.assertLess(xs[source], xs[target])
+        self.assert_separate_component_geometry(drawing, [["a", "b", "c", "t", "late", "setup", "shared"], ["isolated"]])
+
+    def test_source_alignment_preserves_cycle_columns_and_return_routes(self):
+        _, _, _, drawing = self.render(["q", "x", "y", "z"],
+                                       [("q", "x"), ("x", "y"), ("y", "q"), ("z", "y")])
+        xs = {name: rect[0] for name, rect in drawing.rectangles.items()}
+        self.assertEqual([xs[name] - xs["q"] for name in ("x", "y")], [275, 550])
+        self.assertEqual(xs["z"], xs["y"] - 275)
+        self.assertIn(("use-2", "y", "q"), drawing.uses)
+
     def assert_separate_component_geometry(self, drawing, components):
         """Check the emitted drawing, including routes beyond node boundaries."""
         _, _, width, height = drawing.viewbox

@@ -471,7 +471,61 @@ class DisplayFragmentTests(PublicationCase):
     def test_the_documented_fragment_fields_are_the_only_ones_offered(self):
         """FRAGMENT_FIELDS is the published contract between the core and the renderer."""
         self.assertEqual(("label", "statement", "reason", "needed_form", "rationale", "conditions", "reasoning",
-                          "description", "proof_idea", "regime", "uncertainty", "impact_reason"), publish.FRAGMENT_FIELDS)
+                          "description", "proof_idea", "regime", "uncertainty", "impact_reason", "resolution",
+                          "note", "coverage_note", "next_action", "caption"), publish.FRAGMENT_FIELDS)
+
+    def test_resolution_math_uses_the_shared_path_without_changing_saved_records(self):
+        projection = {"records": [
+            {"ref": {"collection": collection, "id": identity, "version": version},
+             "body": {"lifecycle": "resolved", "resolution": r"Corrected: $a_n \le 1$."}}
+            for collection, identity, version in (("findings", "fnd_math", 2), ("source_issues", "sis_math", 3))
+        ]}
+        untouched = copy.deepcopy(projection)
+        diagnostics = []
+        fragments = publish.display_fragments(projection, diagnostics)
+        self.assertEqual({"findings:fnd_math:2", "source_issues:sis_math:3"}, set(fragments))
+        for fields in fragments.values():
+            self.assertEqual({"resolution_html"}, set(fields))
+            self.assertIn('<math display="inline"', fields["resolution_html"])
+            self.assertIn(r'<annotation encoding="application/x-tex">a_n \le 1</annotation>', fields["resolution_html"])
+            self.assertNotIn("math-fallback", fields["resolution_html"])
+        self.assertEqual([], diagnostics)
+        self.assertEqual(untouched, projection)
+
+    def test_plain_and_null_resolutions_keep_existing_escaping_and_omission(self):
+        projection = {"records": [
+            {"ref": {"collection": collection, "id": f"{prefix}_{suffix}", "version": 1},
+             "body": {"resolution": value}}
+            for collection, prefix in (("findings", "fnd"), ("source_issues", "sis"))
+            for suffix, value in (("plain", "Fixed <script>alert(1)</script> & verified."), ("null", None))
+        ]}
+        fragments = publish.display_fragments(projection)
+        self.assertEqual({"findings:fnd_plain:1", "source_issues:sis_plain:1"}, set(fragments))
+        for fields in fragments.values():
+            self.assertEqual({"resolution_html": "Fixed &lt;script&gt;alert(1)&lt;/script&gt; &amp; verified."}, fields)
+
+    def test_unsupported_resolution_math_keeps_literal_and_pinned_field_diagnostics(self):
+        projection = {"records": [
+            {"ref": {"collection": collection, "id": identity, "version": version},
+             "body": {"resolution": r"Saved $\unknowncmd{x}$ remains inspectable."}}
+            for collection, identity, version in (("findings", "fnd_literal", 2), ("source_issues", "sis_literal", 3))
+        ]}
+        untouched = copy.deepcopy(projection)
+        diagnostics = []
+        fragments = publish.display_fragments(projection, diagnostics)
+        self.assertEqual(2, len(diagnostics))
+        for record, diagnostic in zip(projection["records"], diagnostics):
+            ref = record["ref"]
+            fragment = fragments[f"{ref['collection']}:{ref['id']}:{ref['version']}"]["resolution_html"]
+            self.assertIn('class="math-fallback"', fragment)
+            self.assertIn(r"<code>$\unknowncmd{x}$</code>", fragment)
+            self.assertEqual(ref, diagnostic["ref"])
+            self.assertEqual("resolution", diagnostic["field"])
+            self.assertEqual("resolution", diagnostic["field_path"])
+            self.assertEqual(ref["collection"], diagnostic["collection"])
+            self.assertEqual(ref["id"], diagnostic["record_id"])
+            self.assertEqual(ref["version"], diagnostic["record_version"])
+        self.assertEqual(untouched, projection)
 
     def test_fragments_are_keyed_by_pinned_ref_and_skip_records_without_prose(self):
         """Keys are collection:id:version and only the documented text-bearing records appear."""

@@ -2,7 +2,7 @@
 
 This folder describes the maintained Proof Graphify package and its shared-backend boundary. The [skill](../../proof-graphify/SKILL.md) and [database guide](../../proof-graphify/references/database.md) give operating instructions.
 
-The current skill version is `3.3.5`, with bundled `paper_core` version `3.3.4`. Graphify and Proof Check ship identical common cores and reader components while retaining different scientific workflows.
+The current skill version is `3.4.10`, with bundled `paper_core` version `3.3.15`. Graphify and Proof Check ship identical common cores and reader components while retaining different scientific workflows.
 
 Read [architecture.md](architecture.md) for the data flow and ownership. Completed plans, audits, and release receipts are kept in the local ignored `archived/` folder, outside the installable skill package.
 

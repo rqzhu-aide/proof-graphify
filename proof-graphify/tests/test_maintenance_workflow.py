@@ -66,7 +66,7 @@ class MaintenanceWorkflowTests(unittest.TestCase):
             self.assertNotIn(item["statement"]["text"], json.dumps(listing))
         self.assertNotIn("anchors", listing)
         targets = [{"collection": "uses", "id": row["id"]} for row in listing["uses"]]
-        database.compare_records(self.db, {"expected_snapshot": listing["expected_snapshot"], "targets": targets,
+        database.compare_records(self.db, {"basis": "tex", "expected_snapshot": listing["expected_snapshot"], "targets": targets,
                                          "reviewer": "test", "result": "needs_attention", "note": "Fixture comparison"})
         self.assertTrue(all(row["comparison"] == "needs_attention" for row in database.list_records(self.db, "uses")["uses"]))
         anchors = self.cli("list", self.db, "--collection", "anchors")["anchors"]
@@ -90,7 +90,7 @@ class MaintenanceWorkflowTests(unittest.TestCase):
         warnings = database.validate_database(self.db)["locator_diagnostics"]
         self.assertEqual(warnings[0]["code"], "statement_locator_conflict")
         self.assertTrue(database.get_packet(self.db, "t")["locator_diagnostics"])
-        batch = {"expected_snapshot": data["snapshot_id"], "targets": [{"collection": "items", "id": "t"}],
+        batch = {"basis": "tex", "expected_snapshot": data["snapshot_id"], "targets": [{"collection": "items", "id": "t"}],
                  "reviewer": "test", "result": "matched", "note": "Incorrect synthetic match"}
         before = self.db.read_bytes()
         with self.assertRaisesRegex(database.DatabaseError, "items/t.*locator conflicts"):
