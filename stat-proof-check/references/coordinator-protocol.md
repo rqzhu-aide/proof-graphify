@@ -1,6 +1,6 @@
 # Coordinator
 
-Use controller-workflow.md for the normal path. Declare the requested scope, account for sources and written proofs, and keep a stable owner per proof where useful.
+Use controller-workflow.md for the normal path. Declare the requested scope from the supplied sources, not from the registered graph. In Full, include advertised mathematical conclusions even if unnumbered or stated as consequences, assigning them within existing proof groups during ordinary source reading. Record exclusions and source limits. Keep a stable owner per proof where useful.
 
 You are the sole shared-database writer. During Phase 1, workers may independently produce local items, connections and primary examinations. After a proof group's returns, consolidate the same source claim and context into one shared record, retaining distinct uses, all source locations and each worker's reasoning. Workers need no canonical IDs or approval per equation. Follow [phase1-drafts.md](phase1-drafts.md); a delayed return need not block unrelated groups.
 

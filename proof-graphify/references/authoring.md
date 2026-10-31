@@ -29,14 +29,17 @@ Store this explanation as a nonempty string on the item, separate from its preci
 
 Use ordinary Unicode prose with explicitly delimited LaTeX in statements, proof ideas, reasons, issues, regimes, and scope. Use `\[...\]` for long inequalities and central conclusions; keep short symbols inline. JSON encodes a single LaTeX backslash as `\\`, for example `"\\(X_n\\xrightarrow{p}X\\)"`; after JSON parsing the text has single backslashes. Read private macro definitions and write their meaning with standard LaTeX commands in authored summaries. Preserve captured passages literally. Check representative notation in the current draft before bulk comparisons when needed, using `math_diagnostics` to locate repairs; do not replace the database to repair display text.
 
-Invalid JSON escapes fail immediately; valid escapes such as `\r`, `\n`, and `\t` can silently consume the beginning of a LaTeX command. For math-heavy seeds or batches, an optional Python serializer avoids manual escaping. Python raw strings retain backslash-u sequences literally: write actual Unicode letters, such as `naïve`, rather than `r"na\u00efve"`; JSON serialization does not decode escapes already stored in a string. Preserve intentional code notation and captured excerpts. To repair an existing JSON file, parse it, change the decoded field using a raw string, and serialize it again; do not match or replace backslashes in serialized JSON. This example edits an already prepared [full-record correction batch](database.md#apply-a-bounded-batch) whose first edit is the affected item; replace the sample statement with the source-supported repair:
+Invalid JSON escapes fail immediately; valid `\r`, `\n`, and `\t` escapes can consume LaTeX command prefixes. An optional Python serializer avoids manual escaping for math-heavy seeds or batches. In decoded strings, write actual Unicode and actual line breaks: raw-string `\u...` and `\n` remain literal text after serialization. Preserve intentional code notation and captured excerpts. To repair JSON, parse it, edit the decoded field, and serialize again; do not replace backslashes in serialized JSON. This example edits an already prepared [full-record correction batch](database.md#apply-a-bounded-batch) whose first edit is the affected item; substitute the source-supported statement:
 
 ```python
 import json
 from pathlib import Path
 path = Path("work/correction.json")
 batch = json.loads(path.read_text(encoding="utf-8"))
-batch["edits"][0]["record"]["statement"]["text"] = r"Under Assumption 1, \(\lVert f\rVert \leq M\)."
+batch["edits"][0]["record"]["statement"]["text"] = r"""Under Assumption 1, the naïve estimator satisfies
+\[
+\lVert \hat f-f\rVert \leq M.
+\]"""
 path.write_text(json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8")
 ```
 

@@ -143,13 +143,14 @@ class Fixture:
     ITEMS = ("items:itm_lem", "items:itm_thm")
     ITEM_REFS = [R("items", "itm_lem"), R("items", "itm_thm")]
 
-    def __init__(self, root, *, title="Test paper", tag="fx"):
+    def __init__(self, root, *, title="Test paper", tag="fx", coherent=False):
         self.root = Path(root)
         self.source_root = self.root / "src"
         self.source_root.mkdir(parents=True, exist_ok=True)
         (self.source_root / "paper.tex").write_text(PAPER_TEX, encoding="utf-8")
         self.path = self.root / "paper.db"
         self.tag = tag
+        self.coherent = coherent
         self._counter = 0
         info = storage.initialize(self.path, source_root=self.source_root, title=title)
         self.paper_id = info["paper_id"]
@@ -172,6 +173,17 @@ class Fixture:
         return {"contract_version": 3, "request_id": self.request_id(), "packet_id": packet_id, "edits": edits}
 
     def apply(self, db, edits, *targets, mode="author"):
+        if self.coherent:
+            # Reader fixtures use current authoring, while legacy workflow tests
+            # retain their deliberately older protocol candidates.
+            edits = [dict(entry, body=dict(entry["body"], protocol_version="coherent-proof-audit/1"))
+                     if entry["collection"] in ("audits", "checks") and entry.get("body") is not None
+                     else entry for entry in edits]
+            for entry in edits:
+                if entry["collection"] == "checks" and entry.get("body", {}).get("kind") == "composition" \
+                        and entry["body"]["state"] == "complete":
+                    entry["body"].setdefault("extent", "whole_unit")
+                    entry["body"].setdefault("omissions", "")
         packet = self.packet(db, *targets, mode=mode)
         return acceptance.apply_batch(db, self.batch(edits, packet["packet_id"]))
 

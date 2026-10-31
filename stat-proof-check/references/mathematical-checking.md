@@ -17,9 +17,20 @@ Judge mathematical effect, not the size of a typographical change. Uncertainty a
 
 ## Mathematical text and JSON
 
-In authored statements, reasoning and issue cards, enclose each mathematical expression in `$...$`/`\(...\)` inline or `$$...$$`/`\[...\]` for display; bare LaTeX commands remain plain text. Select complete mathematical statements and needed forms,
-retaining their conditions; do not cut a formula at a line or character limit.
-Preserve captured source excerpts literally. Write JSON files without shell interpolation. In authored decoded text, commands have one backslash and retain their math delimiters, e.g. `$\theta$`; a JSON serializer writes this as `"$\\theta$"`. Pass a Python serializer `r"$\theta$"`, not `r"$\\theta$"`; serialization performs the escaping once. Direct JSON file editing uses the encoded form. Do not double command backslashes in decoded text; an intentional TeX row separator remains `\\`.
+In authored statements, reasoning and issue cards, delimit every mathematical expression with `$...$`/`\(...\)` inline or `$$...$$`/`\[...\]` for display; bare LaTeX commands remain plain text. Keep complete statements, needed forms and conditions without cutting formulas at line or character limits. Preserve captured source excerpts literally. Write JSON without shell interpolation.
+
+Author decoded text with single command backslashes, actual Unicode and actual line breaks, for example:
+
+```python
+import json
+text = r"""Under Assumption 1, the naïve estimator satisfies
+\[
+\lVert \hat f-f\rVert \leq M.
+\]"""
+json.dumps({"statement": text}, ensure_ascii=False)
+```
+
+The serializer escapes once. Direct JSON editing uses encoded backslashes; intentional TeX row separators remain `\\`.
 
 ## Establish the source and exact target
 
@@ -36,7 +47,7 @@ or claim source fidelity or complete coverage beyond the accessible evidence.
 
 Normalize the assertion without strengthening or weakening it. Preserve:
 
-- Objects, types, domains, ordered quantifiers, and which quantities are fixed or random.
+- Objects, types, domains, ordered quantifiers, and fixed or random quantities. Distinguish auxiliary objects freely chosen within the source setup from universally quantified inputs; preserve permitted choices without weakening a genuinely universal claim.
 - Explicit and inherited hypotheses, including unnumbered "throughout" or "for a fixed" setup: compact domains, density or moment bounds, numerical caps and conjunctions.
 - Probability space, sampling law, conditioning, dependence, equality notion, and fixed versus data-chosen objects.
 - Exact conclusion parts, normalization, regime and convergence mode. Powers and matrix operations are not interchangeable in general: \(\|u-v\|\) versus \(\|u-v\|^2\), or \(A^{-1}H(A^{-1})^\top\) versus \(A^{-1}HA^{-1}\). A factor \(1/h\) cannot be absorbed into a fixed constant when \(h\to0\).

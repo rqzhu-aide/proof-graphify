@@ -287,7 +287,9 @@ class ConverterAdaptationTests(unittest.TestCase):
 
     def test_bounded_spacing_preserves_nonspacing_tree_and_evidence(self):
         namespace = {"m": common_math.MATHML_NS}
-        for tex in (r"\mathbb E\!\left[X\right]", r"f\!\left(x\right)",
+        for tex in (r"\Psi(x)\!\cdot\!\delta", r"\begin{aligned}&f(x)\!\cdot\! y\end{aligned}",
+                    r"F(\theta,\nu)-F(\hat\theta,\hat\nu)+\Psi(\hat\theta,\hat\nu)\!\cdot\!\delta=\bar F(\theta,\nu)-\bar F(\hat\theta,\hat\nu)+\bar\Psi(\hat\theta,\hat\nu)\!\cdot\!\delta+o_P(\eta_n^2),",
+                    r"\mathbb E\!\left[X\right]", r"f\!\left(x\right)",
                     r"U^{\!\top}", r"\int\!\!\int f(x,y)\,dx\,dy",
                     r"\int\!\int f", r"\int\!\int C_k\lesssim(\prod h_l)^{-1}",
                     r"\int\!\int C_k\lesssim(\prod_l h_l)^{-2+1/(dH)}",
@@ -367,6 +369,7 @@ class ConverterAdaptationTests(unittest.TestCase):
             '<mrow><mo>∫</mo><mspace width="negativethinmathspace"/><mspace width="negativethinmathspace"/><mo>∫</mo></mrow>',
             '<mtd><mi>E</mi><mspace width="negativethinmathspace"/><mo fence="true" form="prefix">[</mo></mtd>',
             '<mtd><mi>a</mi><mspace width="negativethinmathspace"/><mo>·</mo><mspace width="negativethinmathspace"/><mi>b</mi></mtd>',
+            '<mrow><mo stretchy="false">)</mo><mspace width="negativethinmathspace"/><mo>·</mo><mspace width="negativethinmathspace"/><mi>b</mi></mrow>',
             '<mtd><mo>∫</mo><mspace width="negativethinmathspace"/><mspace width="negativethinmathspace"/><mo>∫</mo></mtd>',
             '<mrow><mo stretchy="false">[</mo><mspace width="negativethinmathspace"/><mrow><mo>[</mo><mi>x</mi><mo>]</mo></mrow><mspace width="negativethinmathspace"/><mo>]</mo></mrow>',
             '<mtd><msup><mi>T</mi><mn>2</mn></msup><mspace width="negativethinmathspace"/><msubsup><mo>∫</mo><mn>0</mn><mi>T</mi></msubsup></mtd>',
@@ -402,6 +405,14 @@ class ConverterAdaptationTests(unittest.TestCase):
                     '<mspace width="negativethinmathspace"/><mo>⊤</mo>tail'):
             with self.assertRaises(ValueError):
                 common_math._safe_mathml('<math><msup><mi>U</mi><mrow>' + row + '</mrow></msup></math>', "original", "block")
+        for left in ('<mo stretchy="false">)</mo>tail',
+                     '<mo stretchy="false">)<mi>x</mi></mo>',
+                     '<mo stretchy="false" href="https://example.com">)</mo>',
+                     '<mo stretchy="true">)</mo>'):
+            raw = ('<math><mrow>' + left + '<mspace width="negativethinmathspace"/>'
+                   '<mo>·</mo><mspace width="negativethinmathspace"/><mi>b</mi></mrow></math>')
+            with self.subTest(left=left), self.assertRaises(ValueError):
+                common_math._safe_mathml(raw, "original", "block")
 
     def test_norm_bar_spacing_has_bounded_neighbors(self):
         space = '<mspace width="negativethinmathspace"/>'

@@ -189,7 +189,7 @@ The CLI exits with code 0 when rendering succeeds and a nonzero code on failure.
 | `math_diagnostic_count` | Total number of emitted math diagnostics, including entries omitted from the CLI sample. |
 | `math_diagnostics` | Diagnostic entries; when the total exceeds five, the default receipt shows the first five. `--full-diagnostics` shows all entries. |
 | `math_diagnostics_truncated`, `math_diagnostic_groups` | Present when the default receipt shortens a large diagnostic list; the groups summarize all entries. |
-| `geometry.status` | Result of the computed layout checks; readability and interaction still need the browser checks. |
+| `geometry.status` | Result of the computed layout checks; it does not establish readability or interaction correctness. |
 | `graph_preservation.status` | Whether the rendered graph preserves the stored identities and endpoints. |
 | `warnings` | Source/display limitations and any temporary-cleanup warning. A cleanup warning after publication does not undo the successful HTML build. |
 | `build_recorded`, `build_record_error` | For database renders, whether the build receipt was saved. A false value with an error means the HTML was published but its build record could not be saved. |

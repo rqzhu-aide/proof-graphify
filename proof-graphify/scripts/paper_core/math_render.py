@@ -21,7 +21,7 @@ _ENVIRONMENTS = frozenset((
     "substack displaylines eqalign eqalignno"
 ).split())
 CONFIGURATION = {
-    "adapter_version": 15,
+    "adapter_version": 16,
     "delimiters": [["$", "$"], ["$$", "$$"], [r"\(", r"\)"], [r"\[", r"\]"]],
     "output": "static native MathML with original LaTeX annotation",
     "maximum_formula_characters": 8192,
@@ -359,7 +359,8 @@ def _ordinary_spacing(elements) -> None:
         siblings = list(parent)
         for index in range(len(siblings) - 4):
             left, before, dot, after, right = siblings[index:index + 5]
-            if (operand(left) and thin(before) and operator(dot, "·") and not dot.attrib
+            if ((operand(left) or (operator(left, ")") and left.attrib == {"stretchy": "false"}))
+                    and thin(before) and operator(dot, "·") and not dot.attrib
                     and thin(after) and operand(right)):
                 parent.remove(before)
                 parent.remove(after)

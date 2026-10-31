@@ -12,7 +12,76 @@ from test_reader_projection import blocked_premise_fixture, cyclic_premise_fixtu
 
 
 class ReaderPublicationTests(TempCase):
-    def test_source_labels_show_plural_locations_and_the_captured_version(self):
+    def fixture(self, name="paper", **kwargs):
+        return super().fixture(name, coherent=True, **kwargs)
+
+    def test_pending_review_disclosure_only_folds_saved_supported_noncurrent_work(self):
+        fixture = self.fixture().primary()
+        with fixture.open(write=False) as db:
+            dataset = projection.build_projection(db, audit_id=fixture.audit_id)
+            template = next(task for task in dataset["worklist"]["tasks"] if task["required"])
+            common = dict(template, required=True, state="ready", role="independent", kind="composition",
+                          outcome="supported", freshness="historical", dependency_support="available")
+            variants = [{}, {"role": "coordinator", "freshness": None}, {"outcome": "gap"},
+                        {"outcome": None}, {"freshness": "current"}, {"dependency_support": "unknown"},
+                        {"dependency_support": "unavailable"}, {"role": "primary"},
+                        {"kind": "source_fidelity"}]
+            identities = [task["id"] for task in dataset["worklist"]["tasks"][:len(variants)]]
+            self.assertEqual(len(identities), len(variants))
+            dataset["worklist"]["tasks"] = [dict(common, id=identity, location=None, **variant)
+                                              for identity, variant in zip(identities, variants)]
+            dataset["summary"]["limitations"].append("Saved mixed scientific limitation remains visible.")
+            envelope = publish.render_input(db, dataset, release=False, source_identity="pending-review-test")
+        untouched = deepcopy(dataset)
+        page = self.render(envelope, "pending-review")
+
+        def scan_page(value):
+            scan = publish._Scan()
+            scan.feed(value.decode())
+            return scan
+
+        scan = scan_page(page)
+        self.assertEqual(publish._visible_failures(scan, dataset, build=envelope["build"]), [])
+        pending = next(e for e in scan.elements if "data-reader-pending-review-details" in e["attrs"])
+        self.assertNotIn("open", pending["attrs"])
+        rows = [e for e in scan.elements if "data-proof-review-limit" in e["attrs"]]
+        self.assertEqual([e["attrs"]["data-proof-review-limit"] for e in rows
+                          if any(a is pending for a in self.ancestors(e))], identities[:2])
+        notes = [e for e in scan.elements if "data-proof-limitation" in e["attrs"]]
+        self.assertTrue(notes)
+        self.assertTrue(all(not any(a is pending for a in self.ancestors(e)) for e in notes))
+        # Exercise the mechanical visibility rule itself, beyond the renderer's
+        # independent canonical-markup receipt.
+        for index in range(len(variants)):
+            pattern = rb'(<li data-proof-review-limit="' + identities[index].encode() + rb'".*?</li>)'
+            row = re.search(pattern, page, re.S)[1]
+            for wrapper in (b'<details><summary>Other</summary>', b'<div hidden>'):
+                end = b'</details>' if wrapper.startswith(b'<details') else b'</div>'
+                altered = page.replace(row, wrapper + row + end, 1)
+                failures = publish._visible_failures(scan_page(altered), dataset, build=envelope["build"])
+                self.assertIn("current examination limitation lost its saved consequence: " + identities[index], failures)
+        for index in range(2, len(variants)):
+            row = re.search(rb'(<li data-proof-review-limit="' + identities[index].encode() + rb'".*?</li>)', page, re.S)[1]
+            altered = page.replace(row, b"", 1).replace(b'<summary>Pending review details</summary>',
+                b'<summary>Pending review details</summary>' + row, 1)
+            self.assertTrue(publish._visible_failures(scan_page(altered), dataset, build=envelope["build"]))
+        note = re.search(rb'(<li data-proof-limitation\b.*?</li>)', page, re.S)[1]
+        altered = page.replace(note, b"", 1).replace(b'<summary>Pending review details</summary>',
+            b'<summary>Pending review details</summary>' + note, 1)
+        self.assertIn("saved scientific or mixed review limitations were omitted, changed or hidden",
+                      publish._visible_failures(scan_page(altered), dataset, build=envelope["build"]))
+        for before, after in ((b'<summary>Pending review details</summary>', b'<summary hidden>Pending review details</summary>'),
+                              (b'<summary>Pending review details</summary>', b'<summary inert>Pending review details</summary>'),
+                              (b'<summary>Pending review details</summary>', b'<summary><span hidden>Pending review details</span></summary>'),
+                              (b'<summary>Pending review details</summary>', b'<summary>Other details</summary>'),
+                              (b'<summary>Pending review details</summary>', b'<summary>Pending review details</summary><details data-reader-pending-review-details><summary>Pending review details</summary></details>'),
+                              (b' data-reader-pending-review-details', b' data-unrelated-details')):
+            altered = page.replace(before, after, 1)
+            self.assertNotEqual(altered, page)
+            self.assertTrue(publish._visible_failures(scan_page(altered), dataset, build=envelope["build"]))
+        self.assertEqual(dataset, untouched)
+
+    def test_source_links_preserve_pinned_destinations_after_recapture(self):
         fixture = self.fixture().primary()
         # Capture a later source, while the anchors still refer to captured v1.
         path = fixture.source_root / "paper.tex"
@@ -21,7 +90,8 @@ class ReaderPublicationTests(TempCase):
             available_input = publish.render_input(db, available, release=False, source_identity="available-source-test")
         available_page = self.render(available_input, "available-source-labels")
         available_labels = b" ".join(re.findall(rb'<p class="proof-reader-sources">(.*?)</p>', available_page, re.S))
-        self.assertIn(b"paper.tex", available_labels)
+        self.assertIn(b'data-jump-record="anchors:anc_lem:1"', available_labels)
+        self.assertIn(b'data-jump-record="anchors:anc_thm_proof:1"', available_labels)
         path.write_text(path.read_text(encoding="utf-8") + "\n% later source\n", encoding="utf-8")
         with fixture.open() as db:
             sources.capture_sources(db, files=["paper.tex"])
@@ -43,18 +113,14 @@ class ReaderPublicationTests(TempCase):
         page = self.render(envelope, "plural-source-labels")
         self.assertEqual(publish.mechanical_acceptance(page, dataset)["failures"], [])
         labels = b" ".join(re.findall(rb'<p class="proof-reader-sources">(.*?)</p>', page, re.S))
-        for location in (b"physical page 18", b"physical page 19", b"physical page 4", b"lines 14 to 16"):
-            self.assertIn(location, labels)
-        # The projection omits captured v1's source record after recapture. Use
-        # an honest partial label, rather than borrowing v2's current path.
-        self.assertIn(b"Captured source", labels)
+        for anchor in (b"anc_lem", b"anc_lem_proof", b"anc_thm", b"anc_thm_proof"):
+            self.assertIn(b'data-jump-record="anchors:' + anchor + b':1"', labels)
+        # Generic source links are the maintained contract. They must lead to
+        # the captured anchor, without borrowing a later capture's file label.
         self.assertNotIn(b"current-paper.pdf", labels)
-        self.assertIn(b"captured v1", labels)
-        self.assertNotIn(b"Source 1", labels)
-        self.assertIn(b"data-jump-record", labels)
 
-        # With captured metadata present, distinguish the old file and another
-        # source file without consulting the live filesystem or current head.
+        # Supplying captured metadata and a second file preserves the same
+        # pinned destinations without consulting the filesystem or live head.
         captured = deepcopy(next(r for r in available["records"] if r["ref"]["collection"] == "sources"))
         captured["body"]["path"] = "captured-paper.pdf"
         appendix = deepcopy(captured)
@@ -65,8 +131,8 @@ class ReaderPublicationTests(TempCase):
         captured_page = self.render(envelope, "captured-multiple-file-labels")
         self.assertEqual(publish.mechanical_acceptance(captured_page, dataset)["failures"], [])
         captured_labels = b" ".join(re.findall(rb'<p class="proof-reader-sources">(.*?)</p>', captured_page, re.S))
-        self.assertIn(b"captured-paper.pdf, physical page 18", captured_labels)
-        self.assertIn(b"appendix.pdf, lines 14 to 16", captured_labels)
+        self.assertIn(b'data-jump-record="anchors:anc_lem:1"', captured_labels)
+        self.assertIn(b'data-jump-record="anchors:anc_thm_proof:1"', captured_labels)
         self.assertNotIn(b"current-paper.pdf", captured_labels)
 
     def test_audit_wide_finding_has_visible_evidence_and_a_working_destination(self):
@@ -97,17 +163,26 @@ class ReaderPublicationTests(TempCase):
                     audit = db.head("audits", fixture.audit_id)
                     exclusions = [{"target": R("items", name), "source_anchor_ids": [],
                         "reason": "Explicit exclusion", "consequence": "Result omitted from required work"}
-                        for name in ("itm_lem", "itm_thm")]
+                        for name in (("itm_lem", "itm_thm") if empty else ("itm_lem",))]
                     additions = [] if empty else [fixture.item_edit("itm_setup", "assumption", "Setup", "anc_lem", "anc_lem_proof")]
                     fixture.apply(db, [*additions, edit("replace", "audits", audit.id,
-                        dict(audit.body, exclusions=exclusions), audit.version)], mode="primary")
+                        dict(audit.body, exclusions=exclusions,
+                             targets=[] if empty else list(fixture.ITEM_REFS)), audit.version)], mode="primary")
                     dataset = projection.build_projection(db, audit_id=fixture.audit_id)
                     envelope = publish.render_input(db, dataset, release=False, source_identity="scope-test")
                 page = self.render(envelope, "scope_" + str(empty))
                 self.assertEqual(publish.mechanical_acceptance(page, dataset)["failures"], [])
                 explanation = dataset["summary"]["factual"]["independent_review"]["explanation"].encode()
                 self.assertIn(explanation, page)
-                self.assertIn(b"Full audit of the declared scope after the recorded exclusions.", page)
+                self.assertIn(dataset["summary"]["factual"]["scope"]["explanation"].encode(), page)
+                self.assertIn(b"Declared scope: Full. Recorded exclusions: " + str(len(exclusions)).encode() + b".", page)
+                scan = publish._Scan()
+                scan.feed(page.decode())
+                accounting = next(e for e in scan.elements if "data-proof-summary-details" in e["attrs"])
+                self.assertNotIn("open", accounting["attrs"])
+                exclusion_rows = [e for e in scan.elements if e["attrs"].get("data-proof-fact", "").startswith("exclusion.")]
+                self.assertEqual(len(exclusion_rows), len(exclusions))
+                self.assertTrue(all(any(parent is accounting for parent in self.ancestors(e)) for e in exclusion_rows))
                 altered = page.replace(explanation, b"Independent review was completed.")
                 self.assertIn("visible scientific summary differs from the assessed snapshot facts",
                     publish.mechanical_acceptance(altered, dataset)["failures"])
@@ -307,7 +382,9 @@ class ReaderPublicationTests(TempCase):
         self.assertIn(b"<math", strategy[0])
         self.assertNotIn(b"<script>", strategy[0])
         self.assertIn(b"&lt;script&gt;", strategy[0])
-        self.assertIn(b"Proof-strategy summary not recorded", page)
+        # The lemma has no optional strategy. Only the theorem's saved strategy
+        # is exposed, with no authored backfill for the lemma.
+        self.assertIn(b'data-reader-detail="item:itm_thm"', strategy[0])
         self.assertIn(b"The final bound is unable to verify.", page)
         apps = dataset["details"]["item:itm_thm"]["reader"]["applications"]
         self.assertEqual(len(apps), 3)
@@ -422,7 +499,10 @@ class ReaderPublicationTests(TempCase):
         self.assertEqual(publish.mechanical_acceptance(page, dataset)["status"], "pass")
         for context, field in (("strategy", "proof_idea"), ("target:0", "statement.text"),
                                (None, "regime"), (None, "description"), (None, "conditions.0")):
-            row = self.fields(page, context=context, field=field)[0]
+            candidates = self.fields(page, context=context, field=field)
+            # Test the selected result's copy, since global summary and selected
+            # result intentionally preserve separate copies of finding prose.
+            row = next((value for value in candidates if b'data-reader-detail="summary"' not in value), candidates[0])
             with self.subTest(context=context, field=field):
                 altered = re.sub(rb'>.*</div>$', b'>Altered text</div>', row, flags=re.S)
                 for replacement in (altered, b"", b"<template>" + row + b"</template>"):
@@ -446,7 +526,7 @@ class ReaderPublicationTests(TempCase):
         swapped = page.replace(exact, b"READER_SWAP", 1).replace(synopsis, exact, 1).replace(b"READER_SWAP", synopsis, 1)
         self.assertEqual(publish.mechanical_acceptance(swapped, dataset)["status"], "fail")
 
-    def test_older_projection_remains_readable_with_explicit_unavailable_context(self):
+    def test_older_projection_keeps_saved_statement_and_evidence_without_reader_context(self):
         dataset, envelope = self.reader_paper()
         older = deepcopy(dataset)
         for detail in older["details"].values():
@@ -454,8 +534,11 @@ class ReaderPublicationTests(TempCase):
         envelope["projection"] = older
         page = self.render(envelope, "older")
         self.assertEqual(publish.mechanical_acceptance(page, older)["status"], "pass")
-        self.assertIn(b"Structured", page)
-        self.assertIn(b"unavailable", page)
+        self.assertIn(b"saved statement and evidence without a separate contextual overview", page)
+        self.assertIn(b"This saved text is not asserted to be the exact examined target.", page)
+        self.assertFalse(self.fields(page, context="strategy", field="proof_idea"))
+        self.assertIn(b'data-record-template="items:itm_thm:2"', page)
+        self.assertIn(b"New synopsis, distinct from the exact audited statement.", page)
 
     def test_historical_inline_application_keeps_its_required_form(self):
         fixture = self.fixture().primary()
@@ -486,7 +569,6 @@ class ReaderPublicationTests(TempCase):
         self.assertEqual(len(fields), 2)  # Result card and connection card.
         self.assertTrue(all(b"Lemma 1 text" in field for field in fields))
         self.assertNotIn(b"Recorded summary connection", page)
-        self.assertIn(b"Recorded application", page)
         missing = page.replace(fields[0], b"", 1)
         self.assertEqual(publish.mechanical_acceptance(missing, dataset)["status"], "fail")
 

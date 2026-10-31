@@ -2,7 +2,7 @@
 name: proof-graphify
 description: Build a selective, source-backed interactive map of a paper's main results, important prerequisites, and their connections, from TeX or PDF sources to a standalone HTML page. Use for a theorem or lemma dependency graph, to understand argument structure, and to navigate results, not to reconstruct detailed proof steps or verify proofs.
 metadata:
-  version: "3.4.10"
+  version: "3.4.13"
 ---
 
 # Proof Graphify
@@ -54,7 +54,7 @@ With `--compact-evidence`, repeated excerpts refer to the first matching anchor 
 
 Completion means the selected statements and connections are represented, source comparisons are current or explicitly unresolved, and the HTML faithfully displays them. Unreviewed or stale selected records still need attention; a reviewed `needs_attention` record can be delivered as unresolved. Source comparison does not establish proof correctness. Deliver the overview and database links, with concise scope and material limits from the final render's `delivery_brief`, and report the inspection actually performed. Optional scientific detail may quote a saved scope passage, label, caption or limitation from `delivery_brief`, preserving qualifications; use its counts as recorded. Do not add result-role tables or proof-mechanism or prerequisite explanations in final chat, or retrieve more material to compose them.
 
-When a browser is available, inspect a long statement, several prerequisites, search/selection, and any cycle explanation using [browser-check.md](references/browser-check.md). With no browser tool, use the render receipt, disclose interactions as untested, and stop that check. Do not build a driver or install a framework for a paper. Static checks and screenshots alone do not establish interaction correctness.
+Use the bundled renderer; no separate Archify workflow is needed. By default, browser checks use only an already available headless browser in an isolated session. Any desktop control, including opening visible apps, attaching to the user's browser session or sending OS mouse/keyboard input, requires an explicit user request for that specific operation; permission to open a report does not authorize other desktop interaction. Within that scope, inspect a long statement, several prerequisites, search/selection and any cycle explanation using [browser-check.md](references/browser-check.md). Otherwise reuse the successful render receipt, disclose interactions as untested and deliver without seeking desktop access. Do not build a driver or install a framework for a paper. Static checks and screenshots alone do not establish interaction correctness.
 
 Existing detailed databases remain readable and retain their records and history. Do not auto-convert or prune them. Read [audit-database.md](references/audit-database.md) only for existing-store compatibility and maintenance. A new `stat-proof-check` audit starts independently from the manuscript in `proof-check-<paper-name>/`, with its own database and report; it does not continue, convert, or expand this overview's database or reuse its output folder. A selective overview does not establish exhaustive audit coverage.
 

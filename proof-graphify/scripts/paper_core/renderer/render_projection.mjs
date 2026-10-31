@@ -1161,13 +1161,21 @@ ${this.readerSources(entry.scope_ref)}
     return parts.join('');
   }
 
+  isHistoricalFinding(ref) {
+    return this.model.projection.finding_displays?.[ref.id]?.status === 'historical';
+  }
+
+  earlierFindings(html) {
+    return html ? `<details class="proof-reader-context" data-proof-finding-history><summary>Earlier findings</summary>${html}</details>` : '';
+  }
+
   findingCard(key, index, ref) {
     const record = this.readerRecord(ref), body = record?.body;
     if (!body) return '<p class="proof-muted">Saved finding unavailable.</p>';
     const display = reviewDisplay({review_display:this.model.projection.finding_displays?.[ref.id]});
     const context = `finding:${index}`;
     const prose = this.readerField(key, context, ref, 'description') + this.readerField(key, context, ref, 'impact_reason');
-    const foldProse = (key === 'summary' && !body.severity) || display.status === 'historical';
+    const foldProse = this.isHistoricalFinding(ref);
     const links = (body.check_refs || []).map(check => this.humanLink(check, 'Examination reasoning')).join(' · ');
     return `<section class="proof-issue-card s-${esc(display.color)}" data-issue-ref="${esc(ref.id)}" data-review-status="${esc(display.status)}">
 <header class="proof-issue-head">${stateBadge(display.color, display.label)}${body.target ? `<strong>${this.humanLink(body.target)}</strong>` : ''}</header>
@@ -1225,8 +1233,10 @@ ${external.length ? `<h4>Unresolved external suppliers</h4><ul>${external.join('
     const findingItems = summary.findings.refs.map((id, index) => {
       const record = model.recordsByLoose.get(`findings:${id}`);
       const body = record ? record.body : null;
-      return `<li data-proof-finding="${esc(id)}">${body ? this.findingCard('summary', index, record.ref) : '<p>Saved finding unavailable.</p>'}</li>`;
+      return {historical:this.isHistoricalFinding({id}), html:`<li data-proof-finding="${esc(id)}">${body ? this.findingCard('summary', index, record.ref) : '<p>Saved finding unavailable.</p>'}</li>`};
     });
+    const findings = findingItems.filter(row => !row.historical).map(row => row.html).join('');
+    const historicalFindings = findingItems.filter(row => row.historical).map(row => row.html).join('');
     const limitItems = summary.source_limits.map((id, index) => {
       const record = model.recordsByLoose.get(`source_issues:${id}`);
       const body = record ? record.body : null;
@@ -1244,6 +1254,8 @@ ${external.length ? `<h4>Unresolved external suppliers</h4><ul>${external.join('
         const prose = ['label','description','reason','consequence'].filter(field => isString(entry?.[field]) && entry[field]).map(field => `${field === 'consequence' ? 'Consequence: ' : ''}${esc(entry[field])}`).join(' ');
         return `<li>${context}${context && prose ? ': ' : ''}${prose || (!context ? 'This saved exclusion has no compatible description in this view.' : '')}</li>`;
       });
+    const scopeLabel = projection.audit_id === null ? 'No audit selected'
+      : ({full:'Full', focused:'Focused', triage:'Triage'}[scope.mode] || scope.mode.trim() || 'Not recorded');
     const overviewScope = summary.overview_scope;
     const overviewBoundaries = overviewScope ? `<div data-proof-overview-scope>
 <h4>Original overview boundaries</h4>
@@ -1252,18 +1264,24 @@ ${overviewScope.exclusions.length ? `<h4>Original overview exclusions</h4><ul cl
 </div>` : '';
     return `<section id="proof-summary" class="proof-panel" aria-labelledby="proof-summary-heading">
 <h2 id="proof-summary-heading">Audit summary</h2>
+<p data-reader-declared-scope>Declared scope: ${esc(scopeLabel)}.${exclusionItems.length ? ` Recorded exclusions: ${exclusionItems.length}.` : ''} See Scope and review details below.</p>
+<div class="proof-summary-grid">
+<div class="proof-card">
+<h3>Findings</h3>
+${findings ? `<ul class="proof-finding-list">${findings}</ul>` : !findingItems.length ? '<p class="proof-muted">No findings listed.</p>' : ''}
+<h3>Source limits</h3>
+${limitItems.length ? `<ul class="proof-finding-list">${limitItems.join('')}</ul>` : '<p class="proof-muted">No open source issue records listed.</p>'}
+${this.earlierFindings(historicalFindings ? `<ul class="proof-finding-list">${historicalFindings}</ul>` : '')}
+</div>
+</div>
+<details class="proof-reader-context" data-proof-summary-details>
+<summary>Scope and review details</summary>
 <div class="proof-summary-grid">
 <div class="proof-card">
 <h3>Examination status</h3>
 <p class="proof-process ${progress.process_complete ? 'is-complete' : 'is-incomplete'}" data-proof-process-complete="${progress.process_complete ? 'true' : 'false'}">${progress.process_complete ? 'Registered examinations complete.' : 'Registered examinations incomplete.'} Mathematical support is stated separately.${model.build.kind === 'working' ? ' This working report does not establish completion of the promised audit scope.' : ''}</p>
 </div>
 ${this.factualHtml()}
-<div class="proof-card">
-<h3>Findings</h3>
-${findingItems.length ? `<ul class="proof-finding-list">${findingItems.join('')}</ul>` : '<p class="proof-muted">No findings listed.</p>'}
-<h3>Source limits</h3>
-${limitItems.length ? `<ul class="proof-finding-list">${limitItems.join('')}</ul>` : '<p class="proof-muted">No open source issue records listed.</p>'}
-</div>
 <div class="proof-card">
 <h3>Scope</h3>
 ${summary.factual?.scope.explanation ? `<p data-proof-fact="scope_explanation">${esc(summary.factual.scope.explanation)}</p>` : ''}
@@ -1275,6 +1293,7 @@ ${summary.factual?.scope.explanation ? `<p data-proof-fact="scope_explanation">$
 ${overviewBoundaries}
 </div>
 </div>
+</details>
 </section>`;
   }
 
@@ -1507,7 +1526,9 @@ ${different ? `<details class="proof-reader-context"><summary>Current saved syno
     }).join('');
     const strategy = this.readerRecord(reader.strategy_ref)?.body?.proof_idea;
     const strategyHtml = strategy ? `<section class="proof-reader-strategy proof-reading-section proof-logic-section"><h4>Proof idea</h4>${this.readerField(key, 'strategy', reader.strategy_ref, 'proof_idea')}${this.readerSources(reader.strategy_ref, 'proof')}<p class="proof-muted">Saved explanation; it supplies no additional proof support.</p></section>` : '';
-    const findings = reader.finding_refs.map((ref, index) => this.findingCard(key, index, ref)).join('');
+    const findingRows = reader.finding_refs.map((ref, index) => ({historical:this.isHistoricalFinding(ref), html:this.findingCard(key, index, ref)}));
+    const findings = findingRows.filter(row => !row.historical).map(row => row.html).join('');
+    const historicalFindings = findingRows.filter(row => row.historical).map(row => row.html).join('');
     const sourceLimits = reader.source_limit_refs.map((ref, index) => `<div class="proof-reader-issue"><p class="proof-reader-label">Source limitation${this.readerRecord(ref)?.body?.category ? ` · ${this.readerField(key, `source_limit:${index}`, ref, 'category')}` : ''}</p>${this.readerField(key, `source_limit:${index}`, ref, ref.collection === 'sources' ? 'limitation' : 'description')}<p>${this.humanLink(ref, 'Source limitation evidence')}</p></div>`).join('');
     const setup = reader.targets.map((target, index) => target.scope_chain.length ? `<section class="proof-reader-setup"><h5>Hypotheses and setup for ${this.humanLink(target.target_ref)}</h5>${this.readerScopes(key, `target:${index}`, target.scope_chain, {deduplicate:true,seed:true,foldPremises:true})}</section>` : '').join('');
     const applications = reader.applications.map((app, index) => ({app, index}));
@@ -1523,10 +1544,11 @@ ${different ? `<details class="proof-reader-context"><summary>Current saved syno
       && JSON.stringify(target.assessment) === JSON.stringify(node.assessment));
     return `<div class="proof-reader-overview" data-reader-overview="${esc(key)}">
 ${targets}
-<section class="proof-reader-audit"><h4>Review</h4>${primaryTarget >= 0 ? this.readerAssessment(key, `target:${primaryTarget}`, node.assessment) + this.readerSupport(key, `target:${primaryTarget}`, reader.targets[primaryTarget].support_explanation) : this.assessmentBlock(node.assessment, {compact:true})}
+<section class="proof-reader-audit"><h4>Review</h4>${findings || sourceLimits ? `<h5>Material issues and limitations</h5>${findings}${sourceLimits}` : ''}${primaryTarget >= 0 ? this.readerAssessment(key, `target:${primaryTarget}`, node.assessment) + this.readerSupport(key, `target:${primaryTarget}`, reader.targets[primaryTarget].support_explanation) : this.assessmentBlock(node.assessment, {compact:true})}
 ${node.assessment.label === 'stale' && node.assessment.explanation === 'stale' ? '<p class="proof-muted proof-stale-hint">This status summary does not identify which change made the examination stale. The earlier opinion does not establish a completed current examination.</p>' : ''}
 ${reader.targets.map((target, index) => index === primaryTarget ? '' : `<div class="proof-reader-target-assessment"><p class="proof-reader-label">${this.humanLink(target.target_ref)}: target assessment</p>${this.readerAssessment(key, `target:${index}`, target.assessment)}${this.readerSupport(key, `target:${index}`, target.support_explanation)}</div>`).join('')}
-${findings || sourceLimits ? `<h5>Material issues and limitations</h5>${findings}${sourceLimits}` : ''}</section>
+${this.earlierFindings(historicalFindings)}
+</section>
 ${strategyHtml}
 <section class="proof-reader-dependencies"><h4>Prerequisites</h4><p class="proof-muted">Recorded inputs and their applicable contexts; this list does not establish joint sufficiency.</p>
 ${setup}
@@ -1766,11 +1788,21 @@ ${obligation.role === 'primary' ? this.assessmentBlock(obligation.assessment) : 
   reviewLimitsHtml() {
     const limits = this.reviewLimits(), notes = this.savedLimitations();
     if (!limits.length && !notes.length) return '';
-    return '<details class="proof-reader-context" open data-reader-review-limits><summary>Current examination limits</summary><ul>' + limits.map(({task,consequence}) => {
+    const rows = limits.map(({task,consequence}) => {
       const location = task.location;
       const link = location ? this.jump(location.detail_key, this.humanLabelHtml(location.ref), {section:location.section_key,record:refKey(location.ref)}) : this.humanLink(task.target);
-      return '<li data-proof-review-limit="' + esc(task.id) + '" data-proof-review-kind="' + esc(task.kind || '') + '" data-proof-review-target="' + esc(looseKey(task.target)) + '"><strong>' + link + '</strong>: ' + esc(consequence) + '</li>';
-    }).join('') + notes.map(({index,note}) => '<li data-proof-limitation data-proof-limitation-index="' + index + '">' + esc(note) + '</li>').join('') + '</ul></details>';
+      const pending = ['independent','coordinator'].includes(task.role) && task.kind !== 'source_fidelity'
+        && task.outcome === 'supported' && task.freshness !== 'current' && task.dependency_support === 'available';
+      const html = '<li data-proof-review-limit="' + esc(task.id) + '" data-proof-review-kind="' + esc(task.kind || '') + '" data-proof-review-target="' + esc(looseKey(task.target)) + '"><strong>' + link + '</strong>: ' + esc(consequence) + '</li>';
+      return {pending, html};
+    });
+    const visibleRows = rows.filter(row => !row.pending).map(row => row.html).join('')
+      + notes.map(({index,note}) => '<li data-proof-limitation data-proof-limitation-index="' + index + '">' + esc(note) + '</li>').join('');
+    const pendingRows = rows.filter(row => row.pending).map(row => row.html).join('');
+    return '<details class="proof-reader-context" open data-reader-review-limits><summary>Current examination limits</summary>'
+      + (visibleRows ? '<ul>' + visibleRows + '</ul>' : '')
+      + (pendingRows ? '<details class="proof-reader-context" data-reader-pending-review-details><summary>Pending review details</summary><ul>' + pendingRows + '</ul></details>' : '')
+      + '</details>';
   }
 
   searchEntries() {

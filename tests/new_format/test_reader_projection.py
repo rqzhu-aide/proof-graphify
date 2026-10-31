@@ -52,6 +52,9 @@ def cyclic_premise_fixture(fixture):
 
 
 class ReaderProjectionTests(TempCase):
+    def fixture(self, name="paper", **kwargs):
+        return super().fixture(name, coherent=True, **kwargs)
+
     def project(self, fixture, *, audit_id=None):
         with fixture.open(write=False) as db:
             dataset, report = projection.project(db, audit_id=audit_id)
@@ -232,7 +235,7 @@ class ReaderProjectionTests(TempCase):
                 edit("replace", "audits", audit.id, dict(audit.body, targets=[R("parts", "prt_first")]), audit.version)], *fixture.ITEMS, mode="primary")
         dataset = self.project(fixture, audit_id=fixture.audit_id)
         rows = dataset["details"]["item:itm_thm"]["reader"]["targets"]
-        self.assertEqual(rows[0]["assessment"]["label"], "unassessed")
+        self.assertEqual(rows[0]["assessment"]["label"], "outside scope")
         self.assertEqual(rows[0]["assessment"]["check_refs"], [])
         self.assertEqual(rows[1]["target_ref"]["id"], "prt_first")
         self.assertNotEqual(rows[1]["assessment"]["label"], "outside scope")

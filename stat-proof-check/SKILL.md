@@ -1,7 +1,7 @@
 ---
 name: stat-proof-check
 metadata:
-  version: "3.4.10"
+  version: "3.4.13"
 description: Rigorous, non-formal proof audits from manuscript and supplement sources to a graph database, findings and an Archify HTML report. Use only when explicitly invoked as $stat-proof-check.
 ---
 
@@ -23,7 +23,7 @@ Record omissions and source limits. Prioritizing results does not silently narro
 
 1. Prepare evidence and examine. Assign coherent proof groups with stable source evidence. Workers may independently draft the needed items, connections and primary examinations. The coordinator consolidates their returns into shared graph records and saves the examinations, including important uses of other results.
 2. Review and integrate. Obtain independent examinations of that work, compare reasoning, retain material disagreements, correct the affected database records, summarize coverage and findings, and freeze the results.
-3. Present. Build the Archify HTML from that frozen result, showing the paper's mathematics separately from examination reasoning, findings and limitations. Keep administrative tracking in the saved audit artifacts; missing optional explanatory prose creates no new examination or writing task.
+3. Present. Build the HTML with the bundled renderer from that frozen result; no separate Archify workflow is needed. Show the paper's mathematics separately from examination reasoning, findings and limitations. Keep administrative tracking in the saved audit artifacts; missing optional explanatory prose creates no new examination or writing task. By default, browser checks use only an already available headless browser in an isolated session. Any desktop control, including opening visible apps, attaching to the user's browser session or sending OS mouse/keyboard input, requires an explicit user request for that specific operation; permission to open a report does not authorize other desktop interaction. Use the bounded presentation fallback in [controller-workflow.md](references/controller-workflow.md#stage-3-present).
 
 The coordinator maintains the shared database and carries the audit through delivery; it can also do the primary examination or delegate it. Independent reviewers return judgments from a separate review context. Integration belongs to the coordinator and does not require another reviewer.
 

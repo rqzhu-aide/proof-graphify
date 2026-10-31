@@ -506,12 +506,14 @@ def _visible_failures(scan, projection, *, build=None):
     text = lambda element: "".join(element["text"]).strip() if element else ""
     classes = lambda element: element["attrs"].get("class", "").split() if element else []
 
-    def visible(element, *, allow_disclosure=False):
+    def visible(element, *, allow_disclosure=False, allowed_closed_element=None):
         while element:
             attrs = element["attrs"]
             if element["tag"] in ("template", "script", "style") or "hidden" in attrs \
                     or attrs.get("aria-hidden") == "true" \
-                    or (element["tag"] == "details" and "open" not in attrs and not allow_disclosure) \
+                    or (allowed_closed_element is not None and "inert" in attrs) \
+                    or (element["tag"] == "details" and "open" not in attrs and not allow_disclosure
+                        and element is not allowed_closed_element) \
                     or "display:none" in attrs.get("style", "").replace(" ", "").lower():
                 return False
             element = element["parent"]
@@ -800,6 +802,26 @@ def _visible_failures(scan, projection, *, build=None):
             failures.append("independent review or source limitations are absent from the visible report state")
     work = {task["id"]: task for task in (projection.get("worklist") or {}).get("tasks", [])
             if task["required"] and task["state"] != "satisfied"}
+    pending_ids = {identity for identity, task in work.items()
+                   if task["role"] in ("independent", "coordinator")
+                   and task["kind"] != "source_fidelity" and task.get("outcome") == "supported"
+                   and task.get("freshness") != "current" and task.get("dependency_support") == "available"}
+    pending_details = [e for e in scan.elements if "data-reader-pending-review-details" in e["attrs"]]
+    pending = pending_details[0] if len(pending_details) == 1 else None
+    if pending is not None:
+        limit_surface = pending["parent"]
+        while limit_surface is not None and "data-reader-review-limits" not in limit_surface["attrs"]:
+            limit_surface = limit_surface["parent"]
+        inside_report = limit_surface
+        while inside_report is not None and inside_report is not report:
+            inside_report = inside_report["parent"]
+        summaries = [child for child in pending["children"] if child["tag"] == "summary"]
+        if pending["tag"] != "details" or limit_surface is None or limit_surface["tag"] != "details" \
+                or "open" not in limit_surface["attrs"] or inside_report is None \
+                or len(summaries) != 1 or text(summaries[0]) != "Pending review details" \
+                or not visible(summaries[0], allowed_closed_element=pending) \
+                or any(not visible(child, allowed_closed_element=pending) for child in descendants(summaries[0])):
+            pending = None
     rows = [e for e in scan.elements if "data-proof-review-limit" in e["attrs"]]
     if not _multiset_equal([e["attrs"]["data-proof-review-limit"] for e in rows], list(work)):
         failures.append("current examination limitations differ from the saved required material")
@@ -824,7 +846,8 @@ def _visible_failures(scan, projection, *, build=None):
             consequence += " Premise support: " + task["dependency_support"] + "."
         target = f"{task['target']['collection']}:{task['target']['id']}"
         if row["attrs"].get("data-proof-review-kind") != task["kind"] \
-                or row["attrs"].get("data-proof-review-target") != target or not visible(row) \
+                or row["attrs"].get("data-proof-review-target") != target \
+                or not visible(row, allowed_closed_element=pending if task["id"] in pending_ids else None) \
                 or not text(row).endswith(": " + consequence):
             failures.append(f"current examination limitation lost its saved consequence: {task['id']}")
     notes = [e for e in scan.elements if "data-proof-limitation" in e["attrs"]]

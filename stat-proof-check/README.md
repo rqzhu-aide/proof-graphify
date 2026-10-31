@@ -1,8 +1,8 @@
 # Stat Proof Check
 
-[![Version v3.4.10](https://img.shields.io/badge/version-v3.4.10-0ea5e9)](SKILL.md)
+[![Version v3.4.13](https://img.shields.io/badge/version-v3.4.13-0ea5e9)](SKILL.md)
 
-Version `3.4.10` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
+Version `3.4.13` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
 
 ## Use
 
@@ -34,7 +34,13 @@ Keep the database and frozen artifacts for continuation. Report what was examine
 
 ## Runtime and compatibility
 
-This package bundles `paper_core` version `3.3.15` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+This package bundles `paper_core` version `3.3.16` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+
+Version 3.4.13 bundles paper core 3.3.16 and renders tightly spaced products after ordinary closing parentheses without falling back to raw LaTeX. Original mathematical text and unsupported-expression diagnostics are preserved. No authoring or review work is added.
+
+Version 3.4.12 keeps report checks headless and isolated by default, requires explicit requests for desktop interaction, and reuses existing render evidence when browser access is unavailable. It adds no scientific review or check stage; paper core remains 3.3.15.
+
+Version 3.4.11 keeps current findings visible and places earlier findings and review details in expandable sections. It clarifies auxiliary choices, advertised unnumbered consequences, quantitative error orders, and mathematical text serialization within the existing workflow. It adds no review pass or repeated scientific check; the bundled core version remains 3.3.15.
 
 Version 3.4.10 bundles paper core 3.3.15, typesets saved resolution equations and places Source evidence at the end of the report. Final delivery stays within saved facts. Accepted corrections carry into already known affected current assessments using existing saved examinations, without a new review pass or final sweep.
 

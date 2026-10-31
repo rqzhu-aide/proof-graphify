@@ -1,6 +1,6 @@
 # Proof Graphify
 
-[![Version v3.4.10](https://img.shields.io/badge/version-v3.4.10-6366f1)](SKILL.md)
+[![Version v3.4.13](https://img.shields.io/badge/version-v3.4.13-6366f1)](SKILL.md)
 
 **Explore a paper's main results, important prerequisites, and connections in the style of [Archify](https://github.com/tt-a1i/archify).**
 
@@ -31,6 +31,12 @@ proof-graphify-<paper-name>/
 ```
 
 **Share the HTML alone. Keep the database for future revisions.** See the [database guide](references/database.md) for focused initialization, editing, and export, and [SKILL.md](SKILL.md) for the current skill version.
+
+Version 3.4.13 bundles paper core 3.3.16 and renders tightly spaced products after ordinary closing parentheses without falling back to raw LaTeX. Original mathematical text and unsupported-expression diagnostics are preserved. No authoring or review work is added.
+
+Version 3.4.12 keeps report checks headless and isolated by default, requires explicit requests for desktop interaction, and reuses existing render evidence when browser access is unavailable. It adds no scientific review or check stage; paper core remains 3.3.15.
+
+Version 3.4.11 retains paper core version 3.3.15 and clarifies mathematical text and JSON writing with a multiline example. The selective workflow and source-comparison effort remain unchanged.
 
 Version 3.4.10 bundles paper core 3.3.15 and keeps final delivery to saved scope, counts, labels and limitations. Scientific explanations remain in the HTML; no source comparison or review pass is added.
 
