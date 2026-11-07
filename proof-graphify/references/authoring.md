@@ -4,7 +4,7 @@ Start with the paper's main results, then include prerequisites that materially 
 
 Check the supplied manuscript files for relevant companion TeX, appendix, or supplement content, including material already inside the supplied PDF, before describing a proof as unavailable. A main-text reference to a supplement does not establish its absence. Respect an explicit main-text-only scope; describe supplied material excluded by scope as omitted rather than unavailable.
 
-Use the [minimal seed](../examples/representer-theorem/seed.json) and [database workflow](database.md). A seed declares `schema_version: 3` and has `source`; a captured export instead has `source_revision` and generated bookkeeping. Do not combine the two forms. New work uses `init --focused`.
+Use the [sample seed below](#pdf-only-input) and [database workflow](database.md). A seed declares `schema_version: 3` and has `source`; a captured export instead has `source_revision` and generated bookkeeping. Do not combine the two forms. New work uses `init --focused`.
 
 ## Statements and main-result roles
 

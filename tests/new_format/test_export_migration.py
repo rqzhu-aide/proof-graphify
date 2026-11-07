@@ -550,7 +550,7 @@ class ExportTombstoneTest(TempCase):
 
 
 class OverviewMigrationTest(TempCase):
-    """migrate_overview on the shipped representer-theorem overview (6 items, 11 uses, 21 anchors)."""
+    """migrate_overview on the representer-theorem regression fixture (6 items, 11 uses, 21 anchors)."""
 
     def setUp(self):
         super().setUp()
@@ -570,7 +570,7 @@ class OverviewMigrationTest(TempCase):
         return export_import.migrate_overview(self.legacy_path, backup=self.backup_path)
 
     def test_fixture_is_the_documented_legacy_overview(self):
-        """The shipped example still holds 6 items, 11 uses, 21 anchors and 17 observations."""
+        """The regression fixture holds 6 items, 11 uses, 21 anchors and 17 observations."""
         self.assertEqual({name: len(self.legacy_json[name])
                           for name in ("items", "uses", "anchors", "observations")},
                          {"items": 6, "uses": 11, "anchors": 21, "observations": 17})

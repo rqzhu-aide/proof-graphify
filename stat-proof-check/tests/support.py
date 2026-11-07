@@ -23,7 +23,7 @@ CORE = SHARED / "paper_core"
 PROOFCHECK = REPO
 OVERVIEW = REPO.parent / "proof-graphify"
 REFERENCE_AUDIT = REPO.parent / "tests" / "fixtures" / "reference-audit" / "proofcheck-audit"
-OVERVIEW_EXAMPLE = OVERVIEW / "examples" / "representer-theorem"
+OVERVIEW_EXAMPLE = OVERVIEW / "tests" / "fixtures" / "representer-theorem"
 HANDOFF = REPO.parent / "tests" / "new_format" / "fixtures" / "legacy-handoff"
 TOOLS = REPO.parent / "tools"
 

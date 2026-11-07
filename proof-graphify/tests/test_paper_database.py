@@ -1077,11 +1077,11 @@ class PaperDatabaseTests(unittest.TestCase):
         self.assertEqual(before, after)
 
 
-class BundledSeedExampleTests(unittest.TestCase):
-    """The shipped minimal seed must keep initializing against its real source."""
+class SeedFixtureTests(unittest.TestCase):
+    """The minimal seed fixture must keep initializing against its real source."""
 
-    def test_bundled_seed_initializes_and_validates(self):
-        example = SKILL / "examples" / "representer-theorem"
+    def test_seed_initializes_and_validates(self):
+        example = SKILL / "tests" / "fixtures" / "representer-theorem"
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "paper-records.sqlite"
             result = database._native_init_database(db, example / "seed.json", source_root=example)

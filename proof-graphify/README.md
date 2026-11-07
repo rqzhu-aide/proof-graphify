@@ -8,9 +8,9 @@ The skill selects the results that explain the paper's central contributions, re
 
 The records remain reusable: [revise the overview](references/revisions.md) as the manuscript changes. A new proofcheck audit starts independently from the manuscript in its own folder and database. Source comparison checks the overview against the paper; it does not certify proof validity. Existing detailed databases retain their content and history through the [compatibility and maintenance guidance](references/audit-database.md).
 
-[![Example](examples/overview-browser.png)](examples/overview-browser.png)
+[![Proof map of Green’s argument for Theorem 1.1](https://raw.githubusercontent.com/rqzhu-aide/proof-graphify/main/examples/landau-siegel/overview.png)](https://github.com/rqzhu-aide/proof-graphify/tree/main/examples/landau-siegel)
 
-Open the [example HTML](examples/representer-theorem/overview.html) locally to explore statements and trace dependencies. Read its [source proof](examples/representer-theorem/proof.md).
+Download the [interactive Landau–Siegel graph](https://github.com/rqzhu-aide/proof-graphify/blob/main/examples/landau-siegel/overview.html) to explore Theorem 1.1 and its prerequisites in [Ben Green’s paper](https://hexagonmath.org/2610.00311v1).
 
 ## Use
 

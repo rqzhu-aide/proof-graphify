@@ -339,7 +339,8 @@ class ScientificReaderContentTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_missing_sources_and_unreviewed_material_remain_visible(self):
-        data = records.normalize(overview.load_data(SKILL / 'examples/representer-theorem/overview.json'), SKILL / 'examples/representer-theorem')
+        base = FIXTURE.parent / 'representer-theorem'
+        data = records.normalize(overview.load_data(base / 'overview.json'), base)
         data['observations'] = []
         with tempfile.TemporaryDirectory() as absent:
             html, receipt = self.render(data, base_dir=Path(absent))
