@@ -1,8 +1,8 @@
 # Stat Proof Check
 
-[![Version v3.4.13](https://img.shields.io/badge/version-v3.4.13-0ea5e9)](SKILL.md)
+[![Version v3.4.16](https://img.shields.io/badge/version-v3.4.16-0ea5e9)](SKILL.md)
 
-Version `3.4.13` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
+Version `3.4.16` audits a paper's written mathematical arguments. It records exact claims, source evidence, consequential inferences, independent review, findings, and unresolved limits, then delivers an interactive HTML report. This is a scoped, non-formal examination; a successful database check or report build does not certify a theorem.
 
 ## Use
 
@@ -34,7 +34,13 @@ Keep the database and frozen artifacts for continuation. Report what was examine
 
 ## Runtime and compatibility
 
-This package bundles `paper_core` version `3.3.16` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+This package bundles `paper_core` version `3.3.18` and runs independently of Graphify and the source checkout. Shared Python 3.10+ runs the helpers; Node.js produces the HTML report. Optional offline LaTeX conversion uses shared `latex2mathml`. Install missing dependencies globally or user-wide.
+
+Version 3.4.16 makes Findings a distinct keyboard-accessible control and clarifies consequence-based severity, source-reading uncertainty, neutral source fields, targeted recovery and task mapping. These changes reuse existing examinations and add no review pass or repeated check. The paper core version remains 3.3.18.
+
+Version 3.4.15 bundles paper core 3.3.18, places existing claim and qualification context beside integration decisions, and generates factual delivery messages from frozen results. It clarifies local corrections without adding review passes or repeated context formatting during submission.
+
+Version 3.4.14 bundles paper core 3.3.17 and clarifies correction attribution and updates to already identified affected current findings and conclusions using saved examinations. Surviving concerns and coverage limits remain explicit. No new review pass, source pass, dependency search or read-back round is added.
 
 Version 3.4.13 bundles paper core 3.3.16 and renders tightly spaced products after ordinary closing parentheses without falling back to raw LaTeX. Original mathematical text and unsupported-expression diagnostics are preserved. No authoring or review work is added.
 

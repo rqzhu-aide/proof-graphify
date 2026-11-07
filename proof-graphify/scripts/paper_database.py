@@ -418,6 +418,8 @@ def _common_dispatch(native, db_path, *args, **kwargs):
                         # The HTML is already published. The authoritative build
                         # record may fail independently of the disposable native log.
                         result['database'] = str(Path(db_path).resolve())
+                        from proof_overview import _delivery_message
+                        result['delivery_message'] = _delivery_message(result)
                         result["build_recorded"] = True
                         result.pop("build_record_error", None)
                         try:
@@ -1210,7 +1212,7 @@ def validate_database(db_path, snapshot_id=None):
 
 
 def render_database(db_path, output_path, snapshot_id=None):
-    from proof_overview import _render_validated_dataset
+    from proof_overview import _render_validated_dataset, _delivery_message
     connection = _connect(db_path)
     try:
         connection.execute("BEGIN")
@@ -1222,6 +1224,7 @@ def render_database(db_path, output_path, snapshot_id=None):
     receipt["snapshot_id"] = storage_id
     receipt['database'] = str(Path(db_path).resolve())
     receipt["authoring_profile"] = profile
+    receipt['delivery_message'] = _delivery_message(receipt)
     connection = None
     try:
         connection = _connect(db_path, write=True)
@@ -1230,6 +1233,7 @@ def render_database(db_path, output_path, snapshot_id=None):
             receipt["current_snapshot"] = _head(connection)
             if receipt["current_snapshot"] != storage_id:
                 receipt["snapshot_note"] = "Report represents a retained snapshot; the database has a different current snapshot."
+            receipt['delivery_message'] = _delivery_message(receipt)
             receipt["build_recorded"] = True
             payload = _json(receipt)
             connection.execute("INSERT OR IGNORE INTO builds(id,snapshot_id,payload,created_at) VALUES (?,?,?,?)", (hashlib.sha256(payload.encode()).hexdigest(), storage_id, payload, _now()))

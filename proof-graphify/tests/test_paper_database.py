@@ -883,6 +883,9 @@ class PaperDatabaseTests(unittest.TestCase):
         with closing(sqlite3.connect(self.db)) as connection:
             saved = json.loads(connection.execute('SELECT payload FROM builds').fetchone()[0])
         self.assertEqual(saved['database'], receipt['database'])
+        self.assertEqual(saved['delivery_message'], receipt['delivery_message'])
+        self.assertIn(str(self.db.resolve()).replace('\\', '/'), receipt['delivery_message'])
+        self.assertNotIn('projection.db', receipt['delivery_message'])
         self.assertTrue(output.is_file())
         self.assertEqual(database.export_snapshot(self.db)["snapshot_id"], before["snapshot_id"])
         self.assertEqual(self.counts()["builds"], 1)
@@ -894,6 +897,17 @@ class PaperDatabaseTests(unittest.TestCase):
         database.compare_records(self.db, {"expected_snapshot": data["snapshot_id"], "targets": targets,
                                            "basis": "tex", "reviewer": "Synthetic source reviewer", "note": note})
         return data
+
+    @unittest.skipUnless(shutil.which("node"), "shared Node.js is needed for rendering")
+    def test_retained_snapshot_delivery_keeps_its_boundary_in_stored_message(self):
+        retained = database.export_snapshot(self.db)['snapshot_id']
+        database.apply_edits(self.db, self.update_caption('A later caption'))
+        receipt = database.render_database(self.db, self.base / 'retained.html', snapshot_id=retained)
+        self.assertNotEqual(receipt['current_snapshot'], receipt['snapshot_id'])
+        self.assertIn(receipt['snapshot_note'], receipt['delivery_message'])
+        with closing(sqlite3.connect(self.db)) as connection:
+            saved = json.loads(connection.execute('SELECT payload FROM builds').fetchone()[0])
+        self.assertEqual(saved['delivery_message'], receipt['delivery_message'])
 
     def test_comparison_basis_defaults_overrides_and_atomic_errors(self):
         data = database.export_snapshot(self.db)

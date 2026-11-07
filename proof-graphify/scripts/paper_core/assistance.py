@@ -13,8 +13,9 @@ from .errors import ConflictError, InvalidRequest
 from .ids import new_id, valid_id
 
 FINDING_CARD_NOTE = (
-    "Use the severity rubric in evidence-and-verdicts.md for established issues; "
-    "omitted severity is unrated. Inconclusive limitations have no inferred defect severity. "
+    "Rate established issues from their already recorded consequence using evidence-and-verdicts.md; "
+    "leave severity omitted when that consequence does not support a rubric rating, without further investigation. "
+    "Inconclusive limitations have no inferred defect severity. "
     "Write description as one short issue sentence with one decisive formula or exact witness when useful. "
     "Write impact_reason as one short sentence stating what remains valid and what changes, "
     "including an already apparent correction when useful. "
@@ -288,8 +289,10 @@ def worker_guidance(mode, *, composition=False):
             "Examine only material still unexamined or materially changed, or leave support unresolved.")
     if mode == "primary":
         guidance["authoring_note"] = (
-            "The coordinator alone writes the shared database. Source-based local drafts may precede canonical "
-            "graph IDs. Report a missing dependency by its source locator in reasoning or a separate draft; "
+            "The coordinator alone writes the shared database. Source-based local drafts may precede graph IDs. "
+            "Shared source/setup text and uncertainty notes can reach independent reviewers; keep examiner "
+            "diagnoses in reasoning or findings, preserving source conditions and limitations. "
+            "Report a missing dependency by its source locator in reasoning or a separate draft; "
             "do not invent unknown typed references. A missing graph identity alone is not a mathematical gap.")
     return guidance
 
@@ -345,7 +348,8 @@ def _response_guidance(mode):
                         "needs_attention unless verified under the existing source-inspection standard, "
                         "naming the expression and source in note; "
                         "check uses state, outcome, reasoning and its check fields. Do not fill source rows as checks. "
-                        "Return the rows actually examined; leave missing work pending rather than filling defaults. "
+                        "Use the assigned packet task and its target/question to map saved answers by task ID, not an ID prefix. "
+                        "Return only examined rows; leave unmatched work pending. "
                         "Author the judgments. Finding rows create new issues. After an accepted submission, "
                         "retain unchanged finding IDs from receipt.changed entries with collection=findings, "
                         "even if the reused packet predates them; cite them in reasoning and leave new findings empty. "
@@ -359,10 +363,12 @@ def _response_guidance(mode):
                 "optional_finding_example": _finding_example(),
                 "finding_card_note": FINDING_CARD_NOTE,
                 "note": "Use the integration scaffold's unit task IDs; scripts select current opinion references. "
-                         "Use the coordinator reconciliation candidate whose integration_task_ids contains the scaffold task_id. "
+                         "Assess disputed reasoning under the exact claim, hypotheses, definitions and regime; agreement and labels are not decisive. "
+                         "For a disputed printed symbol, use available source evidence; PDF character positions or the saved formula alone do not settle it. "
+                         "Keep unresolved source readings uncertain; correct established mistranscriptions, preserving faithful source text and distinguishing reviewer errors from manuscript defects. "
+                         "Explain acceptance, rejection or uncertainty before the whole-unit judgment. Integration alone needs no new examination. "
+                         "Use the candidate matching scaffold task_id in integration_task_ids; decision_context supplies existing records when available, without requiring another packet read. "
                          "Return only authored integrations; omit undecided rows. An unresolved decision needs an authored rationale. "
-                         "Compare saved reasoning and conditions and author the decision and rationale. "
-                         "Adopting a saved finding is integration; disagreement does not require another examination. "
                          "Use adopt_independent to adopt the saved independent conclusion, adopt_primary to "
                          "retain the saved primary conclusion, agree for compatible opinions, or unresolved. "
                          "For adopt aliases, omit successor_checks or leave it empty; scripts select the saved opinions. "
@@ -371,8 +377,11 @@ def _response_guidance(mode):
                          "Put a newly established material finding in the optional top-level findings using the example "
                          "and the task IDs of integrations included in this response; scripts link current opinions. "
                          "Do not duplicate an existing finding for the same concern. Omit findings when none is new; "
-                         "a gap or unresolved decision alone need not create one. A changed disposition of an existing finding "
-                         "also needs that identified finding updated through review reconcile; a rationale alone does not update it. "
+                         "a gap or unresolved decision alone need not create one. "
+                         "For adopted corrections, update only changed finding fields through review reconcile; carry qualifications into the card and identified affected current rationales/conclusions. "
+                         "A rationale does not update those records. Reuse saved reasoning, preserving surviving grounds, original opinions, history, unresolved consequences and coverage limits. "
+                         "For completed current integrations with unchanged scientific inputs, use documented --correct --task. "
+                         "Add no source pass, dependency search, read-back round or reviewer solely to apply an established correction; existing affected-work rules govern materially changed or unexamined content. "
                         "Stage 2 generates the submission envelope. If response_dispositions are listed, explain "
                         "how the preserved extra rows are handled, retaining material unresolved concerns. "
                         "Do not fabricate an independent examination to repair a peripheral response field."}
@@ -420,12 +429,162 @@ def _partial_primary_predecessors(derivation, assessment, tasks):
     return candidates
 
 
-def coordinator_guidance(db, manifest, *, assessed=None):
+def _decision_context_index(db, read_set):
+    """Resolve delivered versions once, without reading live heads or closure."""
+    records, by_ref, specs = {}, {}, {}
+    collections = {"items", "parts", "arguments", "target_specs", "scopes", "findings", "reconciliations"}
+    for pin in read_set:
+        key = (pin["collection"], pin["id"], pin["version"])
+        if pin["collection"] not in collections or key in records:
+            continue
+        record = db.version(*key)
+        if record is None or record.retired:
+            continue
+        records[key] = record
+        by_ref.setdefault(key[:2], []).append(record)
+        if record.collection == "target_specs":
+            target = record.body["target"]
+            specs.setdefault((target["collection"], target["id"]), []).append(record)
+    return records, by_ref, specs
+
+
+def _reconciliation_context(target, index, *, derivation, assessment):
+    """Optional local facts, with currentness supplied by the existing assessment."""
+    records, by_ref, specs = index
+    context, limits = {"target": deepcopy(target)}, []
+
+    def unique(ref):
+        matches = by_ref.get((ref["collection"], ref["id"]), ())
+        if len(matches) != 1:
+            limits.append(f"{ref['collection']}:{ref['id']} has absent or ambiguous delivered versions.")
+            return None
+        return matches[0]
+
+    def pinned(pin):
+        return records.get((pin["collection"], pin["id"], pin["version"]))
+
+    record = unique(target)
+    statement_target = target if target["collection"] in ("items", "parts") else None
+    if record is not None:
+        context["target_ref"] = deepcopy(record.pinned)
+        if record.collection == "arguments":
+            statement_target = record.body["target"]
+    statement = (record if record is not None and record.collection in ("items", "parts") else
+                 unique(statement_target) if statement_target is not None and statement_target != target else None)
+    scope_ids = []
+    if record is not None and record.body.get("scope_id"):
+        scope_ids.append(record.body["scope_id"])
+    if statement is not None:
+        context.update(statement_ref=deepcopy(statement.pinned), statement=deepcopy(statement.body["statement"]))
+        owner_id = statement.body.get("item_id") or statement.body.get("owner_id")
+        owner = unique({"collection": "items", "id": owner_id}) if owner_id else statement
+        if owner is not None:
+            context["owner_ref"] = deepcopy(owner.pinned)
+    # An explicit formulation pin stays meaningful even when the unversioned
+    # statement has several delivered versions. Do not select one as its head.
+    exact = specs.get((statement_target["collection"], statement_target["id"]), ()) if statement_target else ()
+    if len(exact) > 1:
+        limits.append("Exact target specification is ambiguous within the delivered read set.")
+    elif exact:
+        spec = exact[0]
+        formulation = {"ref": deepcopy(spec.pinned), "target": deepcopy(spec.body["target"]), "state": spec.body["state"]}
+        exact_statement = spec.body["statement"]
+        if spec.body.get("statement_ref"):
+            formulation["statement_ref"] = deepcopy(spec.body["statement_ref"])
+            saved = pinned(spec.body["statement_ref"])
+            if exact_statement is None and saved is not None:
+                exact_statement = saved.body["statement"]
+        if exact_statement is not None:
+            if statement is None or exact_statement != statement.body["statement"]:
+                formulation["statement"] = deepcopy(exact_statement)
+        else:
+            limits.append("The exact target formulation is absent from the delivered read set.")
+        context["exact_formulation"] = formulation
+        if spec.body.get("scope_id"):
+            scope_ids.append(spec.body["scope_id"])
+    if not exact and statement is not None and statement.body.get("scope_id"):
+        scope_ids.append(statement.body["scope_id"])
+
+    ancestry, content = [], {"conditions": [], "binders": [], "assumptions": []}
+    seen_scopes = set()
+    for scope_id in dict.fromkeys(scope_ids):
+        chain = set()
+        while scope_id:
+            if scope_id in chain:
+                limits.append("Delivered scope ancestry is cyclic.")
+                break
+            chain.add(scope_id)
+            if scope_id in seen_scopes:
+                break
+            scope = unique({"collection": "scopes", "id": scope_id})
+            if scope is None:
+                break
+            seen_scopes.add(scope_id)
+            ancestry.append({"ref": deepcopy(scope.pinned), "parent_id": scope.body["parent_id"]})
+            for field, entries in content.items():
+                for value in scope.body[field]:
+                    existing = next((entry for entry in entries if entry["value"] == value), None)
+                    if existing is None:
+                        existing = {"value": deepcopy(value), "scope_refs": []}
+                        entries.append(existing)
+                    existing["scope_refs"].append(deepcopy(scope.pinned))
+            scope_id = scope.body["parent_id"]
+    if ancestry:
+        context.update(scope_ancestry=ancestry, **{key: value for key, value in content.items() if value})
+
+    relations = [(target, "direct_target")]
+    if statement_target is not None and statement_target != target:
+        relations.append((statement_target, "argument_statement"))
+    findings = []
+    for related, relation in relations:
+        key = f"{related['collection']}:{related['id']}"
+        for finding in derivation.findings_by_target.get(key, ()):
+            delivered = pinned(finding.pinned)
+            if delivered is None or delivered.body["audit_id"] != assessment["audit_id"]:
+                continue
+            fields = ("target", "lifecycle", "category", "severity", "description", "impact_reason", "resolution",
+                      "evidence_refs", "check_refs")
+            row = {"ref": deepcopy(delivered.pinned), "relation": relation,
+                   **{field: deepcopy(delivered.body[field]) for field in fields if field in delivered.body}}
+            status = derivation.review_display.displays.get(finding.id)
+            row["review_display"] = deepcopy(status) if status is not None else {"status": "unavailable"}
+            if status is None:
+                limits.append("A delivered finding has no cached review display classification; no current conclusion is inferred.")
+            findings.append(row)
+    if findings:
+        context["findings"] = findings
+
+    integrations = []
+    for task in assessment["obligations"]:
+        if task["kind"] != "reconciliation" or task["target"] != target:
+            continue
+        saved = assessment["constituents"].get(task["id"], {})
+        row = {"task_id": task["id"], "satisfied": task["satisfied"],
+               **{field: deepcopy(saved[field]) for field in ("state", "freshness", "disputed", "evidence_limitation") if field in saved}}
+        refs = saved.get("check_refs", [])
+        row["judgment_refs"] = [deepcopy(pin) for pin in refs if pinned(pin) is not None]
+        if len(row["judgment_refs"]) != len(refs):
+            limits.append("Selected integration references are absent from the delivered read set.")
+        if task["satisfied"] and saved.get("state") == "complete" and saved.get("freshness") == "current" \
+                and not saved.get("unaccounted") and len(refs) == 1 and pinned(refs[0]) is not None:
+            rec = pinned(refs[0])
+            row["current_reconciliation"] = {"ref": deepcopy(rec.pinned),
+                **{field: deepcopy(rec.body[field]) for field in ("target", "decision", "rationale")}}
+        integrations.append(row)
+    if integrations:
+        context["integrations"] = integrations
+    if limits:
+        context["projection_limits"] = list(dict.fromkeys(limits))
+    return context
+
+
+def coordinator_guidance(db, manifest, *, assessed=None, include_context=True):
     """Candidate identities from the authorized read set; never dispatch to a blind worker.
 
     ``assessed`` may reuse ``derive_full``'s (derivation, assessment) result.
     Reconciliation uses its existing freshness and independence reducers rather
     than inventing a parallel notion of eligible evidence.
+    Internal validation may omit the unused context projection.
     """
     mode = manifest["mode"]
     tasks = manifest.get("work", {}).get("tasks", ())
@@ -497,6 +656,7 @@ def coordinator_guidance(db, manifest, *, assessed=None):
         return result
     rows = {}
     coherent = derivation.audit.body["protocol_version"] == "coherent-proof-audit/1"
+    context_index = _decision_context_index(db, manifest["read_set"]) if coherent and include_context else None
     from .coherent import unit_targets
     units = [(task["target"], unit_targets(derivation.snap, task["target"]))
              for task in tasks if coherent and task["kind"] == "reconciliation"]
@@ -577,6 +737,9 @@ def coordinator_guidance(db, manifest, *, assessed=None):
             row[field].sort(key=lambda entry: (entry["ref"]["id"], entry["ref"]["version"]))
         row["required_other_opinions"].sort(key=lambda entry: (entry["ref"]["id"], entry["ref"]["version"]))
         row["has_both_roles"] = bool(row["primary_checks"] and row["independent_checks"])
+        if coherent and include_context and row["target"]["collection"] in ("items", "parts", "arguments"):
+            row["decision_context"] = _reconciliation_context(
+                row["target"], context_index, derivation=derivation, assessment=assessment)
         result["reconciliation_candidates"].append(row)
     if coherent:
         result["note"] = ("These are current eligible opinions on each exact unit. Scripts attach their references "

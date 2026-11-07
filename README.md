@@ -1,15 +1,15 @@
 # Proof Graphify
 
-[![Proof Graphify v3.4.13](https://img.shields.io/badge/Proof%20Graphify-v3.4.13-6366f1)](proof-graphify/SKILL.md)
-[![Proof Check v3.4.13](https://img.shields.io/badge/Proof%20Check-v3.4.13-0ea5e9)](stat-proof-check/SKILL.md)
-[![Paper Core v3.3.16](https://img.shields.io/badge/Paper%20Core-v3.3.16-64748b)](shared/paper_core)
+[![Proof Graphify v3.4.16](https://img.shields.io/badge/Proof%20Graphify-v3.4.16-6366f1)](proof-graphify/SKILL.md)
+[![Proof Check v3.4.16](https://img.shields.io/badge/Proof%20Check-v3.4.16-0ea5e9)](stat-proof-check/SKILL.md)
+[![Paper Core v3.3.18](https://img.shields.io/badge/Paper%20Core-v3.3.18-64748b)](shared/paper_core)
 
 Proof Graphify shows how a paper's main theorems depend on lemmas, assumptions, and key intermediate results. Proof Check extends this view with a language model's assessment of the written proof. Neither skill produces or verifies Lean proofs.
 
 | Skill | Version | What it does |
 |---|---|---|
-| `proof-graphify` | v3.4.13 | Maps selected results in an interactive graph where you can follow each dependency back to its statement and source. |
-| `stat-proof-check` | v3.4.13 | Examines individual proof steps and reports gaps or unresolved questions alongside the affected result. |
+| `proof-graphify` | v3.4.16 | Maps selected results in an interactive graph where you can follow each dependency back to its statement and source. |
+| `stat-proof-check` | v3.4.16 | Examines individual proof steps and reports gaps or unresolved questions alongside the affected result. |
 
 ## Example: On Landau–Siegel zeros
 

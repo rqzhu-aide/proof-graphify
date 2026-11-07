@@ -343,7 +343,7 @@ def _reconcile_plan(db, envelope, manifest, worker):
             raise InvalidRequest("pin-free integration requires the coherent examination protocol")
         _shape(INTEGRATION_RESPONSE, worker, "integration response")
         from .assistance import coordinator_guidance
-        candidates = coordinator_guidance(db, manifest)["reconciliation_candidates"]
+        candidates = coordinator_guidance(db, manifest, include_context=False)["reconciliation_candidates"]
         edits, seen, comparison_pins = [], set(), {}
         tasks = _task_map(manifest)
         for row in worker["integrations"]:

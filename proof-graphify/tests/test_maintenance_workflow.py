@@ -121,7 +121,7 @@ class MaintenanceWorkflowTests(unittest.TestCase):
     def test_grouped_receipt_is_compact_and_full_diagnostics_remain_available(self):
         entries = [{"collection": "items", "id": "t", "field": "statement", "excerpt": "$\\mc X$",
                     "display": "inline", "reason": "Unsupported command \\mc"} for _ in range(30)]
-        receipt = {"math_diagnostics": entries, "output": "overview.html"}
+        receipt = {"math_diagnostics": entries, "output": "overview.html", "delivery_message": "Saved delivery."}
         compact = proof_overview.compact_render_receipt(receipt)
         self.assertEqual(compact["math_diagnostic_count"], 30)
         self.assertEqual(len(compact["math_diagnostics"]), 5)
@@ -129,6 +129,10 @@ class MaintenanceWorkflowTests(unittest.TestCase):
         self.assertLess(len(json.dumps(compact)), len(json.dumps(receipt)))
         self.assertEqual(proof_overview.compact_render_receipt(receipt, full=True)["math_diagnostics"], entries)
         self.assertEqual(len(receipt["math_diagnostics"]), 30)
+        self.assertEqual(compact['delivery_message'], receipt['delivery_message'])
+        self.assertEqual(proof_overview.compact_render_receipt(receipt, full=True)['delivery_message'],
+                         receipt['delivery_message'])
+        self.assertNotIn('delivery_message', proof_overview.compact_render_receipt({'math_diagnostics': []}))
 
     @unittest.skipUnless(shutil.which("node"), "Shared Node.js required")
     def test_grouped_html_disambiguates_item_and_use_with_same_id(self):

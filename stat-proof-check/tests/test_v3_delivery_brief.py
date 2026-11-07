@@ -13,6 +13,19 @@ from paper_core.errors import PublicationError
 
 
 class DeliveryBriefTests(unittest.TestCase):
+    def test_message_reuses_saved_assessment_explanation(self):
+        explanation = 'Local reasoning is supported; prerequisite support remains unresolved.'
+        brief = {'review_display': {'status': 'dependency', 'explanation': explanation}}
+        message = publish._delivery_message(brief, output='report.html', summary_path='summary.json')
+        self.assertIn(explanation, message)
+        self.assertNotIn('Current assessment: dependency.', message)
+
+    def test_escaped_currency_does_not_change_following_math(self):
+        prose = r'Cost \$5 with $x_{[n]} \leq 1$'
+        brief = {'title': prose, 'scope': {'mode': 'full', 'explanation': prose}}
+        message = publish._delivery_message(brief, output='report.html', summary_path='summary.json')
+        self.assertEqual(2, message.count(prose))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -56,7 +69,14 @@ class DeliveryBriefTests(unittest.TestCase):
         self.assertEqual(1, load.call_count)
         self.assertEqual(1, captures.call_count)
         self.assertNotIn("delivery_brief", result)
+        self.assertNotIn("delivery_message", result)
         self.assertEqual(expected, result["receipt"]["delivery_brief"])
+        message = result["receipt"]["delivery_message"]
+        self.assertEqual(publish._delivery_message(expected, output=output,
+            summary_path=bundle / finalization.SUMMARY_NAME), message)
+        self.assertIn("[Report]", message)
+        self.assertIn("[Frozen summary]", message)
+        self.assertNotIn(str(fixture.path), message)
         self.assertEqual("Test paper", expected["title"])
         self.assertEqual(result["receipt"], json.loads(Path(result["build_receipt_path"]).read_text(encoding="utf-8")))
         self.assertEqual(saved, {p.name: p.read_bytes() for p in bundle.iterdir()})
@@ -261,13 +281,121 @@ class DeliveryBriefTests(unittest.TestCase):
         output.write_bytes(b"prior report")
         receipt.write_bytes(b"prior receipt")
         with mock.patch.object(publish, "render_payload", side_effect=PublicationError("renderer failed")), \
-             mock.patch.object(publish, "_delivery_brief", side_effect=AssertionError("premature brief")):
+             mock.patch.object(publish, "_delivery_brief", side_effect=AssertionError("premature brief")), \
+             mock.patch.object(publish, "_delivery_message", side_effect=AssertionError("premature message")):
             with self.assertRaises(PublicationError) as caught:
                 publish.publish_frozen(bundle, output=output)
         self.assertTrue(caught.exception.records[-1]["prior_output_retained"])
         self.assertTrue(caught.exception.records[-1]["prior_receipt_retained"])
         self.assertEqual(b"prior report", output.read_bytes())
         self.assertEqual(b"prior receipt", receipt.read_bytes())
+
+    def test_message_uses_complete_aggregate_and_never_counts_samples(self):
+        _, bundle = self.freeze()
+        snapshot, frozen = finalization.load_finalization(bundle)
+        brief = publish._delivery_brief(snapshot, frozen)
+        brief["scope"]["requested"] = {"items": [{"label": "sample"}], "total": 19}
+        brief["findings"]["current"] = {"items": [{"review_display": {"status": "severe"}}], "total": 30}
+        statuses = ("severe", "moderate", "minor", "unresolved", "unrated")
+        complete = dict(zip(statuses, (2, 4, 0, 3, 1)))
+        for counts in (complete, {"severe": 2}, None, {**complete, "minor": None}):
+            with self.subTest(counts=counts):
+                brief["findings"]["current_by_review_status"] = counts
+                before = copy.deepcopy(brief)
+                message = publish._delivery_message(brief, output="report.html", summary_path="summary.json")
+                self.assertIn("19 requested targets", message)
+                self.assertNotIn("1 severe", message)
+                self.assertNotIn("30", message)
+                if counts == complete:
+                    self.assertIn("Current findings: 2 severe, 4 moderate, 0 minor, 3 unresolved, 1 unrated.", message)
+                else:
+                    self.assertIn("See Findings in the report", message)
+                    self.assertNotIn("2 severe", message)
+                self.assertEqual(before, brief)
+        brief["scope"]["requested"] = {"items": [{"label": "sample"}], "total": None}
+        unknown = publish._delivery_message(brief, output="report.html", summary_path="summary.json")
+        self.assertIn("full saved scope in the frozen summary", unknown)
+        self.assertNotIn("requested targets", unknown)
+
+    def test_message_preserves_working_review_and_material_qualifications(self):
+        _, bundle = self.freeze()
+        snapshot, frozen = finalization.load_finalization(bundle)
+        brief = publish._delivery_brief(snapshot, frozen)
+        brief.update(kind="working", process_complete=False, representation_settled=False,
+            review_display={"status": "unresolved"},
+            independent_review={"state": "disputed", "explanation": "Independent review remains disputed; text-only evidence.",
+                                "qualification_limitations": ["Saved qualification"]},
+            overview_scope={"text": "Original boundary", "exclusions": {"items": [], "total": 0}})
+        sample = {"items": ["Saved example"], "total": 12}
+        brief["scope"]["exclusions"] = sample
+        brief["statement_support"]["unresolved"] = sample
+        for key in ("source_limits", "source_capture_notes", "unresolved_external_sources",
+                    "limitations", "projection_limitations", "finalization_blockers"):
+            brief[key] = sample
+        brief["findings"].update(current_by_review_status=dict.fromkeys(
+            ("severe", "moderate", "minor", "unresolved", "unrated"), 0),
+            unknown=sample, historical_count=7)
+        before = copy.deepcopy(brief)
+        message = publish._delivery_message(brief, output="report.html", summary_path="summary.json")
+        for expected in ("working audit report", "Examination remains incomplete",
+                         "Current assessment: unresolved",
+                         "Representation remains unsettled", "Independent review remains disputed; text-only evidence",
+                         "Independent-review qualifications", "Audit exclusions", "Prior overview scope",
+                         "Statement support remains unresolved or conditional", "External-result support",
+                         "Source limitations", "Source-capture notes", "Assessment limitations",
+                         "Representation limitations", "Finalization work remains", "no current review status",
+                         "Historical findings are separate", "0 severe"):
+            self.assertIn(expected, message)
+        self.assertNotIn("12", message)
+        self.assertNotIn("no concerns", message)
+        self.assertNotIn("Saved example", message)
+        self.assertEqual(before, brief)
+        brief["process_complete"] = True
+        self.assertIn("does not establish completion of the promised audit scope", publish._delivery_message(
+            brief, output="report.html", summary_path="summary.json"))
+
+    def test_message_preserves_full_scope_math_and_escapes_artifact_paths(self):
+        _, bundle = self.freeze(mode="full", targets=[])
+        snapshot, frozen = finalization.load_finalization(bundle)
+        brief = publish._delivery_brief(snapshot, frozen)
+        math = r"$a_{[n]} \leq \sum_{j=1}^{n} b_j$"
+        brief["title"] = "Paper [draft] *note* <tag> " + math
+        brief["scope"]["explanation"] = "Saved full scope: " + math + "."
+        report = r"C:\papers with spaces\report [v1](final)#1.html"
+        summary = r"C:\papers with spaces\frozen\summary.json"
+        message = publish._delivery_message(brief, output=report, summary_path=summary)
+        self.assertIn(r"Paper \[draft\] \*note\* \<tag\> " + math, message)
+        self.assertIn("Saved full scope: " + math + ".", message)
+        self.assertIn("C:/papers%20with%20spaces/report%20%5Bv1%5D%28final%29%231.html", message)
+        self.assertIn("C:/papers%20with%20spaces/frozen/summary.json", message)
+        self.assertNotIn("0 requested targets", message)
+        self.assertNotIn("database", message.lower())
+
+    def test_unknown_metadata_and_informational_notes_do_not_become_defects(self):
+        brief = {"title": "Legacy paper", "kind": "working", "scope": {}, "findings": {},
+                 "source_capture_notes": {"items": ["Capture information"], "total": None}}
+        message = publish._delivery_message(brief, output="report.html", summary_path="summary.json")
+        for expected in ("Saved scope is in the frozen summary", "See Findings in the report",
+                         "Source-capture notes are recorded"):
+            self.assertIn(expected, message)
+        self.assertNotIn("not recorded", message)
+        self.assertNotIn("0 severe", message)
+        self.assertNotIn("defect", message)
+        self.assertNotIn("failed", message)
+
+    def test_commit_failure_retains_old_receipt_without_delivery_success(self):
+        _, bundle = self.freeze()
+        output = self.root / "report.html"
+        receipt = output.with_name(output.name + ".receipt.json")
+        output.write_bytes(b"prior report")
+        receipt.write_bytes(b"prior receipt")
+        with mock.patch.object(publish, "render_payload", return_value=(b"new report", {})), \
+             mock.patch.object(publish, "_replace_file", side_effect=OSError("commit failed")):
+            with self.assertRaises(PublicationError) as caught:
+                publish.publish_frozen(bundle, output=output)
+        self.assertEqual(b"prior report", output.read_bytes())
+        self.assertEqual(b"prior receipt", receipt.read_bytes())
+        self.assertNotIn("delivery_message", json.dumps(caught.exception.to_json()))
 
     def test_summary_limitations_and_aggregate_review_are_not_hidden_by_selection(self):
         _, bundle = self.freeze()

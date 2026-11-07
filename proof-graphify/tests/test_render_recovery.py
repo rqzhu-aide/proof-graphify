@@ -23,6 +23,56 @@ import overview_staging
 import paper_records as records
 
 
+class DeliveryMessageTests(unittest.TestCase):
+    def test_escaped_currency_does_not_change_following_math(self):
+        prose = r'Cost \$5 with $x_{[n]} \leq 1$'
+        receipt = {'output': '/paper/overview.html', 'source_status': 'current',
+                   'delivery_brief': {'title': prose, 'scope': prose,
+                                      'source_comparison': {'status': 'incomplete'}}}
+        message = overview._delivery_message(receipt)
+        self.assertEqual(2, message.count(prose))
+
+    def test_saved_math_scope_links_and_material_limits_are_preserved_without_mutation(self):
+        math = r'$\frac{a+b}{1-\epsilon}$'
+        receipt = {'output': 'C:\\Paper files\\overview [one] (final).html',
+                   'database': 'C:\\Paper files\\authority.sqlite',
+                   'source_status': 'historical_changed', 'snapshot_id': 'old', 'current_snapshot': 'new',
+                   'math_diagnostics': [{'reason': 'display failure'}],
+                   'locator_diagnostics': [{'reason': 'locator mismatch'}],
+                   'delivery_brief': {'title': 'A [title] *with* ' + math,
+                       'scope': 'Only ' + math + '. ' + ('Long scope. ' * 100),
+                       'source_comparison': {'status': 'complete_with_limits',
+                           'summary': 'All 2 records reviewed; 1 have unresolved source questions.'},
+                       'limits': [{'text': 'Saved support limit.'}], 'pending': {'stale': [{'id': 'a'}]},
+                       'browser_review': 'not_performed'}}
+        before = deepcopy(receipt)
+        message = overview._delivery_message(receipt)
+        self.assertEqual(receipt, before)
+        self.assertEqual(message, overview._delivery_message(receipt))
+        self.assertIn(r'A \[title\] \*with\* ' + math, message)
+        self.assertIn(receipt['delivery_brief']['scope'], message)
+        for text in ('complete with limits', 'unresolved source questions', 'differs from', 'retained snapshot',
+                     'source/support limitations', 'unfinished source comparisons', 'math display limitations',
+                     'source locator limitations', 'Proof correctness was not assessed', 'At build time'):
+            self.assertIn(text, message)
+        self.assertIn('[Overview](<C:/Paper files/overview %5Bone%5D %28final%29.html>)', message)
+        self.assertIn('[Database](<C:/Paper files/authority.sqlite>)', message)
+
+    def test_unknown_comparison_counts_and_historical_source_states_are_honest(self):
+        for state, text in (('historical_unavailable', 'currently unavailable'),
+                            ('unregistered', 'not registered'), (None, 'freshness is not recorded')):
+            with self.subTest(state=state):
+                receipt = {'output': '/paper/overview.html', 'source_status': state,
+                           'delivery_brief': {'title': 'Paper', 'scope': 'Selected results.',
+                                              'counts': {'items': 1}, 'source_comparison': {'matched': 1}}}
+                message = overview._delivery_message(receipt)
+                self.assertIn('status not recorded', message)
+                self.assertIn(text, message)
+                self.assertNotIn('0', message)
+                self.assertNotIn('[Database]', message)
+                self.assertNotIn('browser interactions', message)
+
+
 @unittest.skipUnless(shutil.which("node"), "HTML rendering requires shared Node.js.")
 class RenderRecoveryTests(unittest.TestCase):
     def setUp(self):
@@ -62,6 +112,7 @@ class RenderRecoveryTests(unittest.TestCase):
         self.assertEqual(receipt["sha256"], hashlib.sha256(html).hexdigest())
         self.assertEqual(receipt["bytes"], len(html))
         self.assertEqual(receipt["graph_preservation"]["status"], "pass")
+        self.assertEqual(receipt['delivery_message'], overview._delivery_message(receipt))
 
     def common_database(self):
         db = self.base / "paper.sqlite"
@@ -88,6 +139,7 @@ class RenderRecoveryTests(unittest.TestCase):
             receipt = overview.render_file(self.seed, self.output)
         self.assert_published(receipt)
         self.assertIn("cleanup", " ".join(receipt["warnings"]))
+        self.assertNotIn('[Database]', receipt['delivery_message'])
 
     def test_delivery_brief_reuses_source_comparison_without_changing_prepared_data(self):
         canonical = records.normalize(overview.load_data(self.seed), self.base)
@@ -129,6 +181,11 @@ class RenderRecoveryTests(unittest.TestCase):
                 self.assertEqual(brief["source_comparison"]["status"], status)
                 self.assertEqual(brief["browser_review"], receipt["browser_review"])
                 self.assertEqual(brief["browser_review"], "not_performed")
+                message = receipt['delivery_message']
+                self.assertIn('Source comparison: ' + status.replace('_', ' ') + '.', message)
+                self.assertIn(brief['source_comparison']['summary'], message)
+                self.assertIn('Proof correctness was not assessed.', message)
+                self.assertIn('At build time, browser interactions had not been tested.', message)
                 parser = overview._ArtifactReader()
                 html = self.output.read_text(encoding="utf-8")
                 parser.feed(html)
@@ -167,10 +224,35 @@ class RenderRecoveryTests(unittest.TestCase):
                           side_effect=sqlite3.OperationalError("injected common build record failure")):
             receipt = database.render_database(db, self.output)
         self.assert_published(receipt)
+        self.assertIn(str(db.resolve()).replace('\\', '/'), receipt['delivery_message'])
+        self.assertNotIn('projection.db', receipt['delivery_message'])
         self.assertFalse(receipt["build_recorded"])
         self.assertIn("build record failure", receipt["build_record_error"])
         self.assertEqual(database.export_snapshot(db), before)
         self.assert_retry_recovers(db, before)
+
+    def test_common_stored_full_compact_and_cli_messages_use_authoritative_database(self):
+        db, _ = self.common_database()
+        receipt = database.render_database(db, self.output)
+        with closing(sqlite3.connect(db)) as connection:
+            saved = json.loads(connection.execute(
+                "SELECT value FROM metadata WHERE key LIKE 'overview_build:%'").fetchone()[0])
+        message = receipt['delivery_message']
+        self.assertEqual(saved['delivery_message'], message)
+        self.assertEqual(overview.compact_render_receipt(receipt)['delivery_message'], message)
+        self.assertEqual(overview.compact_render_receipt(receipt, full=True)['delivery_message'], message)
+        self.assertIn(str(db.resolve()).replace('\\', '/'), message)
+        self.assertNotIn('projection.db', message)
+        self.assertNotIn('overview-projection-', message)
+        run = subprocess.run([sys.executable, '-B', str(SKILL / 'scripts/paper_database.py'),
+                              'render', str(db), str(self.output)], capture_output=True, text=True, encoding='utf-8')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout)['delivery_message'], message)
+        file_run = subprocess.run([sys.executable, '-B', str(SKILL / 'scripts/proof_overview.py'),
+                                   'render', str(self.seed), str(self.output)],
+                                  capture_output=True, text=True, encoding='utf-8')
+        self.assertEqual(file_run.returncode, 0, file_run.stderr)
+        self.assertNotIn('[Database]', json.loads(file_run.stdout)['delivery_message'])
 
     def test_common_build_commit_failure_returns_publication_receipt(self):
         db, before = self.common_database()

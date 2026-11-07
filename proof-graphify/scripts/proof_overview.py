@@ -9,12 +9,14 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 from html.parser import HTMLParser
+from urllib.parse import quote
 
 import overview_staging
 from paper_records import RecordError
@@ -188,6 +190,71 @@ def render_dataset(data: dict, base_dir: Path, output_path: Path, protected_path
     return _render_validated_dataset(canonical, base_dir, output_path, protected_paths, started)
 
 
+def _delivery_text(value):
+    """Escape Markdown prose while leaving saved delimited mathematics intact."""
+    parts = re.split(r'(\\\$|(?<!\\)\$\$[\s\S]*?\$\$|(?<!\\)\$(?:\\.|[^$])+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])', str(value))
+    return ''.join(part if index % 2 else re.sub(r'([\\`*_{}\[\]<>()#!|])', r'\\\1', part)
+                   for index, part in enumerate(parts))
+
+
+def _delivery_message(receipt):
+    """Format only saved facts and paths from this successful publication."""
+    brief = receipt.get('delivery_brief') or {}
+
+    def link(label, path):
+        target = quote(str(path).replace('\\', '/'), safe='/: ')
+        return f'[{label}](<{target}>)'
+
+    overview = link('Overview', receipt['output'])
+    title = _delivery_text(brief.get('title') or 'Paper')
+    scope = brief.get('scope')
+    sentences = [f'{title}: selected argument overview.',
+                 'Saved scope: ' + _delivery_text(scope) if scope else 'Saved scope is not recorded.']
+    comparison = brief.get('source_comparison') or receipt.get('source_comparison') or {}
+    statuses = {'complete': 'complete', 'complete_with_limits': 'complete with limits',
+                'incomplete': 'incomplete'}
+    sentences.append('Source comparison: ' + statuses.get(comparison.get('status'), 'status not recorded') + '.')
+    if comparison.get('summary'):
+        sentences.append(_delivery_text(comparison['summary']))
+    freshness = {
+        'historical_changed': 'The captured source revision differs from the available source files.',
+        'historical_unavailable': 'Some captured source files are currently unavailable.',
+        'unregistered': 'Source files are not registered for freshness comparison.',
+    }
+    if receipt.get('source_status') in freshness:
+        sentences.append(freshness[receipt['source_status']])
+    elif receipt.get('source_status') != 'current':
+        sentences.append('Source freshness is not recorded.')
+    if receipt.get('snapshot_note'):
+        sentences.append(_delivery_text(receipt['snapshot_note']))
+    elif (receipt.get('current_snapshot') and receipt.get('snapshot_id')
+          and receipt['current_snapshot'] != receipt['snapshot_id']):
+        sentences.append('This overview represents a retained snapshot; the database has a different current snapshot.')
+    pending = brief.get('pending') or {}
+    notices = []
+    if brief.get('limits'):
+        notices.append('saved source/support limitations')
+    if pending.get('unreviewed') or pending.get('stale'):
+        notices.append('unfinished source comparisons')
+    if receipt.get('math_diagnostics'):
+        notices.append('math display limitations')
+    if receipt.get('locator_diagnostics'):
+        notices.append('source locator limitations')
+    if notices:
+        sentences.append('Details of ' + ', '.join(notices) + ' are in the ' + overview + '.')
+    # Cleanup and build-log failures are publication bookkeeping, reported in
+    # their existing receipt fields rather than the scientific delivery text.
+    if any(not warning.startswith('The overview was published, but') for warning in receipt.get('warnings', [])):
+        sentences.append('Additional source or display notes are in the ' + overview + '.')
+    sentences.append('Proof correctness was not assessed.')
+    if (brief.get('browser_review') or receipt.get('browser_review')) == 'not_performed':
+        sentences.append('At build time, browser interactions had not been tested.')
+    links = [overview]
+    if receipt.get('database'):
+        links.append(link('Database', receipt['database']))
+    return ' '.join(sentences) + '\n\n' + ' · '.join(links)
+
+
 def _render_validated_dataset(canonical, base_dir, output_path, protected_paths=(), started=None):
     """Render input validated by the file or database entry point, without edits."""
     from paper_records import _prepare_records_validated, source_status
@@ -238,7 +305,7 @@ def _render_validated_dataset(canonical, base_dir, output_path, protected_paths=
     delivery_brief = dict(prepared['delivery_brief'],
                           source_comparison=prepared['build_context']['source_comparison'],
                           browser_review=browser_review)
-    return {"output": str(output_path), "items": len(canonical["items"]), "uses": len(canonical["uses"]),
+    receipt = {"output": str(output_path), "items": len(canonical["items"]), "uses": len(canonical["uses"]),
             "bytes": len(html), "seconds": round(time.perf_counter() - started, 3),
             "sha256": hashlib.sha256(html).hexdigest(), "warnings": prepared["warnings"] + cleanup_warnings,
             "math_diagnostics": prepared.get("math_diagnostics", []),
@@ -248,6 +315,8 @@ def _render_validated_dataset(canonical, base_dir, output_path, protected_paths=
             'graph_cycles': prepared['graph_cycles'],
             'delivery_brief': delivery_brief,
             'browser_review': browser_review, 'visual_review': 'not_performed'}
+    receipt['delivery_message'] = _delivery_message(receipt)
+    return receipt
 
 
 def render_file(input_path: Path, output_path: Path) -> dict:

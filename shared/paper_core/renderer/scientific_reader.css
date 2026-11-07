@@ -343,6 +343,9 @@ body[data-reader-layout] .diagram-container svg.proof-svg .proof-grid-fill{displ
 svg .proof-edge-badge[data-proof-emphasized]{opacity:1}
 .proof-build-disclosure{margin:10px 0;color:var(--text-muted)}
 .proof-build-disclosure>summary{cursor:pointer;font-size:12px}
+.proof-audit .proof-findings-disclosure>summary{display:list-item;list-style-position:inside;width:fit-content;max-width:100%;box-sizing:border-box;min-height:44px;padding:10px 14px;border:1px solid var(--accent);border-radius:6px;background:var(--panel);color:var(--text);font-size:14px;font-weight:650}
+.proof-audit .proof-findings-disclosure>summary:hover{background:color-mix(in srgb,var(--accent) 8%,var(--panel))}
+.proof-audit .proof-findings-disclosure[open]>summary{margin-bottom:12px}
 body[data-reader-layout="index"] .diagram-container,body[data-reader-layout="index"] .reader-rail,body[data-reader-layout="index"] .diagram-nav,body[data-reader-layout="index"] .proof-view-controls,body[data-reader-layout="index"] #btn-export{display:none!important}
 @media screen{html:is([data-present="true"],[data-embed="true"]) body[data-reader-layout] :is(.proof-reader-before,.reader-rail,#proof-selection-host,.proof-reader-after){display:none!important}}
 @media(min-width:720px) and (max-width:1279px){.proof-results-list{grid-template-columns:repeat(2,minmax(0,1fr))}}

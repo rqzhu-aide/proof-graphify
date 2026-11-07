@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote
 
 from . import CORE_VERSION
 from .canonical import compact_json, sha256_bytes
@@ -1391,6 +1393,98 @@ def _delivery_brief(snapshot, frozen, *, source_capture_notes=None):
                         if "current_by_review_status" in summary.get("findings", {}) else {})}}
 
 
+def _delivery_message(brief, *, output, summary_path):
+    """Format only frozen facts and this publication's known artifact paths."""
+    def text(value):
+        # Escape prose while retaining saved TeX, including its brackets and backslashes.
+        parts = re.split(r"(\\\$|(?<!\\)\$\$[\s\S]*?\$\$|(?<!\\)\$(?:\\.|[^$])+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])", str(value))
+        return "".join(part if i % 2 else re.sub(r"([\\`*_{}\[\]<>!#|])", r"\\\1", part)
+                       for i, part in enumerate(parts))
+
+    def link(label, path):
+        return f"[{text(label)}](<{quote(str(path).replace(chr(92), '/'), safe='/:')}>)"
+
+    def present(selection):
+        selection = selection or {}
+        total = selection.get("total")
+        return (isinstance(total, int) and total > 0) or bool(selection.get("items"))
+
+    title = text(brief.get("title") or "Proof Check")
+    kind = brief.get("kind")
+    report_kind = kind if kind in ("working", "release") else "saved"
+    scope = brief.get("scope") or {}
+    mode = scope.get("mode")
+    scope_text = "Scope: " + text(mode) if mode else "Saved scope is in the frozen summary"
+    if mode == "full" and scope.get("explanation"):
+        scope_text += ". " + text(scope["explanation"])
+    elif mode and mode != "full":
+        total = (scope.get("requested") or {}).get("total")
+        scope_text += (f" ({total} requested targets; full saved scope in the frozen summary)"
+                       if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else
+                       " (full saved scope in the frozen summary)")
+    paragraphs = [f"{title}: {report_kind} audit report. {scope_text.rstrip('.')}."]
+
+    complete = brief.get("process_complete")
+    completion = ("Examination complete." if complete is True else
+                  "Examination remains incomplete." if complete is False else "")
+    if kind == "working" and complete is True:
+        completion += " This working report does not establish completion of the promised audit scope."
+    elif complete is True:
+        completion += " Examination completion does not establish that every statement is supported."
+    display = brief.get("review_display") or {}
+    assessment_text = display.get("explanation") or display.get("status")
+    if assessment_text:
+        completion += " Current assessment: " + text(assessment_text).rstrip(".") + "."
+    statuses = ("severe", "moderate", "minor", "unresolved", "unrated")
+    findings = brief.get("findings") or {}
+    counts = findings.get("current_by_review_status")
+    if isinstance(counts, dict) and all(isinstance(counts.get(s), int) and
+            not isinstance(counts[s], bool) and counts[s] >= 0 for s in statuses):
+        completion += " Current findings: " + ", ".join(f"{counts[s]} {s}" for s in statuses) + "."
+    else:
+        completion += " See Findings in the report."
+    paragraphs.append(completion.strip())
+
+    notices = []
+    settled = brief.get("representation_settled")
+    if settled is False:
+        notices.append("Representation remains unsettled")
+    review = brief.get("independent_review")
+    if isinstance(review, dict):
+        explanation = review.get("explanation")
+        if explanation:
+            notices.append(text(explanation).rstrip("."))
+        elif review.get("state"):
+            notices.append("Independent review: " + text(review["state"].replace("_", " ")))
+        if review.get("qualification_limitations"):
+            notices.append("Independent-review qualifications limit the review basis")
+    if present(scope.get("exclusions")):
+        notices.append("Audit exclusions apply")
+    overview = brief.get("overview_scope") or {}
+    if overview.get("text") or present(overview.get("exclusions")):
+        notices.append("Prior overview scope remains separate from audit exclusions")
+    support = brief.get("statement_support")
+    if support is not None and present(support.get("unresolved")):
+        notices.append("Statement support remains unresolved or conditional")
+    for key, notice in (
+            ("unresolved_external_sources", "External-result support remains unresolved"),
+            ("source_limits", "Source limitations are recorded"),
+            ("source_capture_notes", "Source-capture notes are recorded"),
+            ("limitations", "Assessment limitations apply"),
+            ("projection_limitations", "Representation limitations are recorded"),
+            ("finalization_blockers", "Finalization work remains")):
+        if present(brief.get(key)):
+            notices.append(notice)
+    if present(findings.get("unknown")):
+        notices.append("Some saved findings have no current review status")
+    if findings.get("historical_count"):
+        notices.append("Historical findings are separate from current counts")
+    if notices:
+        paragraphs.append("; ".join(notices) + ". Details and qualifications are in the frozen summary.")
+    paragraphs.append(link("Report", output) + " · " + link("Frozen summary", summary_path))
+    return "\n\n".join(paragraphs)
+
+
 def publish_frozen(bundle, *, output, receipt_output=None) -> dict:
     """Build a frozen bundle without reading or writing the live scientific store."""
     from .finalization import (EXPORT_NAME, RECEIPT_NAME, SNAPSHOT_NAME, SUMMARY_NAME,
@@ -1431,6 +1525,8 @@ def publish_frozen(bundle, *, output, receipt_output=None) -> dict:
                        "math_diagnostic_summary": payload["display"]["math_diagnostic_summary"],
                        "delivery_brief": _delivery_brief(snapshot, frozen,
                            source_capture_notes=payload["display"]["source_capture_notes"])}
+            receipt["delivery_message"] = _delivery_message(receipt["delivery_brief"], output=output,
+                                                           summary_path=directory / SUMMARY_NAME)
             staged_html = workdir / "staged.html"
             staged_html.write_bytes(html_bytes)
             fd, name = tempfile.mkstemp(dir=receipt_path.parent, prefix=".paper-build-", suffix=".json")
